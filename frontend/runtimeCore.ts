@@ -700,7 +700,7 @@ function smtpConfig() {
   const host = process.env.FLOWBOARD_SMTP_HOST ?? 'smtp.qq.com'
   const port = Number(process.env.FLOWBOARD_SMTP_PORT ?? '465')
   const secure = /^(1|true|yes|on)$/i.test(process.env.FLOWBOARD_SMTP_SECURE ?? '') || port === 465
-  const user = process.env.FLOWBOARD_SMTP_USER?.trim()
+  const user = process.env.FLOWBOARD_SMTP_USER?.trim() || DEFAULT_ADMIN_EMAIL
   const password = process.env.FLOWBOARD_SMTP_PASS
   const from = process.env.FLOWBOARD_SMTP_FROM?.trim() || user
   if (!user || !password || !from) throw new Error('SMTP is not configured')
@@ -1155,7 +1155,7 @@ async function handleProjects(req: IncomingMessage, res: ServerResponse, paths: 
       try {
         const project = JSON.parse(await fsp.readFile(path.join(paths.dataDirectory, file), 'utf8')) as StoredDocument
         // 排除回收站中的文档
-        if (!canManageProject(user, project) || project.deletedAt) return null
+        if (project.ownerId !== user.id || project.deletedAt) return null
         return projectSummary(project, 'owner')
       } catch { return null }
     }))
@@ -1172,7 +1172,7 @@ async function handleProjects(req: IncomingMessage, res: ServerResponse, paths: 
     const projects = await Promise.all(files.map(async file => {
       try {
         const project = JSON.parse(await fsp.readFile(path.join(paths.dataDirectory, file), 'utf8')) as StoredDocument
-        if (!canManageProject(user, project) || !project.deletedAt) return null
+        if (project.ownerId !== user.id || !project.deletedAt) return null
         return { ...projectSummary(project, 'owner'), deletedAt: project.deletedAt }
       } catch { return null }
     }))
@@ -1615,7 +1615,7 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
   const users = await loadUsers(paths)
   const admin = users.find(item => item.id === user.id && item.isAdmin === true)
   if (!admin) {
-    sendError(res, 403, '需要管理员权限（命令行执行: FlowBoard.exe admin set-admin <email>）')
+    sendError(res, 403, '需要管理员权限')
     return true
   }
 
@@ -1723,6 +1723,51 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
     return true
   }
 
+  // GET /api/admin/docs/:docId/groups —— 列出某画布中的全部分组
+  const groupListMatch = pathname.match(/^\/api\/admin\/docs\/([a-zA-Z0-9_-]+)\/groups$/)
+  if (req.method === 'GET' && groupListMatch) {
+    const source = await readProject(paths, groupListMatch[1]!)
+    if (!source) { sendError(res, 404, '文档不存在'); return true }
+    const canvas = canvasGraph(source)
+    const groups = canvas.groups ?? {}
+    const result = Object.entries(groups).map(([id, group]) => {
+      const graph = collectGroupGraph(canvas, id)
+      return {
+        id,
+        name: String(group.name ?? '未命名分组'),
+        parentId: typeof group.parentId === 'string' ? group.parentId : undefined,
+        shapeCount: graph?.shapeIds.length ?? 0,
+        groupCount: graph?.groupIds.length ?? 1,
+      }
+    })
+    sendJson(res, 200, result)
+    return true
+  }
+
+  // POST /api/admin/copy-group —— 把他人画布的指定分组复制到管理员自己的指定画布
+  if (req.method === 'POST' && pathname === '/api/admin/copy-group') {
+    const body = await readBody(req)
+    const sourceDocId = typeof body.sourceDocId === 'string' ? body.sourceDocId : ''
+    const targetDocId = typeof body.targetDocId === 'string' ? body.targetDocId : ''
+    const groupId = typeof body.groupId === 'string' ? body.groupId : ''
+    if (!validProjectId(sourceDocId) || !validProjectId(targetDocId) || !validProjectId(groupId)) {
+      sendError(res, 400, 'sourceDocId、targetDocId、groupId 均为必填项')
+      return true
+    }
+    const [source, target] = await Promise.all([readProject(paths, sourceDocId), readProject(paths, targetDocId)])
+    if (!source || !target) { sendError(res, 404, '源文档或目标文档不存在'); return true }
+    if (target.ownerId !== user.id) {
+      sendError(res, 403, '目标画布必须属于当前管理员账号')
+      return true
+    }
+    const targetCanvas = canvasGraph(target)
+    const copied = cloneGroupIntoCanvas(canvasGraph(source), targetCanvas, groupId)
+    if (!copied) { sendError(res, 404, '源分组不存在'); return true }
+    await writeJson(projectPath(paths, target.id), { ...target, canvas: targetCanvas, updatedAt: Date.now() } satisfies StoredDocument)
+    sendJson(res, 201, { ok: true, ...copied, targetDocId: target.id })
+    return true
+  }
+
   // POST /api/admin/copy-doc/:docId —— 复制他人画册到自己的画册
   const copyMatch = pathname.match(/^\/api\/admin\/copy-doc\/([a-zA-Z0-9_-]+)$/)
   if (req.method === 'POST' && copyMatch) {
@@ -1811,35 +1856,39 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
 
 async function handleSettings(req: IncomingMessage, res: ServerResponse, paths: RuntimePaths, pathname: string): Promise<boolean> {
   if (pathname !== '/api/settings' && pathname !== '/api/settings/smtp-test') return false
-  // 设置接口需要登录（任意已登录用户可管理本机部署的 SMTP）
+  // SMTP 是服务器级配置，仅管理员可修改或测试。
   const user = await requireUser(req, res, paths)
   if (!user) return true
+  if (user.id === 'guest' || user.isAdmin !== true) {
+    sendError(res, 403, '仅管理员可管理服务器 SMTP 配置')
+    return true
+  }
 
   if (pathname === '/api/settings' && req.method === 'GET') {
-    const configured = !!(process.env.FLOWBOARD_SMTP_USER && process.env.FLOWBOARD_SMTP_PASS)
+    const configured = !!process.env.FLOWBOARD_SMTP_PASS
     sendJson(res, 200, {
       emailMode: process.env.FLOWBOARD_EMAIL_MODE ?? 'smtp',
       smtp: {
         configured,
-        host: process.env.FLOWBOARD_SMTP_HOST ?? '',
+        host: process.env.FLOWBOARD_SMTP_HOST ?? 'smtp.qq.com',
         port: Number(process.env.FLOWBOARD_SMTP_PORT ?? '465'),
-        secure: /^(1|true|yes|on)$/i.test(process.env.FLOWBOARD_SMTP_SECURE ?? ''),
-        user: process.env.FLOWBOARD_SMTP_USER ?? '',
-        from: process.env.FLOWBOARD_SMTP_FROM ?? '',
+        secure: /^(1|true|yes|on)$/i.test(process.env.FLOWBOARD_SMTP_SECURE ?? 'true'),
+        user: process.env.FLOWBOARD_SMTP_USER ?? DEFAULT_ADMIN_EMAIL,
+        from: process.env.FLOWBOARD_SMTP_FROM ?? DEFAULT_ADMIN_EMAIL,
         // 不回传密码明文，仅标记是否已设置
         hasPassword: !!process.env.FLOWBOARD_SMTP_PASS,
       },
-      envFile: path.join(paths.authDirectory, '..', 'flowboard.env.cmd'),
+      envFile: path.join(paths.authDirectory, '..', process.platform === 'win32' ? 'flowboard.env.cmd' : 'flowboard.env'),
     })
     return true
   }
 
   if (pathname === '/api/settings' && req.method === 'POST') {
     const body = await readBody(req)
-    const host = typeof body.host === 'string' ? body.host.trim() : ''
+    const host = typeof body.host === 'string' && body.host.trim() ? body.host.trim() : 'smtp.qq.com'
     const port = Number(body.port ?? 465)
     const secure = body.secure !== false
-    const userValue = typeof body.user === 'string' ? body.user.trim() : ''
+    const userValue = typeof body.user === 'string' && body.user.trim() ? body.user.trim() : DEFAULT_ADMIN_EMAIL
     const from = typeof body.from === 'string' && body.from.trim() ? body.from.trim() : userValue
     // 密码可选：留空表示保持现有密码
     const password = typeof body.password === 'string' ? body.password.trim() : ''
@@ -1864,20 +1913,25 @@ async function handleSettings(req: IncomingMessage, res: ServerResponse, paths: 
     process.env.FLOWBOARD_SMTP_FROM = from
     if (password) process.env.FLOWBOARD_SMTP_PASS = password
 
-    // 持久化到 exe 同目录 flowboard.env.cmd（与 server.ts 启动时读取逻辑一致）
+    // 持久化到运行目录：Windows 写 .cmd，Linux 写可被 start-server.sh source 的 flowboard.env。
     try {
-      const envFile = path.join(paths.authDirectory, '..', 'flowboard.env.cmd')
-      const lines = [
-        '@echo off',
-        `set "FLOWBOARD_SMTP_HOST=${host}"`,
-        `set "FLOWBOARD_SMTP_PORT=${port}"`,
-        `set "FLOWBOARD_SMTP_SECURE=${secure ? 'true' : 'false'}"`,
-        `set "FLOWBOARD_SMTP_USER=${userValue}"`,
-        // 密码只写回文件（如果本次提供了新密码），否则保留文件里已有的
-        password ? `set "FLOWBOARD_SMTP_PASS=${password}"` : (process.env.FLOWBOARD_SMTP_PASS ? `set "FLOWBOARD_SMTP_PASS=${process.env.FLOWBOARD_SMTP_PASS}"` : ''),
-        `set "FLOWBOARD_SMTP_FROM=${from}"`,
-      ].filter(Boolean).join('\r\n')
-      await fsp.writeFile(envFile, lines + '\r\n', 'utf8')
+      const envFile = path.join(paths.authDirectory, '..', process.platform === 'win32' ? 'flowboard.env.cmd' : 'flowboard.env')
+      const values: Array<[string, string | undefined]> = [
+        ['FLOWBOARD_SMTP_HOST', host],
+        ['FLOWBOARD_SMTP_PORT', String(port)],
+        ['FLOWBOARD_SMTP_SECURE', secure ? 'true' : 'false'],
+        ['FLOWBOARD_SMTP_USER', userValue],
+        ['FLOWBOARD_SMTP_PASS', password || process.env.FLOWBOARD_SMTP_PASS],
+        ['FLOWBOARD_SMTP_FROM', from],
+      ]
+      let text: string
+      if (process.platform === 'win32') {
+        text = ['@echo off', ...values.filter(([, value]) => Boolean(value)).map(([key, value]) => `set "${key}=${value}"`)].join('\r\n') + '\r\n'
+      } else {
+        const quote = (value: string) => `'${value.replace(/'/g, `'"'"'`)}'`
+        text = values.filter(([, value]) => Boolean(value)).map(([key, value]) => `${key}=${quote(String(value))}`).join('\n') + '\n'
+      }
+      await fsp.writeFile(envFile, text, { encoding: 'utf8', mode: 0o600 })
     } catch (error) {
       sendError(res, 500, `SMTP 配置已生效但写入文件失败: ${error instanceof Error ? error.message : String(error)}`)
       return true
