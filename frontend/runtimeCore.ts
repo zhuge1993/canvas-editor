@@ -212,6 +212,10 @@ const ASSET_MIME: Record<string, string> = {
 const MAX_ASSET_BYTES = 8 * 1024 * 1024
 const MAX_ASSET_REQUEST_BYTES = Math.ceil(MAX_ASSET_BYTES * 4 / 3) + 64 * 1024
 const MAX_LOG_REQUEST_BYTES = 128 * 1024
+const MAX_ASSET_STORAGE_MB = Math.max(64, Math.min(4096, Number(process.env.FLOWBOARD_MAX_ASSET_STORAGE_MB ?? '512') || 512))
+const MAX_ASSET_STORAGE_BYTES = MAX_ASSET_STORAGE_MB * 1024 * 1024
+const assetStorageUsageCache = new Map<string, number>()
+const assetStorageMutationTails = new Map<string, Promise<void>>()
 const MAX_WEB_BACKUP_ASSET_BYTES = 48 * 1024 * 1024
 const MAX_RESTORE_ARCHIVE_BYTES = 64 * 1024 * 1024
 const MAX_RESTORE_JSON_BYTES = 96 * 1024 * 1024
@@ -225,20 +229,60 @@ function decodeImageDataUrl(dataUrl: string): { buffer: Buffer; extension: strin
   return buffer.length > 0 ? { buffer, extension } : null
 }
 
-/** 内容寻址写入：返回可直接引用的 URL，同内容自动去重 */
+async function withAssetStorageMutation<T>(directory: string, operation: () => Promise<T>): Promise<T> {
+  const previous = assetStorageMutationTails.get(directory) ?? Promise.resolve()
+  let release!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve })
+  const tail = previous.catch(() => undefined).then(() => gate)
+  assetStorageMutationTails.set(directory, tail)
+  await previous.catch(() => undefined)
+  try {
+    return await operation()
+  } finally {
+    release()
+    void tail.finally(() => {
+      if (assetStorageMutationTails.get(directory) === tail) assetStorageMutationTails.delete(directory)
+    })
+  }
+}
+
+async function assetStorageUsage(directory: string): Promise<number> {
+  const cached = assetStorageUsageCache.get(directory)
+  if (cached !== undefined) return cached
+  let total = 0
+  for (const name of await fsp.readdir(directory).catch(() => [] as string[])) {
+    if (!ASSET_FILE_PATTERN.test(name)) continue
+    try { total += (await fsp.stat(path.join(directory, name))).size } catch { /* file vanished */ }
+  }
+  assetStorageUsageCache.set(directory, total)
+  return total
+}
+
+/** 内容寻址写入：返回可直接引用的 URL，同内容自动去重，并限制资源库总容量。 */
 async function storeAssetBuffer(paths: RuntimePaths, buffer: Buffer, extension: string): Promise<{ url: string; deduped: boolean }> {
   const hash = createHash('sha256').update(buffer).digest('hex').slice(0, 40)
   const name = `${hash}.${extension}`
   const directory = assetsDirectory(paths)
   await fsp.mkdir(directory, { recursive: true })
   const file = path.join(directory, name)
-  try {
-    await fsp.access(file)
-    return { url: `/api/assets/${name}`, deduped: true }
-  } catch {
-    await fsp.writeFile(file, buffer)
-    return { url: `/api/assets/${name}`, deduped: false }
-  }
+
+  return withAssetStorageMutation(directory, async () => {
+    try {
+      await fsp.access(file)
+      return { url: `/api/assets/${name}`, deduped: true }
+    } catch {
+      const used = await assetStorageUsage(directory)
+      if (used + buffer.length > MAX_ASSET_STORAGE_BYTES) {
+        throw new RequestBodyError(
+          `图片资源库已达到容量上限（${MAX_ASSET_STORAGE_MB} MiB），请管理员清理孤儿图片或调整 FLOWBOARD_MAX_ASSET_STORAGE_MB`,
+          507,
+        )
+      }
+      await writeBufferAtomic(file, buffer)
+      assetStorageUsageCache.set(directory, used + buffer.length)
+      return { url: `/api/assets/${name}`, deduped: false }
+    }
+  })
 }
 
 async function readJson<T>(file: string, fallback: T): Promise<T> {
@@ -2730,5 +2774,6 @@ export async function collectOrphanAssets(paths: RuntimePaths): Promise<AssetGcR
       result.bytesFreed += stat.size
     } catch { /* 跳过 */ }
   }
+  assetStorageUsageCache.delete(directory)
   return result
 }
