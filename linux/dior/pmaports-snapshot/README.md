@@ -1,11 +1,18 @@
 # dior pmaports snapshot
 
-This directory is pinned as a **hardware/kernel provenance snapshot** for Xiaomi Redmi Note 4G (`xiaomi-dior`).
+This directory pins hardware/kernel provenance for Xiaomi Redmi Note 4G (`xiaomi-dior`).
 
-It is **not currently a standalone buildable pmaports tree**.
+The original `linux-xiaomi-dior/APKBUILD` references six patch files. They are intentionally verified by the original APKBUILD SHA-512 values before this snapshot may be used as a fallback.
 
-The pinned `linux-xiaomi-dior/APKBUILD` references these six patch files, which are not present in this snapshot yet:
+## Verify
 
+```sh
+sh linux/dior/pmaports-snapshot/check-snapshot.sh
+```
+
+The verifier checks:
+
+- `config-xiaomi-dior.armv7`
 - `gcc10-extern_YYLOC_global_declaration.patch`
 - `linux3.4-vfs-Fix-proc-tid-fdinfo-fd-file-handling.patch`
 - `kernel-use-the-gnu89-standard-explicitly.patch`
@@ -13,14 +20,34 @@ The pinned `linux-xiaomi-dior/APKBUILD` references these six patch files, which 
 - `0001-fix-refresh-rate.patch`
 - `0001-framebuffer-fixes.patch`
 
-Do not claim that this directory alone can build a bootable image until all referenced sources are present and their hashes match the APKBUILD.
+No file is trusted only because its filename matches.
 
-The production image path in this repository uses `linux/dior/build-image.sh`, which injects FlowBoard into a pmbootstrap/pmaports checkout that already contains a complete `xiaomi-dior` device/kernel package. The script validates the device package before starting the expensive build.
+## Hydrate missing historical patches
 
-The old device definition confirms the important hardware facts used by the build:
+On a networked Linux build host:
+
+```sh
+sh linux/dior/pmaports-snapshot/hydrate-snapshot.sh
+```
+
+The downloader uses fixed postmarketOS historical/raw sources and a 2025 pmaports mirror, then immediately runs the strict SHA-512 verifier. A wrong or changed mirror file fails the build.
+
+`linux/dior/build-image.sh` automatically runs hydration when the active pmbootstrap pmaports no longer contains the dior device/kernel aport. Set:
+
+```sh
+HYDRATE_SNAPSHOT=0 ./linux/dior/build-image.sh
+```
+
+to forbid network hydration and require the snapshot to already be complete.
+
+## Hardware provenance
+
+The pinned device definition records:
 
 - codename: `xiaomi-dior`
 - architecture: `armv7`
 - flash method: fastboot
 - downstream kernel: Linux 3.4 / MSM8226 family
-- boot image: qcdt Android boot image
+- qcdt Android boot image layout
+
+This is why the project uses a modern postmarketOS/Alpine userspace on top of a device-specific downstream boot/kernel instead of pretending the phone can boot an arbitrary current Debian kernel.
