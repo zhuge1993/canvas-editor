@@ -292,7 +292,7 @@ export default function EditorPage() {
       }
       void (async () => {
         const { prepareImageSrc } = await import('@/utils/image')
-        const prepared = await prepareImageSrc(imageFile)
+        const prepared = await prepareImageSrc(imageFile, undefined, shareToken)
         const shape = createShape('image', world.x - prepared.width / 2, world.y - prepared.height / 2, prepared.width, prepared.height) as ImageShape
         shape.src = prepared.src
         shape.aspectRatio = prepared.width / Math.max(1, prepared.height)
@@ -429,7 +429,7 @@ export default function EditorPage() {
         {!readOnly && <LeftToolbar />}
         <div ref={viewportRef} className="relative flex-1 overflow-hidden" onDrop={handleDrop} onDragOver={(event) => event.preventDefault()}>
           <CanvasErrorBoundary>
-            <CanvasEngine readOnly={readOnly} />
+            <CanvasEngine readOnly={readOnly} assetShareToken={shareToken} />
           </CanvasErrorBoundary>
           <div className="canvas-scrollbar-shell pointer-events-auto absolute bottom-1 left-2 right-4 h-4 px-1">
             <input aria-label="画布水平滚动" type="range" min="0" max={horizontalScrollMax} step="any" value={scrollX} disabled={horizontalScrollMax <= 0} onChange={(event) => setHorizontalScroll(event.currentTarget.value)} className="canvas-scrollbar h-full w-full" />

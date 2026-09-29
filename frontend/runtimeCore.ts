@@ -1353,8 +1353,25 @@ async function handleShare(req: IncomingMessage, res: ServerResponse, paths: Run
 // 安全性由内容 hash（40 位十六进制，不可枚举）保证，与 Figma 的能力 URL 同思路。
 async function handleAssets(req: IncomingMessage, res: ServerResponse, paths: RuntimePaths, pathname: string): Promise<boolean> {
   if (pathname === '/api/assets' && req.method === 'POST') {
-    const user = await requireUser(req, res, paths)
-    if (!user) return true
+    // 正常登录用户可上传；匿名用户仅在持有有效的 edit 分享 token 时可上传。
+    // edit token 本身已经允许修改对应项目，因此授予图片资源写入不会扩大其项目权限，
+    // 同时避免完全匿名上传把低容量 eMMC 打满。
+    const user = await currentUser(req, paths)
+    if (!user) {
+      const shareTokenHeader = req.headers['x-flowboard-share-token']
+      const shareToken = Array.isArray(shareTokenHeader) ? shareTokenHeader[0] : shareTokenHeader
+      const now = Date.now()
+      const share = typeof shareToken === 'string' && shareToken
+        ? (await loadShares(paths)).find(item =>
+            item.token === shareToken
+            && item.permission === 'edit'
+            && (item.expiresAt === undefined || item.expiresAt > now))
+        : undefined
+      if (!share) {
+        sendError(res, 401, '登录或有效的可编辑分享链接才能上传图片')
+        return true
+      }
+    }
     const body = await readBody(req, MAX_ASSET_REQUEST_BYTES)
     const dataUrl = typeof body.dataUrl === 'string' ? body.dataUrl : ''
     const decoded = decodeImageDataUrl(dataUrl)
