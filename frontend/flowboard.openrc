@@ -15,7 +15,8 @@ depend() {
 }
 
 start_pre() {
-  checkpath --directory --owner flowboard:flowboard --mode 0750 /opt/flowboard
+  # Program directory stays root-owned; only runtime data directories are writable by the service user.
+  checkpath --directory --owner root:flowboard --mode 0750 /opt/flowboard
   checkpath --directory --owner flowboard:flowboard --mode 0750 /opt/flowboard/project-data
   checkpath --directory --owner flowboard:flowboard --mode 0750 /opt/flowboard/auth-data
   checkpath --directory --owner flowboard:flowboard --mode 0750 /opt/flowboard/logs
