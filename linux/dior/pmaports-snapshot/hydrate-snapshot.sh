@@ -47,20 +47,30 @@ download() {
 	fetch "$url" "$target"
 }
 
-# Generic downstream-kernel compatibility patches. SourceForge entries are a
-# 2025 pmaports mirror; GitLab URLs are pinned/shared postmarketOS history.
-download "gcc10-extern_YYLOC_global_declaration.patch" 	"https://sourceforge.net/projects/cactusrom/files/SourceFS/mnt/pmbootstrap/git/pmaports/device/testing/linux-samsung-treltexx/gcc10-extern_YYLOC_global_declaration.patch/download"
+# All six sources are pinned to one immutable historical pmaports commit.
+# Their file bytes were independently checked against the SHA-512 values in
+# linux-xiaomi-dior/APKBUILD. check-snapshot.sh verifies them again after download,
+# so a mirror error or unexpected content change always stops the image build.
+MIRROR_COMMIT="7aaf86b4b194987aeedbad7e29f3de53c8c28ebd"
+MIRROR_BASE="https://raw.githubusercontent.com/sm7150-mainline/pmaports/$MIRROR_COMMIT"
 
-download "linux3.4-vfs-Fix-proc-tid-fdinfo-fd-file-handling.patch" 	"https://gitlab.com/postmarketOS/pmaports/-/raw/ci-tests/device/.shared-patches/linux/linux3.4-vfs-Fix-proc-tid-fdinfo-fd-file-handling.patch"
+download "gcc10-extern_YYLOC_global_declaration.patch" \
+	"$MIRROR_BASE/device/.shared-patches/linux/gcc10-extern_YYLOC_global_declaration.patch"
 
-download "kernel-use-the-gnu89-standard-explicitly.patch" 	"https://sourceforge.net/projects/cactusrom/files/SourceFS/mnt/pmbootstrap/git/pmaports/device/testing/linux-samsung-treltexx/kernel-use-the-gnu89-standard-explicitly.patch/download"
+download "linux3.4-vfs-Fix-proc-tid-fdinfo-fd-file-handling.patch" \
+	"$MIRROR_BASE/device/.shared-patches/linux/linux3.4-vfs-Fix-proc-tid-fdinfo-fd-file-handling.patch"
 
-download "linux3.4-ARM-8933-1-replace-Sun-Solaris-style-flag-on-section.patch" 	"https://gitlab.com/postmarketOS/pmaports/-/raw/aa289aa350071e6afc54f6b6704ba28971b50466/device/.shared-patches/linux/linux3.4-ARM-8933-1-replace-Sun-Solaris-style-flag-on-section.patch"
+download "kernel-use-the-gnu89-standard-explicitly.patch" \
+	"$MIRROR_BASE/device/.shared-patches/linux/kernel-use-the-gnu89-standard-explicitly.patch"
 
-# Dior-specific display fixes from the 2025 pmaports mirror.
-download "0001-fix-refresh-rate.patch" 	"https://sourceforge.net/projects/cactusrom/files/SourceFS/mnt/pmbootstrap/git/pmaports/device/testing/linux-xiaomi-dior/0001-fix-refresh-rate.patch/download"
+download "linux3.4-ARM-8933-1-replace-Sun-Solaris-style-flag-on-section.patch" \
+	"$MIRROR_BASE/device/.shared-patches/linux/linux3.4-ARM-8933-1-replace-Sun-Solaris-style-flag-on-section.patch"
 
-download "0001-framebuffer-fixes.patch" 	"https://sourceforge.net/projects/cactusrom/files/SourceFS/mnt/pmbootstrap/git/pmaports/device/testing/linux-xiaomi-dior/0001-framebuffer-fixes.patch/download"
+download "0001-fix-refresh-rate.patch" \
+	"$MIRROR_BASE/device/testing/linux-xiaomi-dior/0001-fix-refresh-rate.patch"
+
+download "0001-framebuffer-fixes.patch" \
+	"$MIRROR_BASE/device/testing/linux-xiaomi-dior/0001-framebuffer-fixes.patch"
 
 echo
 echo "下载完成，执行锁定 APKBUILD SHA-512 校验..."
