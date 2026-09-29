@@ -6,7 +6,8 @@ pkgrel=0
 pkgdesc="FlowBoard always-on drawing server"
 url="https://github.com/zhuge1993/canvas-editor"
 arch="noarch"
-# Private deployment package for the repository owner; do not assert an OSS license that is not present.\nlicense="custom"
+# Private deployment package for the repository owner; do not assert an OSS license that is not present.
+license="custom"
 depends="nodejs ca-certificates"
 options="!check"
 install="$pkgname.pre-install $pkgname.post-install"
