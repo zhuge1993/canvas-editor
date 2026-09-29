@@ -480,7 +480,7 @@ function validateRestoredUsers(value: unknown): StoredUser[] {
     if (!isRecord(item)
       || typeof item.id !== 'string' || !validProjectId(item.id)
       || typeof item.email !== 'string' || !validEmail(item.email.toLowerCase())
-      || typeof item.passwordHash !== 'string' || !item.passwordHash
+      || typeof item.passwordHash !== 'string' || !parsePasswordDigest(item.passwordHash)
       || !isFiniteNumber(item.createdAt) || !isFiniteNumber(item.verifiedAt)
       || (item.lastLoginAt !== undefined && !isFiniteNumber(item.lastLoginAt))
       || (item.isAdmin !== undefined && typeof item.isAdmin !== 'boolean')) {
@@ -536,7 +536,8 @@ function validateRestoredShares(value: unknown): StoredShare[] {
       || (item.permission !== 'view' && item.permission !== 'edit')
       || !isFiniteNumber(item.createdAt) || !isFiniteNumber(item.updatedAt)
       || (item.expiresAt !== undefined && !isFiniteNumber(item.expiresAt))
-      || (item.passwordHash !== undefined && typeof item.passwordHash !== 'string')) {
+      || (item.passwordHash !== undefined
+        && (typeof item.passwordHash !== 'string' || !parsePasswordDigest(item.passwordHash)))) {
       throw new RequestBodyError('备份中的 shares.json 包含无效分享记录')
     }
     if (tokens.has(item.token)) throw new RequestBodyError('备份中的 shares.json 存在重复分享 token')
@@ -674,9 +675,9 @@ function parsePasswordDigest(encoded: string): {
     const r = Number(rText)
     const p = Number(pText)
     if (
-      Number.isInteger(n) && n > 1
-      && Number.isInteger(r) && r > 0
-      && Number.isInteger(p) && p > 0
+      n === 16384
+      && r === 8
+      && p === 1
       && /^[a-f0-9]{32}$/i.test(salt ?? '')
       && /^[a-f0-9]{128}$/i.test(expectedHex ?? '')
     ) {
@@ -692,7 +693,7 @@ function parsePasswordDigest(encoded: string): {
   if (!legacy) return null
   const n = Number(legacy[1])
   const r = Number(legacy[2])
-  if (!Number.isInteger(n) || n <= 1 || !Number.isInteger(r) || r <= 0) return null
+  if (n !== 16384 || r !== 8) return null
   return { n, r, p: 1, salt: legacy[3]!, expectedHex: legacy[4]! }
 }
 
@@ -700,13 +701,17 @@ async function verifyPassword(password: string, encoded: string): Promise<boolea
   const parsed = parsePasswordDigest(encoded)
   if (!parsed) return false
   const expected = Buffer.from(parsed.expectedHex, 'hex')
-  const actual = await scryptAsync(password, parsed.salt, expected.length, {
-    N: parsed.n,
-    r: parsed.r,
-    p: parsed.p,
-    maxmem: 32 * 1024 * 1024,
-  })
-  return actual.length === expected.length && timingSafeEqual(actual, expected)
+  try {
+    const actual = await scryptAsync(password, parsed.salt, expected.length, {
+      N: parsed.n,
+      r: parsed.r,
+      p: parsed.p,
+      maxmem: 32 * 1024 * 1024,
+    })
+    return actual.length === expected.length && timingSafeEqual(actual, expected)
+  } catch {
+    return false
+  }
 }
 
 async function verifySharePasswordAttempt(token: string, passwordHash: string, password: string): Promise<{
