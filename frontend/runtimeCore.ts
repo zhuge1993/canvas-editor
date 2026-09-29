@@ -428,6 +428,7 @@ function readBodyRaw(req: IncomingMessage, maxBytes = 50 * 1024 * 1024): Promise
       req.removeListener('data', onData)
       req.removeListener('end', onEnd)
       req.removeListener('error', onError)
+      req.removeListener('aborted', onAborted)
       if (dropChunks) chunks.length = 0
     }
 
@@ -461,9 +462,14 @@ function readBodyRaw(req: IncomingMessage, maxBytes = 50 * 1024 * 1024): Promise
       cleanup(true)
       reject(error)
     }
+    const onAborted = () => {
+      cleanup(true)
+      reject(new RequestBodyError('请求已中止'))
+    }
     req.on('data', onData)
     req.on('end', onEnd)
     req.on('error', onError)
+    req.on('aborted', onAborted)
   })
 }
 
@@ -482,6 +488,7 @@ async function readBody(req: IncomingMessage, maxBytes = 25 * 1024 * 1024): Prom
       req.removeListener('data', onData)
       req.removeListener('end', onEnd)
       req.removeListener('error', onError)
+      req.removeListener('aborted', onAborted)
       if (dropChunks) chunks.length = 0
     }
 
@@ -525,9 +532,14 @@ async function readBody(req: IncomingMessage, maxBytes = 25 * 1024 * 1024): Prom
       cleanup(true)
       reject(new RequestBodyError(error.message))
     }
+    const onAborted = () => {
+      cleanup(true)
+      reject(new RequestBodyError('请求已中止'))
+    }
     req.on('data', onData)
     req.on('end', onEnd)
     req.on('error', onError)
+    req.on('aborted', onAborted)
   })
 }
 
