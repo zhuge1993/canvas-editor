@@ -47,6 +47,12 @@ FIRMWARE_APORT="$(find_aport firmware-xiaomi-dior)"
 
 if [ -z "$DEVICE_APORT" ] || [ -z "$KERNEL_APORT" ]; then
 	echo "当前 pmaports 没有完整的 xiaomi-dior 设备/内核 aport，尝试仓库锁定快照..."
+	if ! sh "$SNAPSHOT_ROOT/check-snapshot.sh"; then
+		if [ "${HYDRATE_SNAPSHOT:-1}" = "1" ]; then
+			echo "快照缺文件，按固定历史来源下载并做 SHA-512 校验..."
+			sh "$SNAPSHOT_ROOT/hydrate-snapshot.sh"
+		fi
+	fi
 	if sh "$SNAPSHOT_ROOT/check-snapshot.sh"; then
 		mkdir -p "$PMB_APORTS/device/testing"
 		for package in device-xiaomi-dior linux-xiaomi-dior firmware-xiaomi-dior; do
