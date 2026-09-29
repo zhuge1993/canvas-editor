@@ -1188,6 +1188,11 @@ async function runAdminCommand(): Promise<void> {
         process.exit(1)
         return
       }
+      if (!/^[a-zA-Z0-9_-]+$/.test(arg1)) {
+        console.error(`文档 ID 不合法: ${arg1}`)
+        process.exit(1)
+        return
+      }
       const targetPath = projectPathSafe(arg1)
       try {
         await fsp.unlink(targetPath)
