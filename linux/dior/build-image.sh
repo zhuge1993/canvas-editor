@@ -45,8 +45,8 @@ DEVICE_APORT="$(find_aport device-xiaomi-dior)"
 KERNEL_APORT="$(find_aport linux-xiaomi-dior)"
 FIRMWARE_APORT="$(find_aport firmware-xiaomi-dior)"
 
-if [ -z "$DEVICE_APORT" ] || [ -z "$KERNEL_APORT" ]; then
-	echo "当前 pmaports 没有完整的 xiaomi-dior 设备/内核 aport，尝试仓库锁定快照..."
+if [ -z "$DEVICE_APORT" ] || [ -z "$KERNEL_APORT" ] || [ -z "$FIRMWARE_APORT" ]; then
+	echo "当前 pmaports 没有完整的 xiaomi-dior 设备/内核/固件 aport，尝试仓库锁定快照..."
 	if ! sh "$SNAPSHOT_ROOT/check-snapshot.sh"; then
 		if [ "${HYDRATE_SNAPSHOT:-1}" = "1" ]; then
 			echo "快照缺文件，按固定历史来源下载并做 SHA-512 校验..."
@@ -77,14 +77,14 @@ if [ -z "$DEVICE_APORT" ] || [ -z "$KERNEL_APORT" ]; then
 	fi
 fi
 
-if [ -z "$DEVICE_APORT" ] || [ -z "$KERNEL_APORT" ]; then
-	echo "注入后仍找不到 xiaomi-dior 设备/内核 aport，停止构建。" >&2
+if [ -z "$DEVICE_APORT" ] || [ -z "$KERNEL_APORT" ] || [ -z "$FIRMWARE_APORT" ]; then
+	echo "注入后仍找不到完整的 xiaomi-dior 设备/内核/固件 aport，停止构建。" >&2
 	exit 1
 fi
 
-echo "dior device aport : $DEVICE_APORT"
-echo "dior kernel aport : $KERNEL_APORT"
-[ -n "$FIRMWARE_APORT" ] && echo "dior firmware aport: $FIRMWARE_APORT"
+echo "dior device aport  : $DEVICE_APORT"
+echo "dior kernel aport  : $KERNEL_APORT"
+echo "dior firmware aport: $FIRMWARE_APORT"
 
 if [ ! -f "$FLOWBOARD_RELEASE" ]; then
 	need pnpm
