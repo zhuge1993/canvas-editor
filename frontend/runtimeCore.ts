@@ -391,7 +391,7 @@ async function loadUsers(paths: RuntimePaths): Promise<StoredUser[]> {
       changed = true
     }
   }
-  if (changed) void queueJsonWrite(filePath(paths, 'users.json'), users)
+  if (changed) await queueJsonWrite(filePath(paths, 'users.json'), users)
   return users
 }
 
@@ -1653,8 +1653,8 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
     const body = await readBody(req)
     const target = users.find(item => item.id === targetId)
     if (!target) { sendError(res, 404, '用户不存在'); return true }
-    if (target.email.toLowerCase() === DEFAULT_ADMIN_EMAIL && body.isAdmin === false) {
-      sendError(res, 400, '默认根管理员不能取消管理员权限')
+    if (body.isAdmin === false && (target.email.toLowerCase() === DEFAULT_ADMIN_EMAIL || target.id === user.id)) {
+      sendError(res, 400, '不能取消默认根管理员或当前登录管理员自己的管理员权限')
       return true
     }
     if (typeof body.isAdmin === 'boolean') target.isAdmin = body.isAdmin
@@ -1674,16 +1674,25 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
     let files: string[] = []
     try { files = (await fsp.readdir(paths.dataDirectory)).filter(file => file.endsWith('.json')) } catch { /* empty */ }
     let deletedDocs = 0
+    const deletedDocIds = new Set<string>()
     for (const file of files) {
       const fullPath = path.join(paths.dataDirectory, file)
       try {
         const project = JSON.parse(await fsp.readFile(fullPath, 'utf8')) as StoredDocument
-        if (project.ownerId === target.id) { await fsp.unlink(fullPath); deletedDocs++ }
+        if (project.ownerId === target.id) {
+          deletedDocIds.add(project.id)
+          await fsp.unlink(fullPath)
+          deletedDocs++
+        }
       } catch { /* skip */ }
     }
     await saveUsers(paths, users.filter(item => item.id !== target.id))
     const sessions = await loadSessions(paths)
     await saveSessions(paths, sessions.filter(item => item.userId !== target.id))
+    if (deletedDocIds.size > 0) {
+      const shares = await loadShares(paths)
+      await saveShares(paths, shares.filter(share => !deletedDocIds.has(share.projectId)))
+    }
     sendJson(res, 200, { ok: true, deletedDocs })
     return true
   }
