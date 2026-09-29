@@ -1539,8 +1539,8 @@ async function handleProjects(req: IncomingMessage, res: ServerResponse, paths: 
       sendError(res, 403, '没有项目管理权限')
       return true
     }
-    const shares = await loadShares(paths)
     if (req.method === 'GET' && shareCollection) {
+      const shares = await loadShares(paths)
       const now = Date.now()
       sendJson(res, 200, shares.filter(share => share.projectId === projectId).map(share => ({
         ...share,
@@ -1557,7 +1557,7 @@ async function handleProjects(req: IncomingMessage, res: ServerResponse, paths: 
         sendError(res, 400, '权限必须是 view 或 edit')
         return true
       }
-      // 可选有效期（小时）与访问密码
+      // 可选有效期（小时）与访问密码。scrypt 在锁外完成，锁内只做最新数组的提交。
       let expiresAt: number | undefined
       const expiresInHours = Number(body.expiresInHours)
       if (Number.isFinite(expiresInHours) && expiresInHours > 0) {
@@ -1574,17 +1574,15 @@ async function handleProjects(req: IncomingMessage, res: ServerResponse, paths: 
       }
       const now = Date.now()
       const share: StoredShare = { token: randomBytes(32).toString('base64url'), projectId, permission, createdAt: now, updatedAt: now, expiresAt, passwordHash }
-      await saveShares(paths, [...shares, share])
+      await withAuthMutation(async () => {
+        const shares = await loadShares(paths)
+        await saveShares(paths, [...shares, share])
+      })
       sendJson(res, 201, { ...share, passwordHash: undefined, url: shareUrl(req, share.token) })
       return true
     }
     if (shareItem) {
       const token = shareItem[2]!
-      const share = shares.find(item => item.token === token && item.projectId === projectId)
-      if (!share) {
-        sendError(res, 404, '分享链接不存在')
-        return true
-      }
       if (req.method === 'PATCH') {
         const body = await readBody(req)
         const permission = permissionValue(body.permission)
@@ -1592,30 +1590,55 @@ async function handleProjects(req: IncomingMessage, res: ServerResponse, paths: 
           sendError(res, 400, '权限必须是 view 或 edit')
           return true
         }
-        // 支持设置/清除有效期与密码
-        let updated = { ...share, permission, updatedAt: Date.now() } as StoredShare
         const expiresInHours = Number(body.expiresInHours)
-        if (Number.isFinite(expiresInHours) && expiresInHours > 0) {
-          updated.expiresAt = Date.now() + Math.min(expiresInHours, 24 * 365) * 3600 * 1000
-        } else if (body.clearExpires === true) {
-          updated.expiresAt = undefined
-        }
         const password = typeof body.password === 'string' ? body.password : ''
+        let replacementPasswordHash: string | undefined
         if (password) {
           if (password.length < 4 || password.length > 64) {
             sendError(res, 400, '分享密码长度需在 4-64 位之间')
             return true
           }
-          updated.passwordHash = await passwordDigest(password)
-        } else if (body.clearPassword === true) {
-          updated.passwordHash = undefined
+          replacementPasswordHash = await passwordDigest(password)
         }
-        await saveShares(paths, shares.map(item => item.token === token ? updated : item))
+
+        const updated = await withAuthMutation(async () => {
+          const shares = await loadShares(paths)
+          const share = shares.find(item => item.token === token && item.projectId === projectId)
+          if (!share) return null
+
+          const next: StoredShare = { ...share, permission, updatedAt: Date.now() }
+          if (Number.isFinite(expiresInHours) && expiresInHours > 0) {
+            next.expiresAt = Date.now() + Math.min(expiresInHours, 24 * 365) * 3600 * 1000
+          } else if (body.clearExpires === true) {
+            next.expiresAt = undefined
+          }
+          if (replacementPasswordHash) {
+            next.passwordHash = replacementPasswordHash
+          } else if (body.clearPassword === true) {
+            next.passwordHash = undefined
+          }
+
+          await saveShares(paths, shares.map(item => item.token === token ? next : item))
+          return next
+        })
+        if (!updated) {
+          sendError(res, 404, '分享链接不存在')
+          return true
+        }
         sendJson(res, 200, { ...updated, passwordHash: undefined, url: shareUrl(req, token) })
         return true
       }
       if (req.method === 'DELETE') {
-        await saveShares(paths, shares.filter(item => item.token !== token))
+        const deleted = await withAuthMutation(async () => {
+          const shares = await loadShares(paths)
+          if (!shares.some(item => item.token === token && item.projectId === projectId)) return false
+          await saveShares(paths, shares.filter(item => item.token !== token))
+          return true
+        })
+        if (!deleted) {
+          sendError(res, 404, '分享链接不存在')
+          return true
+        }
         sendJson(res, 200, { ok: true })
         return true
       }
@@ -1656,9 +1679,11 @@ async function handleProjects(req: IncomingMessage, res: ServerResponse, paths: 
     const now = Date.now()
     const updated: StoredDocument = { ...project, deletedAt: now, updatedAt: now }
     await writeJson(projectPath(paths, id), updated)
-    // 删除相关分享链接
-    const shares = await loadShares(paths)
-    await saveShares(paths, shares.filter(share => share.projectId !== id))
+    // 删除相关分享链接。shares.json 的 read-modify-write 必须与创建/修改分享串行。
+    await withAuthMutation(async () => {
+      const shares = await loadShares(paths)
+      await saveShares(paths, shares.filter(share => share.projectId !== id))
+    })
     sendJson(res, 200, { ok: true, softDeleted: true })
     return true
   }
