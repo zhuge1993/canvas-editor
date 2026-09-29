@@ -119,6 +119,14 @@ FLOWBOARD_PUBLIC_PROTOCOL=https
 FLOWBOARD_COOKIE_SECURE=true
 ```
 
+同一台服务器上的 Nginx/Caddy/frp/cloudflared 回源会自动信任 `X-Forwarded-Host` / `X-Forwarded-Proto`。如果可信反代位于另一台机器，额外设置：
+
+```bash
+FLOWBOARD_TRUST_PROXY=true
+```
+
+不要在直接把 Node 端口暴露给不可信客户端时开启该选项。
+
 ## 低配优化
 
 默认 V8 heap 上限 768 MB。不要在 2 GB RAM 手机上同时运行桌面、数据库、容器平台或 Chromium 服务端渲染。FlowBoard 的 SVG/Canvas 绘制在客户端浏览器完成，更适合这种低功耗 ARMv7 常驻服务器。

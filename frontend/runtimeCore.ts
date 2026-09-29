@@ -1046,14 +1046,22 @@ function forwardedHeader(value: string | string[] | undefined): string | undefin
   return normalized
 }
 
+function forwardedHeadersTrusted(req: IncomingMessage): boolean {
+  if (/^(1|true|yes|on)$/i.test(process.env.FLOWBOARD_TRUST_PROXY ?? '')) return true
+  const remote = req.socket.remoteAddress ?? ''
+  return remote === '127.0.0.1' || remote === '::1' || remote === '::ffff:127.0.0.1'
+}
+
 function shareUrl(req: IncomingMessage, token: string): string {
-  // 穿透/反代优先使用显式公网域名或 X-Forwarded-*；直连时使用请求自身 Host（通常已包含 :3000）。
+  // 显式公网域名优先；同机反代自动信任 X-Forwarded-*。
+  // 非回环代理必须显式 FLOWBOARD_TRUST_PROXY=true，避免直连客户端伪造分享域名。
   const configuredHost = process.env.FLOWBOARD_PUBLIC_HOST?.trim()
-  const forwardedHost = forwardedHeader(req.headers['x-forwarded-host'])
+  const trustForwarded = forwardedHeadersTrusted(req)
+  const forwardedHost = trustForwarded ? forwardedHeader(req.headers['x-forwarded-host']) : undefined
   const requestHost = forwardedHeader(req.headers.host)
   const fallbackHost = preferredPublicHost()
   const host = configuredHost || forwardedHost || requestHost || fallbackHost
-  const forwardedProtocol = forwardedHeader(req.headers['x-forwarded-proto'])
+  const forwardedProtocol = trustForwarded ? forwardedHeader(req.headers['x-forwarded-proto']) : undefined
   const protocol = process.env.FLOWBOARD_PUBLIC_PROTOCOL === 'https'
     ? 'https'
     : process.env.FLOWBOARD_PUBLIC_PROTOCOL === 'http'
