@@ -685,18 +685,47 @@ function startInteractiveConsole(options: RuntimeOptions): void {
         case 'deluser': {
           const email = (args[0] ?? '').toLowerCase()
           if (!email) { console.log('用法：deluser <邮箱>    例：deluser old@qq.com'); break }
+          if (email === DEFAULT_SMTP_EMAIL) {
+            console.log(`不能删除默认根管理员：${DEFAULT_SMTP_EMAIL}`)
+            break
+          }
           const users = readJsonSafe<Array<{ id: string; email: string }>>(userFile, [])
           const user = users.find(u => u.email.toLowerCase() === email)
           if (!user) { console.log(`用户不存在：${email}`); break }
           let deleted = 0
+          const deletedDocIds = new Set<string>()
           try {
             for (const file of fs.readdirSync(dataDirectory).filter(f => f.endsWith('.json'))) {
-              const doc = readJsonSafe<{ ownerId?: string }>(path.join(dataDirectory, file), {})
-              if (doc.ownerId === user.id) { fs.unlinkSync(path.join(dataDirectory, file)); deleted++ }
+              const doc = readJsonSafe<{ id?: string; ownerId?: string }>(path.join(dataDirectory, file), {})
+              if (doc.ownerId === user.id) {
+                fs.unlinkSync(path.join(dataDirectory, file))
+                if (doc.id) {
+                  deletedDocIds.add(doc.id)
+                  fs.rmSync(path.join(dataDirectory, 'versions', doc.id), { recursive: true, force: true })
+                }
+                deleted++
+              }
             }
           } catch { /* empty */ }
           writeJsonSafe(userFile, users.filter(u => u.id !== user.id))
-          console.log(`已删除用户 ${email} 及其 ${deleted} 个文档`)
+
+          const sessionFile = path.join(authDirectory, 'sessions.json')
+          const sessions = readJsonSafe<Array<{ userId: string } & Record<string, unknown>>>(sessionFile, [])
+          writeJsonSafe(sessionFile, sessions.filter(item => item.userId !== user.id))
+
+          const shareFile = path.join(authDirectory, 'shares.json')
+          const shares = readJsonSafe<Array<{ projectId: string } & Record<string, unknown>>>(shareFile, [])
+          writeJsonSafe(shareFile, shares.filter(item => !deletedDocIds.has(item.projectId)))
+
+          const verificationFile = path.join(authDirectory, 'verification.json')
+          const verification = readJsonSafe<Array<{ email: string } & Record<string, unknown>>>(verificationFile, [])
+          writeJsonSafe(verificationFile, verification.filter(item => item.email.toLowerCase() !== email))
+
+          const loginAttemptsFile = path.join(authDirectory, 'login-attempts.json')
+          const attempts = readJsonSafe<Array<{ email: string } & Record<string, unknown>>>(loginAttemptsFile, [])
+          writeJsonSafe(loginAttemptsFile, attempts.filter(item => item.email.toLowerCase() !== email))
+
+          console.log(`已删除用户 ${email} 及其 ${deleted} 个文档，并清理 Session/分享/验证状态`)
           break
         }
 
@@ -1167,6 +1196,7 @@ async function runAdminCommand(): Promise<void> {
         process.exit(1)
         return
       }
+      await fsp.rm(path.join(dataDirectory, 'versions', arg1), { recursive: true, force: true })
       // 同步删除相关分享链接
       const shares = await readJsonFileSafe<Array<{ token: string; projectId: string }>>(shareFile, [])
       const remaining = shares.filter(share => share.projectId !== arg1)
@@ -1183,28 +1213,50 @@ async function runAdminCommand(): Promise<void> {
       }
       const users = await readJsonFileSafe<AdminUserRecord[]>(userFile, [])
       const email = arg1.toLowerCase()
+      if (email === DEFAULT_SMTP_EMAIL) {
+        console.error(`不能删除默认根管理员: ${DEFAULT_SMTP_EMAIL}`)
+        process.exit(1)
+        return
+      }
       const user = users.find(item => item.email.toLowerCase() === email)
       if (!user) {
         console.error(`用户不存在: ${email}`)
         process.exit(1)
         return
       }
-      // 删除该用户全部文档
+      // 删除该用户全部文档与版本历史
       const files = await fsp.readdir(dataDirectory).catch(() => [] as string[])
       let deleted = 0
+      const deletedDocIds = new Set<string>()
       for (const file of files.filter(f => f.endsWith('.json'))) {
         const project = await readJsonFileSafe<StoredDocumentLike>(path.join(dataDirectory, file), null)
         if (project?.ownerId === user.id) {
           await fsp.unlink(path.join(dataDirectory, file)).catch(() => undefined)
+          if (typeof project.id === 'string') {
+            deletedDocIds.add(project.id)
+            await fsp.rm(path.join(dataDirectory, 'versions', project.id), { recursive: true, force: true })
+          }
           deleted++
         }
       }
       await writeJsonFileSafe(userFile, users.filter(item => item.id !== user.id))
-      // 清理会话
+
       const sessionFile = path.join(authDirectory, 'sessions.json')
       const sessions = await readJsonFileSafe<Array<{ token: string; userId: string }>>(sessionFile, [])
       await writeJsonFileSafe(sessionFile, sessions.filter(item => item.userId !== user.id))
-      console.log(`已删除用户 ${email} 及其 ${deleted} 个文档`)
+
+      const shares = await readJsonFileSafe<Array<{ token: string; projectId: string }>>(shareFile, [])
+      await writeJsonFileSafe(shareFile, shares.filter(item => !deletedDocIds.has(item.projectId)))
+
+      const verificationFile = path.join(authDirectory, 'verification.json')
+      const verification = await readJsonFileSafe<Array<{ email: string }>>(verificationFile, [])
+      await writeJsonFileSafe(verificationFile, verification.filter(item => item.email.toLowerCase() !== email))
+
+      const loginAttemptsFile = path.join(authDirectory, 'login-attempts.json')
+      const attempts = await readJsonFileSafe<Array<{ email: string }>>(loginAttemptsFile, [])
+      await writeJsonFileSafe(loginAttemptsFile, attempts.filter(item => item.email.toLowerCase() !== email))
+
+      console.log(`已删除用户 ${email} 及其 ${deleted} 个文档，并清理 Session/分享/验证状态`)
       return
     }
 
