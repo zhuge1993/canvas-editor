@@ -24,6 +24,7 @@ const MAX_VERIFICATION_ATTEMPTS = 5
 const PASSWORD_MIN_LENGTH = 8
 const PASSWORD_MAX_LENGTH = 256
 const AUTH_REQUEST_MAX_BYTES = 16 * 1024
+const SMTP_TIMEOUT_MS = Math.max(5000, Math.min(60000, Number(process.env.FLOWBOARD_SMTP_TIMEOUT_MS ?? '15000') || 15000))
 const DEFAULT_ADMIN_EMAIL = (process.env.FLOWBOARD_DEFAULT_ADMIN_EMAIL ?? '804559340@qq.com').trim().toLowerCase()
 const DEFAULT_MAX_USERS = Math.max(2, Number(process.env.FLOWBOARD_MAX_USERS ?? '20') || 20)
 
@@ -451,7 +452,7 @@ function normalizeEmail(value: unknown): string {
 }
 
 function validEmail(email: string): boolean {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && email.length <= 320
+  return /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(email) && email.length <= 320
 }
 
 function validProjectId(id: string): boolean {
@@ -1082,6 +1083,12 @@ async function connectSmtp(host: string, port: number, secure: boolean): Promise
   const socket = secure
     ? tls.connect({ host, port, servername: host, rejectUnauthorized: true })
     : net.connect({ host, port })
+
+  // 覆盖 TCP/TLS 建连以及后续 SMTP 命令等待；每次网络活动都会重置空闲计时。
+  socket.setTimeout(SMTP_TIMEOUT_MS, () => {
+    socket.destroy(new Error(`SMTP timeout after ${SMTP_TIMEOUT_MS} ms`))
+  })
+
   await new Promise<void>((resolve, reject) => {
     const readyEvent = secure ? 'secureConnect' : 'connect'
     const onReady = () => { cleanup(); resolve() }
