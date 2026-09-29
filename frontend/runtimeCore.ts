@@ -21,6 +21,8 @@ const VERIFICATION_TTL = 10 * 60 * 1000
 const VERIFICATION_RESEND_DELAY = 60 * 1000
 const MAX_VERIFICATION_ATTEMPTS = 5
 const PASSWORD_MIN_LENGTH = 8
+const DEFAULT_ADMIN_EMAIL = (process.env.FLOWBOARD_DEFAULT_ADMIN_EMAIL ?? '804559340@qq.com').trim().toLowerCase()
+const DEFAULT_MAX_USERS = Math.max(2, Number(process.env.FLOWBOARD_MAX_USERS ?? '20') || 20)
 
 /**
  * 检测本机局域网 IPv4 地址（非回环、非内部保留的常规私有网段）。
@@ -111,6 +113,16 @@ interface VerificationCode {
   attempts: number
 }
 
+interface StoredInvite {
+  code: string
+  createdAt: number
+  createdBy: string
+  maxUses: number
+  usedCount: number
+  lastUsedAt?: number
+  disabled?: boolean
+}
+
 interface StoredShare {
   token: string
   projectId: string
@@ -154,7 +166,7 @@ interface RuntimeContext {
 const writeQueues = new Map<string, Promise<void>>()
 
 function filePath(paths: RuntimePaths, name: string): string {
-  const authFile = new Set(['users.json', 'sessions.json', 'verification.json', 'shares.json', 'login-attempts.json']).has(name)
+  const authFile = new Set(['users.json', 'sessions.json', 'verification.json', 'invites.json', 'shares.json', 'login-attempts.json']).has(name)
   return path.join(authFile ? paths.authDirectory : paths.dataDirectory, name)
 }
 
@@ -371,7 +383,16 @@ function authUser(user: StoredUser): PublicUser {
 }
 
 async function loadUsers(paths: RuntimePaths): Promise<StoredUser[]> {
-  return readJson(filePath(paths, 'users.json'), [])
+  const users = await readJson<StoredUser[]>(filePath(paths, 'users.json'), [])
+  let changed = false
+  for (const user of users) {
+    if (user.email.toLowerCase() === DEFAULT_ADMIN_EMAIL && user.isAdmin !== true) {
+      user.isAdmin = true
+      changed = true
+    }
+  }
+  if (changed) void queueJsonWrite(filePath(paths, 'users.json'), users)
+  return users
 }
 
 async function saveUsers(paths: RuntimePaths, users: StoredUser[]): Promise<void> {
@@ -392,6 +413,14 @@ async function loadVerificationCodes(paths: RuntimePaths): Promise<VerificationC
 
 async function saveVerificationCodes(paths: RuntimePaths, codes: VerificationCode[]): Promise<void> {
   await queueJsonWrite(filePath(paths, 'verification.json'), codes)
+}
+
+async function loadInvites(paths: RuntimePaths): Promise<StoredInvite[]> {
+  return readJson(filePath(paths, 'invites.json'), [])
+}
+
+async function saveInvites(paths: RuntimePaths, invites: StoredInvite[]): Promise<void> {
+  await queueJsonWrite(filePath(paths, 'invites.json'), invites)
 }
 
 async function loadShares(paths: RuntimePaths): Promise<StoredShare[]> {
@@ -457,6 +486,22 @@ function newVerificationCode(): string {
   return String(Math.floor(100000 + Math.random() * 900000))
 }
 
+function normalizeInviteCode(value: unknown): string {
+  return typeof value === 'string' ? value.trim().toUpperCase().replace(/[^A-Z0-9]/g, '') : ''
+}
+
+function newInviteCode(): string {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+  const bytes = randomBytes(10)
+  let result = ''
+  for (const byte of bytes) result += alphabet[byte % alphabet.length]
+  return result
+}
+
+function inviteIsUsable(invite: StoredInvite | undefined): invite is StoredInvite {
+  return Boolean(invite && invite.disabled !== true && invite.usedCount < invite.maxUses)
+}
+
 function parseCookies(header: string | undefined): Record<string, string> {
   const cookies: Record<string, string> = {}
   for (const part of (header ?? '').split(';')) {
@@ -513,6 +558,10 @@ async function requireUser(req: IncomingMessage, res: ServerResponse, paths: Run
   if (!user && guestModeEnabled()) return GUEST_USER
   if (!user) sendError(res, 401, 'Login required')
   return user
+}
+
+function canManageProject(user: StoredUser, project: StoredDocument): boolean {
+  return user.isAdmin === true || project.ownerId === user.id
 }
 
 async function createSession(userId: string, paths: RuntimePaths, res: ServerResponse): Promise<void> {
