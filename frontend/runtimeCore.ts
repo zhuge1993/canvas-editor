@@ -190,6 +190,8 @@ const ASSET_MIME: Record<string, string> = {
 }
 
 const MAX_ASSET_BYTES = 8 * 1024 * 1024
+const MAX_ASSET_REQUEST_BYTES = Math.ceil(MAX_ASSET_BYTES * 4 / 3) + 64 * 1024
+const MAX_LOG_REQUEST_BYTES = 128 * 1024
 
 /** 从 dataURL 中解析出图片本体；非图片 dataURL 返回 null */
 function decodeImageDataUrl(dataUrl: string): { buffer: Buffer; extension: string } | null {
@@ -318,7 +320,7 @@ function readBodyRaw(req: IncomingMessage): Promise<Buffer> {
   })
 }
 
-async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> {
+async function readBody(req: IncomingMessage, maxBytes = 25 * 1024 * 1024): Promise<Record<string, unknown>> {
   // 注意：Node 14 的 IncomingMessage 不原生支持 asyncIterator（pkg target），
   // 因此使用传统 data/end 事件模式代替 for await...of。
   return new Promise((resolve, reject) => {
@@ -327,9 +329,9 @@ async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> 
     const onData = (chunk: Buffer | string) => {
       const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
       size += buffer.length
-      if (size > 25 * 1024 * 1024) {
+      if (size > maxBytes) {
         cleanup()
-        reject(new RequestBodyError('请求体不能超过 25 MiB', 413))
+        reject(new RequestBodyError(`请求体不能超过 ${Math.ceil(maxBytes / 1024 / 1024)} MiB`, 413))
         return
       }
       chunks.push(buffer)
@@ -1351,7 +1353,9 @@ async function handleShare(req: IncomingMessage, res: ServerResponse, paths: Run
 // 安全性由内容 hash（40 位十六进制，不可枚举）保证，与 Figma 的能力 URL 同思路。
 async function handleAssets(req: IncomingMessage, res: ServerResponse, paths: RuntimePaths, pathname: string): Promise<boolean> {
   if (pathname === '/api/assets' && req.method === 'POST') {
-    const body = await readBody(req)
+    const user = await requireUser(req, res, paths)
+    if (!user) return true
+    const body = await readBody(req, MAX_ASSET_REQUEST_BYTES)
     const dataUrl = typeof body.dataUrl === 'string' ? body.dataUrl : ''
     const decoded = decodeImageDataUrl(dataUrl)
     if (!decoded) {
@@ -1764,11 +1768,19 @@ async function appendRuntimeLog(paths: RuntimePaths, entry: ClientLog): Promise<
 
 async function handleLogs(req: IncomingMessage, res: ServerResponse, paths: RuntimePaths, pathname: string, url: URL): Promise<boolean> {
   if (req.method === 'POST' && pathname === '/api/logs') {
-    await appendRuntimeLog(paths, await readBody(req) as ClientLog)
+    const user = await requireUser(req, res, paths)
+    if (!user) return true
+    await appendRuntimeLog(paths, await readBody(req, MAX_LOG_REQUEST_BYTES) as ClientLog)
     sendJson(res, 200, { ok: true })
     return true
   }
   if (req.method === 'GET' && pathname === '/api/logs/latest') {
+    const user = await requireUser(req, res, paths)
+    if (!user) return true
+    if (user.id === 'guest' || user.isAdmin !== true) {
+      sendError(res, 403, '仅管理员可查看服务器日志')
+      return true
+    }
     const limit = Math.min(500, Math.max(1, Number(url.searchParams.get('limit')) || 100))
     const readLines = async (file: string) => {
       try { return (await fsp.readFile(file, 'utf8')).trim().split(/\r?\n/).filter(Boolean).slice(-limit) } catch { return [] }
