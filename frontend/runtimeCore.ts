@@ -574,19 +574,23 @@ function canManageProject(user: StoredUser, project: StoredDocument): boolean {
 }
 
 async function createSession(userId: string, paths: RuntimePaths, res: ServerResponse): Promise<void> {
-  const now = Date.now()
-  const sessions = (await loadSessions(paths)).filter(session => session.expiresAt > now && session.userId !== userId)
   const token = randomBytes(32).toString('base64url')
-  sessions.push({ token, userId, createdAt: now, expiresAt: now + SESSION_MAX_AGE * 1000 })
-  await saveSessions(paths, sessions)
+  await withAuthMutation(async () => {
+    const now = Date.now()
+    const sessions = (await loadSessions(paths)).filter(session => session.expiresAt > now && session.userId !== userId)
+    sessions.push({ token, userId, createdAt: now, expiresAt: now + SESSION_MAX_AGE * 1000 })
+    await saveSessions(paths, sessions)
+  })
   setSessionCookie(res, token)
 }
 
 async function removeSession(req: IncomingMessage, paths: RuntimePaths): Promise<void> {
   const token = parseCookies(req.headers.cookie)[SESSION_COOKIE]
   if (!token) return
-  const sessions = await loadSessions(paths)
-  await saveSessions(paths, sessions.filter(session => session.token !== token))
+  await withAuthMutation(async () => {
+    const sessions = await loadSessions(paths)
+    await saveSessions(paths, sessions.filter(session => session.token !== token))
+  })
 }
 
 /** 遗留文档归属认领：仅需执行一次（用标记文件跳过），否则每次列表请求都要全量读盘解析 */
