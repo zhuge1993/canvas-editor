@@ -1619,6 +1619,88 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
     return true
   }
 
+  // GET /api/admin/users —— 查看所有注册用户
+  if (req.method === 'GET' && pathname === '/api/admin/users') {
+    sendJson(res, 200, users.map(item => ({
+      id: item.id,
+      email: item.email,
+      createdAt: item.createdAt,
+      lastLoginAt: item.lastLoginAt,
+      isAdmin: item.isAdmin === true,
+      isRootAdmin: item.email.toLowerCase() === DEFAULT_ADMIN_EMAIL,
+    })).sort((a, b) => b.createdAt - a.createdAt))
+    return true
+  }
+
+  const adminUserMatch = pathname.match(/^\/api\/admin\/users\/([a-zA-Z0-9_-]+)$/)
+  if (adminUserMatch && req.method === 'PATCH') {
+    const targetId = adminUserMatch[1]!
+    const body = await readBody(req)
+    const target = users.find(item => item.id === targetId)
+    if (!target) { sendError(res, 404, '用户不存在'); return true }
+    if (target.email.toLowerCase() === DEFAULT_ADMIN_EMAIL && body.isAdmin === false) {
+      sendError(res, 400, '默认根管理员不能取消管理员权限')
+      return true
+    }
+    if (typeof body.isAdmin === 'boolean') target.isAdmin = body.isAdmin
+    await saveUsers(paths, users)
+    sendJson(res, 200, { user: authUser(target) })
+    return true
+  }
+
+  if (adminUserMatch && req.method === 'DELETE') {
+    const targetId = adminUserMatch[1]!
+    const target = users.find(item => item.id === targetId)
+    if (!target) { sendError(res, 404, '用户不存在'); return true }
+    if (target.email.toLowerCase() === DEFAULT_ADMIN_EMAIL || target.id === user.id) {
+      sendError(res, 400, '不能删除当前管理员或默认根管理员')
+      return true
+    }
+    let files: string[] = []
+    try { files = (await fsp.readdir(paths.dataDirectory)).filter(file => file.endsWith('.json')) } catch { /* empty */ }
+    let deletedDocs = 0
+    for (const file of files) {
+      const fullPath = path.join(paths.dataDirectory, file)
+      try {
+        const project = JSON.parse(await fsp.readFile(fullPath, 'utf8')) as StoredDocument
+        if (project.ownerId === target.id) { await fsp.unlink(fullPath); deletedDocs++ }
+      } catch { /* skip */ }
+    }
+    await saveUsers(paths, users.filter(item => item.id !== target.id))
+    const sessions = await loadSessions(paths)
+    await saveSessions(paths, sessions.filter(item => item.userId !== target.id))
+    sendJson(res, 200, { ok: true, deletedDocs })
+    return true
+  }
+
+  // 邀请码管理
+  if (pathname === '/api/admin/invites' && req.method === 'GET') {
+    const invites = await loadInvites(paths)
+    sendJson(res, 200, invites.sort((a, b) => b.createdAt - a.createdAt))
+    return true
+  }
+  if (pathname === '/api/admin/invites' && req.method === 'POST') {
+    const body = await readBody(req)
+    const requested = Number(body.maxUses ?? 1)
+    const maxUses = Math.max(1, Math.min(100, Number.isFinite(requested) ? Math.floor(requested) : 1))
+    const invites = await loadInvites(paths)
+    let code = newInviteCode()
+    while (invites.some(item => item.code === code)) code = newInviteCode()
+    const invite: StoredInvite = { code, createdAt: Date.now(), createdBy: user.id, maxUses, usedCount: 0 }
+    await saveInvites(paths, [invite, ...invites])
+    sendJson(res, 201, invite)
+    return true
+  }
+  const inviteMatch = pathname.match(/^\/api\/admin\/invites\/([A-Z0-9]+)$/)
+  if (inviteMatch && req.method === 'DELETE') {
+    const code = inviteMatch[1]!
+    const invites = await loadInvites(paths)
+    if (!invites.some(item => item.code === code)) { sendError(res, 404, '邀请码不存在'); return true }
+    await saveInvites(paths, invites.map(item => item.code === code ? { ...item, disabled: true } : item))
+    sendJson(res, 200, { ok: true })
+    return true
+  }
+
   // GET /api/admin/docs —— 查看所有用户的画册
   if (req.method === 'GET' && pathname === '/api/admin/docs') {
     let files: string[] = []
