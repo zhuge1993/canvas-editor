@@ -70,19 +70,25 @@ if ! id flowboard >/dev/null 2>&1; then
   fi
 fi
 
-install -d -o flowboard -g flowboard -m 0750 "$TARGET_DIR"
+# 程序文件由 root 持有；服务账号只写业务数据、日志和运行配置。
+# 这样即使 Web/Node 进程被利用，也不能直接篡改自己的 server bundle 或前端代码。
+install -d -o root -g flowboard -m 0750 "$TARGET_DIR"
 install -d -o flowboard -g flowboard -m 0750 "$TARGET_DIR/project-data" "$TARGET_DIR/auth-data" "$TARGET_DIR/logs"
-install -m 0644 "$SOURCE_DIR/server-bundle.cjs" "$TARGET_DIR/server-bundle.cjs"
+install -o root -g root -m 0644 "$SOURCE_DIR/server-bundle.cjs" "$TARGET_DIR/server-bundle.cjs"
 rm -rf "$TARGET_DIR/dist"
 cp -a "$SOURCE_DIR/dist" "$TARGET_DIR/dist"
-install -m 0755 "$SOURCE_DIR/start-server.sh" "$TARGET_DIR/start-server.sh"
-install -m 0644 "$SOURCE_DIR/flowboard.env.example" "$TARGET_DIR/flowboard.env.example"
+chown -R root:root "$TARGET_DIR/dist"
+install -o root -g root -m 0755 "$SOURCE_DIR/start-server.sh" "$TARGET_DIR/start-server.sh"
+install -o root -g root -m 0644 "$SOURCE_DIR/flowboard.env.example" "$TARGET_DIR/flowboard.env.example"
 
 if [ ! -f "$TARGET_DIR/flowboard.env" ]; then
   install -m 0600 -o flowboard -g flowboard "$SOURCE_DIR/flowboard.env.example" "$TARGET_DIR/flowboard.env"
 fi
 
-chown -R flowboard:flowboard "$TARGET_DIR"
+chown root:flowboard "$TARGET_DIR"
+chown -R flowboard:flowboard "$TARGET_DIR/project-data" "$TARGET_DIR/auth-data" "$TARGET_DIR/logs"
+chown flowboard:flowboard "$TARGET_DIR/flowboard.env"
+chmod 0750 "$TARGET_DIR" "$TARGET_DIR/project-data" "$TARGET_DIR/auth-data" "$TARGET_DIR/logs"
 chmod 0600 "$TARGET_DIR/flowboard.env"
 
 if [ "$INIT_SYSTEM" = "openrc" ]; then
