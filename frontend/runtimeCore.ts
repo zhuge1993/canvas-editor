@@ -2312,7 +2312,7 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
     }
 
     const durableAuthFiles = new Set(['users.json', 'invites.json', 'shares.json'])
-    await withAuthMutation(async () => {
+    const canResumeAdminSession = await withAuthMutation(async () => {
       const currentUsers = await loadUsers(paths)
       const currentRoot = currentUsers.find(item => item.email.toLowerCase() === DEFAULT_ADMIN_EMAIL)
 
@@ -2342,10 +2342,19 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
       await saveSessions(paths, [])
       await saveVerificationCodes(paths, [])
       await saveLoginAttempts(paths, [])
+
+      const restoredUsers = await loadUsers(paths)
+      return restoredUsers.some(item => item.id === user.id && item.isAdmin === true)
     })
 
-    clearSessionCookie(res)
-    sendJson(res, 200, { ok: true, restored, sessionsRevoked: true })
+    if (canResumeAdminSession) await createSession(user.id, paths, res)
+    else clearSessionCookie(res)
+    sendJson(res, 200, {
+      ok: true,
+      restored,
+      sessionsRevoked: true,
+      reauthRequired: !canResumeAdminSession,
+    })
     return true
   }
 
