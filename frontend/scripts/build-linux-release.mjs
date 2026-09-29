@@ -37,16 +37,16 @@ fs.rmSync(releaseDir, { recursive: true, force: true })
 fs.mkdirSync(releaseDir, { recursive: true })
 fs.copyFileSync(bundlePath, path.join(releaseDir, 'server-bundle.cjs'))
 fs.cpSync(distDir, path.join(releaseDir, 'dist'), { recursive: true })
-for (const file of ['start-server.sh', 'install-linux.sh', 'LINUX-ARMHF.md', 'flowboard.env.example', 'flowboard.service', 'nginx.flowboard.conf.example']) {
+for (const file of ['start-server.sh', 'install-linux.sh', 'LINUX-ARMHF.md', 'PMOS-DIOR.md', 'flowboard.env.example', 'flowboard.service', 'flowboard.openrc', 'nginx.flowboard.conf.example']) {
   ensureFile(path.join(root, file), file)
   fs.copyFileSync(path.join(root, file), path.join(releaseDir, file))
 }
 fs.writeFileSync(
   path.join(releaseDir, 'BUILD.txt'),
-  `FlowBoard Linux release\nBuilt: ${new Date().toISOString()}\nRuntime: Debian 13 armhf / Node.js 20.19+\nDefault admin: 804559340@qq.com\n`,
+  `FlowBoard ARMv7 Linux release\nBuilt: ${new Date().toISOString()}\nRuntime: postmarketOS/Alpine OpenRC or Debian 13 armhf / Node.js 20.19+\nDefault admin: 804559340@qq.com\n`,
   'utf8',
 )
-fs.chmodSync(path.join(releaseDir, 'start-server.sh'), 0o755)\nfs.chmodSync(path.join(releaseDir, 'install-linux.sh'), 0o755)
+fs.chmodSync(path.join(releaseDir, 'start-server.sh'), 0o755)\nfs.chmodSync(path.join(releaseDir, 'install-linux.sh'), 0o755)\nfs.chmodSync(path.join(releaseDir, 'flowboard.openrc'), 0o755)
 
 if (fs.existsSync(archivePath)) fs.unlinkSync(archivePath)
 run('tar', ['-czf', archivePath, '-C', releaseDir, '.'])
