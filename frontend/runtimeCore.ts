@@ -1,4 +1,4 @@
-import { createHash, randomBytes, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto'
+import { createHash, randomBytes, randomInt, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto'
 import fsp from 'node:fs/promises'
 import net from 'node:net'
 import os from 'node:os'
@@ -679,7 +679,7 @@ function newId(prefix: string): string {
 }
 
 function newVerificationCode(): string {
-  return String(Math.floor(100000 + Math.random() * 900000))
+  return String(randomInt(100000, 1000000))
 }
 
 function normalizeInviteCode(value: unknown): string {
