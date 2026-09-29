@@ -990,6 +990,7 @@ async function handleAuth(req: IncomingMessage, res: ServerResponse, paths: Runt
       && preliminaryRecord.attempts < MAX_VERIFICATION_ATTEMPTS
       && sameHash(preliminaryRecord.codeHash, hashCode(code))
     if (!preliminaryMatches) {
+      const expectedHash = preliminaryRecord?.codeHash
       const stillInvalid = await withAuthMutation(async () => {
         const codes = await loadVerificationCodes(paths)
         const now = Date.now()
@@ -999,7 +1000,8 @@ async function handleAuth(req: IncomingMessage, res: ServerResponse, paths: Runt
           && record.attempts < MAX_VERIFICATION_ATTEMPTS
           && sameHash(record.codeHash, hashCode(code))
         if (matches) return false
-        if (record) {
+        // 如果期间重新发送了验证码，旧请求不能消耗新验证码的失败次数。
+        if (record && expectedHash && record.codeHash === expectedHash) {
           record.attempts += 1
           await saveVerificationCodes(paths, codes.filter(item => item.expiresAt > now && item.attempts < MAX_VERIFICATION_ATTEMPTS))
         }
@@ -1090,6 +1092,7 @@ async function handleAuth(req: IncomingMessage, res: ServerResponse, paths: Runt
       && preliminaryRecord.attempts < MAX_VERIFICATION_ATTEMPTS
       && sameHash(preliminaryRecord.codeHash, hashCode(code))
     if (!preliminaryMatches) {
+      const expectedHash = preliminaryRecord?.codeHash
       const stillInvalid = await withAuthMutation(async () => {
         const codes = await loadVerificationCodes(paths)
         const now = Date.now()
@@ -1099,7 +1102,8 @@ async function handleAuth(req: IncomingMessage, res: ServerResponse, paths: Runt
           && record.attempts < MAX_VERIFICATION_ATTEMPTS
           && sameHash(record.codeHash, hashCode(code))
         if (matches) return false
-        if (record) {
+        // 如果期间重新发送了验证码，旧请求不能消耗新验证码的失败次数。
+        if (record && expectedHash && record.codeHash === expectedHash) {
           record.attempts += 1
           await saveVerificationCodes(paths, codes.filter(item => item.expiresAt > now && item.attempts < MAX_VERIFICATION_ATTEMPTS))
         }
@@ -1147,7 +1151,8 @@ async function handleAuth(req: IncomingMessage, res: ServerResponse, paths: Runt
     const body = await readBody(req)
     const email = normalizeEmail(body.email)
     const password = typeof body.password === 'string' ? body.password : ''
-    // 登录失败限流：同一邮箱连续失败 5 次锁定 5 分钟（防爆破）
+
+    // 快照只用于快速拒绝和 scrypt 校验；最终状态必须在认证锁内重新确认。
     const attempts = await loadLoginAttempts(paths)
     const attempt = attempts.find(item => item.email === email)
     const now = Date.now()
@@ -1156,41 +1161,95 @@ async function handleAuth(req: IncomingMessage, res: ServerResponse, paths: Runt
       sendError(res, 429, `尝试过于频繁，请 ${Math.ceil(retryAfter / 60)} 分钟后再试`, { retryAfter })
       return true
     }
-    const user = (await loadUsers(paths)).find(item => item.email === email)
-    if (!user || !(await verifyPassword(password, user.passwordHash))) {
-      // 失败计数必须锁内重新读取并累加，否则并发错误密码请求会相互覆盖，削弱限流。
-      await withAuthMutation(async () => {
+
+    const userSnapshot = (await loadUsers(paths)).find(item => item.email === email)
+    const passwordMatches = Boolean(userSnapshot && await verifyPassword(password, userSnapshot.passwordHash))
+
+    if (!userSnapshot || !passwordMatches) {
+      const failure = await withAuthMutation(async () => {
+        const failedAt = Date.now()
         const currentAttempts = await loadLoginAttempts(paths)
         const currentAttempt = currentAttempts.find(item => item.email === email)
-        const failedAt = Date.now()
+        if (currentAttempt && failedAt - currentAttempt.lastFailAt < LOGIN_LOCK_MS && currentAttempt.count >= LOGIN_MAX_ATTEMPTS) {
+          return {
+            locked: true as const,
+            retryAfter: Math.ceil((LOGIN_LOCK_MS - (failedAt - currentAttempt.lastFailAt)) / 1000),
+          }
+        }
+
+        const recentCount = currentAttempt && failedAt - currentAttempt.lastFailAt < LOGIN_LOCK_MS ? currentAttempt.count : 0
         const next = currentAttempts.filter(item => item.email !== email)
-        next.push({ email, count: (currentAttempt?.count ?? 0) + 1, lastFailAt: failedAt })
+        next.push({ email, count: recentCount + 1, lastFailAt: failedAt })
         await saveLoginAttempts(paths, next)
+        return { locked: false as const, retryAfter: undefined }
       })
+
+      if (failure.locked) {
+        sendError(res, 429, `尝试过于频繁，请 ${Math.ceil(failure.retryAfter / 60)} 分钟后再试`, { retryAfter: failure.retryAfter })
+        return true
+      }
       sendError(res, 401, '邮箱或密码错误')
       return true
     }
-    // 登录成功时同时串行清除失败记录并更新用户元数据，避免覆盖管理员/注册并发写入。
-    const updatedUser = await withAuthMutation(async () => {
-      const currentAttempts = await loadLoginAttempts(paths)
-      await saveLoginAttempts(paths, currentAttempts.filter(item => item.email !== email))
+
+    // 登录提交与密码重置共用同一把认证锁：
+    // 重置先发生时密码哈希会变化，登录失败；登录先发生时随后重置会撤销这个 Session。
+    const sessionToken = randomBytes(32).toString('base64url')
+    const login = await withAuthMutation(async () => {
       const currentUsers = await loadUsers(paths)
-      const currentUserRecord = currentUsers.find(item => item.id === user.id)
-      if (!currentUserRecord) return null
-      const updated = { ...currentUserRecord, lastLoginAt: Date.now() }
-      await saveUsers(paths, currentUsers.map(item => item.id === user.id ? updated : item))
-      return updated
+      const currentUserRecord = currentUsers.find(item => item.id === userSnapshot.id && item.email === email)
+      if (!currentUserRecord || currentUserRecord.passwordHash !== userSnapshot.passwordHash) {
+        return {
+          ok: false as const,
+          status: 401,
+          error: '邮箱或密码错误',
+          retryAfter: undefined as number | undefined,
+        }
+      }
+
+      const committedAt = Date.now()
+      const currentAttempts = await loadLoginAttempts(paths)
+      const currentAttempt = currentAttempts.find(item => item.email === email)
+      if (currentAttempt && committedAt - currentAttempt.lastFailAt < LOGIN_LOCK_MS && currentAttempt.count >= LOGIN_MAX_ATTEMPTS) {
+        const retryAfter = Math.ceil((LOGIN_LOCK_MS - (committedAt - currentAttempt.lastFailAt)) / 1000)
+        return {
+          ok: false as const,
+          status: 429,
+          error: `尝试过于频繁，请 ${Math.ceil(retryAfter / 60)} 分钟后再试`,
+          retryAfter,
+        }
+      }
+
+      const updatedUser = { ...currentUserRecord, lastLoginAt: committedAt }
+      await saveLoginAttempts(paths, currentAttempts.filter(item => item.email !== email))
+      await saveUsers(paths, currentUsers.map(item => item.id === currentUserRecord.id ? updatedUser : item))
+
+      const sessions = (await loadSessions(paths)).filter(session => session.expiresAt > committedAt && session.userId !== currentUserRecord.id)
+      sessions.push({
+        token: sessionToken,
+        userId: currentUserRecord.id,
+        createdAt: committedAt,
+        expiresAt: committedAt + SESSION_MAX_AGE * 1000,
+      })
+      await saveSessions(paths, sessions)
+
+      return {
+        ok: true as const,
+        user: updatedUser,
+        retryAfter: undefined as number | undefined,
+      }
     })
-    if (!updatedUser) {
-      sendError(res, 401, '用户不存在')
+
+    if (!login.ok) {
+      sendError(res, login.status, login.error, login.retryAfter !== undefined ? { retryAfter: login.retryAfter } : undefined)
       return true
     }
-    await claimLegacyProjects(paths, updatedUser.id)
-    await createSession(updatedUser.id, paths, res)
-    sendJson(res, 200, { user: authUser(updatedUser) })
+
+    setSessionCookie(res, sessionToken)
+    await claimLegacyProjects(paths, login.user.id)
+    sendJson(res, 200, { user: authUser(login.user) })
     return true
   }
-
   if (req.method === 'POST' && pathname === '/api/auth/logout') {
     await removeSession(req, paths)
     clearSessionCookie(res)
