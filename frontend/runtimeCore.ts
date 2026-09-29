@@ -2685,11 +2685,18 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
       sendError(res, 400, '备份文件格式无效')
       return true
     }
-    let restored = 0
-    if (payload.data && typeof payload.data === 'object' && !Array.isArray(payload.data)) {
+    // 第一阶段：只解析与校验，不写盘。坏备份必须在任何持久化修改前失败。
+    const stagedProjects: Array<{ projectId: string; file: string; content: Record<string, unknown> }> = []
+    const stagedVersions: Array<{ projectId: string; file: string; content: Record<string, unknown> }> = []
+    const stagedAssets: Array<{ name: string; buffer: Buffer }> = []
+    let stagedUsers: StoredUser[] | undefined
+    let stagedInvites: StoredInvite[] | undefined
+    let stagedShares: StoredShare[] | undefined
+
+    if (payload.data !== undefined) {
+      if (!isRecord(payload.data)) throw new RequestBodyError('备份中的 data 格式无效')
       for (const [file, content] of Object.entries(payload.data)) {
-        // 顶层项目文件名只能来自合法项目 ID，且内容中的 id 必须与文件名一致。
-        if (!/^[a-zA-Z0-9_-]+\.json$/.test(file)) continue
+        if (!/^[a-zA-Z0-9_-]+\.json$/.test(file)) throw new RequestBodyError(`备份中的项目文件名无效: ${file}`)
         const projectId = file.slice(0, -5)
         if (!isRecord(content)
           || content.id !== projectId
@@ -2699,16 +2706,18 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
           || (content.deletedAt !== undefined && !isFiniteNumber(content.deletedAt))) {
           throw new RequestBodyError(`备份中的项目文件格式无效: ${file}`)
         }
-        await withProjectMutation(projectId, () => writeJson(path.join(paths.dataDirectory, file), content))
-        restored++
+        stagedProjects.push({ projectId, file, content })
       }
     }
 
-    if (payload.versions && typeof payload.versions === 'object' && !Array.isArray(payload.versions)) {
+    if (payload.versions !== undefined) {
+      if (!isRecord(payload.versions)) throw new RequestBodyError('备份中的 versions 格式无效')
       for (const [relativePath, content] of Object.entries(payload.versions)) {
         const match = relativePath.match(/^([a-zA-Z0-9_-]+)\/([a-zA-Z0-9_-]+\.json)$/)
-        if (!match) continue
-        const versionId = match[2]!.slice(0, -5)
+        if (!match) throw new RequestBodyError(`备份中的版本路径无效: ${relativePath}`)
+        const projectId = match[1]!
+        const file = match[2]!
+        const versionId = file.slice(0, -5)
         if (!isRecord(content)
           || content.id !== versionId
           || typeof content.content !== 'string'
@@ -2716,44 +2725,77 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
           || (content.name !== undefined && typeof content.name !== 'string')) {
           throw new RequestBodyError(`备份中的版本文件格式无效: ${relativePath}`)
         }
-        await writeJson(path.join(paths.dataDirectory, 'versions', match[1]!, match[2]!), content)
-        restored++
+        stagedVersions.push({ projectId, file, content })
       }
     }
 
-    if (payload.assets && typeof payload.assets === 'object' && !Array.isArray(payload.assets)) {
+    if (payload.assets !== undefined) {
+      if (!isRecord(payload.assets)) throw new RequestBodyError('备份中的 assets 格式无效')
+      let restoredAssetBytes = 0
+      for (const [name, encoded] of Object.entries(payload.assets)) {
+        if (!ASSET_FILE_PATTERN.test(name) || typeof encoded !== 'string' || !/^[A-Za-z0-9+/]*={0,2}$/.test(encoded)) {
+          throw new RequestBodyError(`备份中的图片资源格式无效: ${name}`)
+        }
+        const buffer = Buffer.from(encoded, 'base64')
+        if (buffer.length === 0 || buffer.length > MAX_ASSET_BYTES) {
+          throw new RequestBodyError(`备份中的图片资源大小无效: ${name}`)
+        }
+        restoredAssetBytes += buffer.length
+        if (restoredAssetBytes > MAX_WEB_BACKUP_ASSET_BYTES) {
+          throw new RequestBodyError('备份中的图片总量超过 Web 恢复安全上限', 413)
+        }
+        const extension = name.split('.').pop() ?? ''
+        const expectedName = `${createHash('sha256').update(buffer).digest('hex').slice(0, 40)}.${extension}`
+        if (expectedName !== name) throw new RequestBodyError(`备份图片哈希不匹配: ${name}`)
+        stagedAssets.push({ name, buffer })
+      }
+    }
+
+    if (payload.auth !== undefined) {
+      if (!isRecord(payload.auth)) throw new RequestBodyError('备份中的 auth 格式无效')
+      if (payload.auth['users.json'] !== undefined) {
+        stagedUsers = validateRestoredUsers(payload.auth['users.json'])
+        if (stagedUsers.length > DEFAULT_MAX_USERS) {
+          throw new RequestBodyError(
+            `备份用户数（${stagedUsers.length}）超过当前服务器上限（${DEFAULT_MAX_USERS}）`,
+            413,
+          )
+        }
+      }
+      if (payload.auth['invites.json'] !== undefined) stagedInvites = validateRestoredInvites(payload.auth['invites.json'])
+      if (payload.auth['shares.json'] !== undefined) stagedShares = validateRestoredShares(payload.auth['shares.json'])
+    }
+
+    // 第二阶段：所有备份内容已验证后才开始写盘。
+    let restored = 0
+    for (const item of stagedProjects) {
+      await withProjectMutation(item.projectId, () => writeJson(path.join(paths.dataDirectory, item.file), item.content))
+      restored++
+    }
+    for (const item of stagedVersions) {
+      await withProjectMutation(item.projectId, () =>
+        writeJson(path.join(paths.dataDirectory, 'versions', item.projectId, item.file), item.content))
+      restored++
+    }
+
+    if (stagedAssets.length > 0) {
       const directory = assetsDirectory(paths)
       await fsp.mkdir(directory, { recursive: true })
       await withAssetStorageMutation(directory, async () => {
         let used = await assetStorageUsage(directory)
-        let restoredAssetBytes = 0
-        for (const [name, encoded] of Object.entries(payload.assets!)) {
-          if (!ASSET_FILE_PATTERN.test(name) || typeof encoded !== 'string') continue
-          const buffer = Buffer.from(encoded, 'base64')
-          if (buffer.length === 0 || buffer.length > MAX_ASSET_BYTES) {
-            throw new RequestBodyError(`备份中的图片资源大小无效: ${name}`)
-          }
-          restoredAssetBytes += buffer.length
-          if (restoredAssetBytes > MAX_WEB_BACKUP_ASSET_BYTES) {
-            throw new RequestBodyError('备份中的图片总量超过 Web 恢复安全上限', 413)
-          }
-          const extension = name.split('.').pop() ?? ''
-          const expectedName = `${createHash('sha256').update(buffer).digest('hex').slice(0, 40)}.${extension}`
-          if (expectedName !== name) throw new RequestBodyError(`备份图片哈希不匹配: ${name}`)
-
-          const target = path.join(directory, name)
+        for (const item of stagedAssets) {
+          const target = path.join(directory, item.name)
           try {
             await fsp.access(target)
-            // 同内容寻址文件已存在，无需重复占用容量。
           } catch {
-            if (used + buffer.length > MAX_ASSET_STORAGE_BYTES) {
+            if (used + item.buffer.length > MAX_ASSET_STORAGE_BYTES) {
               throw new RequestBodyError(
                 `恢复后图片资源库将超过容量上限（${MAX_ASSET_STORAGE_MB} MiB）`,
                 507,
               )
             }
-            await writeBufferAtomic(target, buffer)
-            used += buffer.length
+            await writeBufferAtomic(target, item.buffer)
+            used += item.buffer.length
             restored++
           }
         }
@@ -2761,31 +2803,25 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
       })
     }
 
-    const durableAuthFiles = new Set(['users.json', 'invites.json', 'shares.json'])
     const canResumeAdminSession = await withAuthMutation(async () => {
       const currentUsers = await loadUsers(paths)
       const currentRoot = currentUsers.find(item => item.email.toLowerCase() === DEFAULT_ADMIN_EMAIL)
 
-      if (payload.auth && typeof payload.auth === 'object' && !Array.isArray(payload.auth)) {
-        for (const [file, rawContent] of Object.entries(payload.auth)) {
-          if (!durableAuthFiles.has(file)) continue
-
-          let content: unknown
-          if (file === 'users.json') {
-            const restoredUsers = validateRestoredUsers(rawContent).map(item =>
-              item.email === DEFAULT_ADMIN_EMAIL ? { ...item, isAdmin: true } : item)
-            const hasRoot = restoredUsers.some(item => item.email === DEFAULT_ADMIN_EMAIL)
-            if (!hasRoot && currentRoot) restoredUsers.push({ ...currentRoot, isAdmin: true })
-            content = restoredUsers
-          } else if (file === 'invites.json') {
-            content = validateRestoredInvites(rawContent)
-          } else {
-            content = validateRestoredShares(rawContent)
-          }
-
-          await writeJson(path.join(paths.authDirectory, file), content)
-          restored++
-        }
+      if (stagedUsers) {
+        const restoredUsers = stagedUsers.map(item =>
+          item.email === DEFAULT_ADMIN_EMAIL ? { ...item, isAdmin: true } : item)
+        const hasRoot = restoredUsers.some(item => item.email === DEFAULT_ADMIN_EMAIL)
+        if (!hasRoot && currentRoot) restoredUsers.push({ ...currentRoot, isAdmin: true })
+        await writeJson(path.join(paths.authDirectory, 'users.json'), restoredUsers)
+        restored++
+      }
+      if (stagedInvites) {
+        await writeJson(path.join(paths.authDirectory, 'invites.json'), stagedInvites)
+        restored++
+      }
+      if (stagedShares) {
+        await writeJson(path.join(paths.authDirectory, 'shares.json'), stagedShares)
+        restored++
       }
 
       // 恢复完成后统一撤销所有旧会话和一次性认证状态。
