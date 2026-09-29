@@ -1510,6 +1510,101 @@ async function handleLogs(req: IncomingMessage, res: ServerResponse, paths: Runt
   return false
 }
 
+interface CanvasGraph {
+  version?: number
+  shapes?: Record<string, Record<string, unknown>>
+  groups?: Record<string, Record<string, unknown> & { id?: string; name?: string; childIds?: string[]; parentId?: string }>
+  order?: string[]
+  [key: string]: unknown
+}
+
+function canvasGraph(project: StoredDocument): CanvasGraph {
+  const canvas = projectCanvas(project)
+  if (!canvas || typeof canvas !== 'object' || Array.isArray(canvas)) return { version: 3, shapes: {}, groups: {}, order: [] }
+  return JSON.parse(JSON.stringify(canvas)) as CanvasGraph
+}
+
+function collectGroupGraph(canvas: CanvasGraph, rootId: string): { groupIds: string[]; shapeIds: string[] } | null {
+  const groups = canvas.groups ?? {}
+  const shapes = canvas.shapes ?? {}
+  if (!groups[rootId]) return null
+  const groupIds: string[] = []
+  const shapeIds: string[] = []
+  const seen = new Set<string>()
+  const stack = [rootId]
+  while (stack.length > 0) {
+    const groupId = stack.pop()!
+    if (seen.has(groupId)) continue
+    seen.add(groupId)
+    const group = groups[groupId]
+    if (!group) continue
+    groupIds.push(groupId)
+    for (const childId of Array.isArray(group.childIds) ? group.childIds : []) {
+      if (groups[childId]) stack.push(childId)
+      else if (shapes[childId]) shapeIds.push(childId)
+    }
+  }
+  return { groupIds, shapeIds: [...new Set(shapeIds)] }
+}
+
+function cloneGroupIntoCanvas(source: CanvasGraph, target: CanvasGraph, rootId: string): { groupId: string; groupName: string } | null {
+  const graph = collectGroupGraph(source, rootId)
+  if (!graph) return null
+  const sourceGroups = source.groups ?? {}
+  const sourceShapes = source.shapes ?? {}
+  target.groups ??= {}
+  target.shapes ??= {}
+  target.order ??= []
+
+  const idMap = new Map<string, string>()
+  for (const id of graph.groupIds) idMap.set(id, newId('g'))
+  for (const id of graph.shapeIds) idMap.set(id, newId('s'))
+
+  for (const sourceId of graph.groupIds) {
+    const original = sourceGroups[sourceId]!
+    const mappedId = idMap.get(sourceId)!
+    const cloned = JSON.parse(JSON.stringify(original)) as Record<string, unknown> & { childIds?: string[]; parentId?: string; id?: string }
+    cloned.id = mappedId
+    cloned.childIds = (Array.isArray(original.childIds) ? original.childIds : []).map(id => idMap.get(id)).filter((id): id is string => Boolean(id))
+    cloned.parentId = sourceId === rootId ? undefined : (original.parentId ? idMap.get(original.parentId) : undefined)
+    target.groups[mappedId] = cloned
+  }
+
+  for (const sourceId of graph.shapeIds) {
+    const original = sourceShapes[sourceId]!
+    const mappedId = idMap.get(sourceId)!
+    const cloned = JSON.parse(JSON.stringify(original)) as Record<string, unknown> & {
+      id?: string
+      x?: number
+      y?: number
+      groupId?: string
+      link?: { kind?: string; targetId?: string; [key: string]: unknown }
+      startBinding?: { shapeId?: string; [key: string]: unknown }
+      endBinding?: { shapeId?: string; [key: string]: unknown }
+    }
+    cloned.id = mappedId
+    if (typeof cloned.x === 'number') cloned.x += 40
+    if (typeof cloned.y === 'number') cloned.y += 40
+    if (cloned.groupId) cloned.groupId = idMap.get(cloned.groupId)
+    if (cloned.link?.kind === 'shape' && cloned.link.targetId) {
+      const mapped = idMap.get(cloned.link.targetId)
+      cloned.link = mapped ? { ...cloned.link, targetId: mapped } : undefined
+    }
+    if (cloned.startBinding?.shapeId) {
+      const mapped = idMap.get(cloned.startBinding.shapeId)
+      cloned.startBinding = mapped ? { ...cloned.startBinding, shapeId: mapped } : undefined
+    }
+    if (cloned.endBinding?.shapeId) {
+      const mapped = idMap.get(cloned.endBinding.shapeId)
+      cloned.endBinding = mapped ? { ...cloned.endBinding, shapeId: mapped } : undefined
+    }
+    target.shapes[mappedId] = cloned
+  }
+
+  const newRootId = idMap.get(rootId)!
+  target.order.push(newRootId)
+  return { groupId: newRootId, groupName: String(sourceGroups[rootId]?.name ?? '未命名分组') }
+}
 export async function handleAdmin(req: IncomingMessage, res: ServerResponse, paths: RuntimePaths, pathname: string): Promise<boolean> {
   // 仅处理 /api/admin/* 路径，其他路径不拦截
   if (!pathname.startsWith('/api/admin/')) return false
