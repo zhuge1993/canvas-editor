@@ -10,6 +10,7 @@ lerna-debug.log*
 node_modules
 dist
 flowboard.env.cmd
+flowboard.env
 dist-ssr
 *.local
 
