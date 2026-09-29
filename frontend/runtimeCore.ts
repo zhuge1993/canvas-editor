@@ -1,4 +1,5 @@
 import { createHash, randomBytes, randomInt, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto'
+import { createReadStream } from 'node:fs'
 import fsp from 'node:fs/promises'
 import net from 'node:net'
 import os from 'node:os'
@@ -1632,14 +1633,24 @@ async function handleAssets(req: IncomingMessage, res: ServerResponse, paths: Ru
       return true
     }
     try {
-      const content = await fsp.readFile(path.join(assetsDirectory(paths), name))
+      const file = path.join(assetsDirectory(paths), name)
+      const stat = await fsp.stat(file)
+      if (!stat.isFile()) throw new Error('not a file')
       res.statusCode = 200
       res.setHeader('Content-Type', ASSET_MIME[name.split('.').pop() ?? ''] ?? 'application/octet-stream')
+      res.setHeader('Content-Length', String(stat.size))
       // 内容寻址：内容变则 URL 变，可以放心长期强缓存
       res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
-      res.end(req.method === 'HEAD' ? undefined : content)
+      if (req.method === 'HEAD') {
+        res.end()
+      } else {
+        const stream = createReadStream(file)
+        stream.on('error', () => res.destroy())
+        stream.pipe(res)
+      }
     } catch {
-      sendError(res, 404, '资源不存在')
+      if (!res.headersSent) sendError(res, 404, '资源不存在')
+      else res.destroy()
     }
     return true
   }
