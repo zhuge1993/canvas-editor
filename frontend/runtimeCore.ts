@@ -665,6 +665,49 @@ async function verifyPassword(password: string, encoded: string): Promise<boolea
   return actual.length === expected.length && timingSafeEqual(actual, expected)
 }
 
+async function verifySharePasswordAttempt(token: string, passwordHash: string, password: string): Promise<{
+  ok: boolean
+  status: number
+  retryAfter?: number
+}> {
+  if (!password) return { ok: false, status: 401 }
+  if (password.length > 256) return { ok: false, status: 400 }
+
+  return withLoginPasswordWork(async () => {
+    const checkedAt = Date.now()
+    const attempt = sharePasswordAttempts.get(token)
+    if (attempt && checkedAt - attempt.lastFailAt < SHARE_PASSWORD_LOCK_MS && attempt.count >= SHARE_PASSWORD_MAX_ATTEMPTS) {
+      return {
+        ok: false,
+        status: 429,
+        retryAfter: Math.ceil((SHARE_PASSWORD_LOCK_MS - (checkedAt - attempt.lastFailAt)) / 1000),
+      }
+    }
+
+    const ok = await verifyPassword(password, passwordHash)
+    if (ok) {
+      sharePasswordAttempts.delete(token)
+      return { ok: true, status: 200 }
+    }
+
+    const failedAt = Date.now()
+    const current = sharePasswordAttempts.get(token)
+    const recentCount = current && failedAt - current.lastFailAt < SHARE_PASSWORD_LOCK_MS ? current.count : 0
+    sharePasswordAttempts.set(token, { count: recentCount + 1, lastFailAt: failedAt })
+    return { ok: false, status: 401 }
+  })
+}
+
+function sendSharePasswordError(res: ServerResponse, result: { status: number; retryAfter?: number }): void {
+  if (result.status === 429) {
+    sendError(res, 429, '分享密码尝试过于频繁，请稍后再试', { retryAfter: result.retryAfter })
+  } else if (result.status === 400) {
+    sendError(res, 400, '分享密码过长')
+  } else {
+    sendError(res, 401, '分享密码错误')
+  }
+}
+
 function hashCode(code: string): string {
   return createHash('sha256').update(code).digest('hex')
 }
@@ -1512,38 +1555,9 @@ async function handleShare(req: IncomingMessage, res: ServerResponse, paths: Run
   if (share.passwordHash) {
     const password = (typeof req.headers['x-share-password'] === 'string' ? req.headers['x-share-password'] : '')
       || new URL(req.url ?? '/', 'http://localhost').searchParams.get('password') || ''
-    if (password.length > 256) {
-      sendError(res, 400, '分享密码过长')
-      return true
-    }
-
-    const passwordResult = await withLoginPasswordWork(async () => {
-      const checkedAt = Date.now()
-      const attempt = sharePasswordAttempts.get(token)
-      if (attempt && checkedAt - attempt.lastFailAt < SHARE_PASSWORD_LOCK_MS && attempt.count >= SHARE_PASSWORD_MAX_ATTEMPTS) {
-        const retryAfter = Math.ceil((SHARE_PASSWORD_LOCK_MS - (checkedAt - attempt.lastFailAt)) / 1000)
-        return { ok: false as const, status: 429, retryAfter }
-      }
-
-      const ok = await verifyPassword(password, share.passwordHash!)
-      if (ok) {
-        sharePasswordAttempts.delete(token)
-        return { ok: true as const, status: 200, retryAfter: undefined as number | undefined }
-      }
-
-      const failedAt = Date.now()
-      const current = sharePasswordAttempts.get(token)
-      const recentCount = current && failedAt - current.lastFailAt < SHARE_PASSWORD_LOCK_MS ? current.count : 0
-      sharePasswordAttempts.set(token, { count: recentCount + 1, lastFailAt: failedAt })
-      return { ok: false as const, status: 401, retryAfter: undefined as number | undefined }
-    })
-
+    const passwordResult = await verifySharePasswordAttempt(token, share.passwordHash, password)
     if (!passwordResult.ok) {
-      if (passwordResult.status === 429) {
-        sendError(res, 429, '分享密码尝试过于频繁，请稍后再试', { retryAfter: passwordResult.retryAfter })
-      } else {
-        sendError(res, 401, '分享密码错误')
-      }
+      sendSharePasswordError(res, passwordResult)
       return true
     }
   }
@@ -1607,6 +1621,15 @@ async function handleAssets(req: IncomingMessage, res: ServerResponse, paths: Ru
       if (!share) {
         sendError(res, 401, '登录或有效的可编辑分享链接才能上传图片')
         return true
+      }
+      if (share.passwordHash) {
+        const passwordHeader = req.headers['x-flowboard-share-password']
+        const password = Array.isArray(passwordHeader) ? (passwordHeader[0] ?? '') : (passwordHeader ?? '')
+        const passwordResult = await verifySharePasswordAttempt(share.token, share.passwordHash, password)
+        if (!passwordResult.ok) {
+          sendSharePasswordError(res, passwordResult)
+          return true
+        }
       }
     }
     const body = await readBody(req, MAX_ASSET_REQUEST_BYTES)
@@ -1838,6 +1861,7 @@ async function handleProjects(req: IncomingMessage, res: ServerResponse, paths: 
         ...share,
         url: shareUrl(req, share.token),
         passwordHash: undefined,
+        hasPassword: Boolean(share.passwordHash),
         expired: share.expiresAt !== undefined && share.expiresAt <= now,
       })))
       return true
@@ -1870,7 +1894,13 @@ async function handleProjects(req: IncomingMessage, res: ServerResponse, paths: 
         const shares = await loadShares(paths)
         await saveShares(paths, [...shares, share])
       })
-      sendJson(res, 201, { ...share, passwordHash: undefined, url: shareUrl(req, share.token) })
+      sendJson(res, 201, {
+        ...share,
+        passwordHash: undefined,
+        hasPassword: Boolean(share.passwordHash),
+        expired: share.expiresAt !== undefined && share.expiresAt <= Date.now(),
+        url: shareUrl(req, share.token),
+      })
       return true
     }
     if (shareItem) {
@@ -1917,7 +1947,13 @@ async function handleProjects(req: IncomingMessage, res: ServerResponse, paths: 
           sendError(res, 404, '分享链接不存在')
           return true
         }
-        sendJson(res, 200, { ...updated, passwordHash: undefined, url: shareUrl(req, token) })
+        sendJson(res, 200, {
+          ...updated,
+          passwordHash: undefined,
+          hasPassword: Boolean(updated.passwordHash),
+          expired: updated.expiresAt !== undefined && updated.expiresAt <= Date.now(),
+          url: shareUrl(req, token),
+        })
         return true
       }
       if (req.method === 'DELETE') {
