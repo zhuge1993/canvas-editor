@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-if ! getent group flowboard >/dev/null 2>&1; then
+if ! grep -q '^flowboard:' /etc/group 2>/dev/null; then
 	addgroup -S flowboard
 fi
 
