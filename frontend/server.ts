@@ -29,9 +29,9 @@ function displayPath(fullPath: string): string {
   return relative.split(path.sep).join('/')
 }
 
-/** 邮件服务是否已配置（SMTP 账号与授权码齐全）；需在 env 文件加载后调用 */
+/** 邮件服务是否已配置；QQ 发件账号默认固定为根管理员邮箱，只需授权码。 */
 function isSmtpConfigured(): boolean {
-  return Boolean(process.env.FLOWBOARD_SMTP_USER && process.env.FLOWBOARD_SMTP_PASS)
+  return Boolean(process.env.FLOWBOARD_SMTP_PASS)
 }
 
 
@@ -77,6 +77,77 @@ function loadEnvironmentFile(filePath: string): void {
 
 loadEnvironmentFile(path.join(runtimeDir, 'flowboard.env.cmd'))
 loadEnvironmentFile(path.join(runtimeDir, 'flowboard.env'))
+
+const DEFAULT_SMTP_EMAIL = (process.env.FLOWBOARD_DEFAULT_ADMIN_EMAIL ?? '804559340@qq.com').trim().toLowerCase()
+const SMTP_ENV_KEYS = ['FLOWBOARD_SMTP_HOST', 'FLOWBOARD_SMTP_PORT', 'FLOWBOARD_SMTP_SECURE', 'FLOWBOARD_SMTP_USER', 'FLOWBOARD_SMTP_PASS', 'FLOWBOARD_SMTP_FROM']
+
+function smtpEnvironmentFile(): string {
+  return path.join(runtimeDir, process.platform === 'win32' ? 'flowboard.env.cmd' : 'flowboard.env')
+}
+
+function writeSmtpEnvironmentFile(): void {
+  const file = smtpEnvironmentFile()
+  let lines: string[] = []
+  try { lines = fs.readFileSync(file, 'utf8').split(/\r?\n/) } catch { /* first configuration */ }
+  const smtpKeys = new Set(SMTP_ENV_KEYS)
+  lines = lines.filter(line => {
+    const cmdMatch = line.match(/^\s*set\s+"(FLOWBOARD_[^=]+)=/i)
+    const envMatch = line.match(/^\s*(FLOWBOARD_[A-Z0-9_]+)\s*=/i)
+    const key = cmdMatch?.[1] ?? envMatch?.[1]
+    return !key || !smtpKeys.has(key)
+  }).filter(line => line.trim() !== '')
+
+  if (process.platform === 'win32') {
+    if (!lines.some(line => /^\s*@echo\s+off\s*$/i.test(line))) lines.unshift('@echo off')
+    for (const key of SMTP_ENV_KEYS) {
+      const value = process.env[key]
+      if (value) lines.push(`set "${key}=${value}"`)
+    }
+    fs.writeFileSync(file, lines.join('\r\n') + '\r\n', 'utf8')
+  } else {
+    for (const key of SMTP_ENV_KEYS) {
+      const value = process.env[key]
+      if (value) lines.push(`${key}='${value.replace(/'/g, `'"'"'`)}'`)
+    }
+    fs.writeFileSync(file, lines.join('\n') + '\n', { encoding: 'utf8', mode: 0o600 })
+    try { fs.chmodSync(file, 0o600) } catch { /* best effort */ }
+  }
+}
+
+function configureDefaultQqSmtp(authorizationCode: string): void {
+  const code = authorizationCode.trim()
+  if (!/^[A-Za-z0-9]{8,64}$/.test(code)) throw new Error('QQ 邮箱授权码格式不正确，应为 8-64 位字母或数字')
+  process.env.FLOWBOARD_SMTP_HOST = 'smtp.qq.com'
+  process.env.FLOWBOARD_SMTP_PORT = '465'
+  process.env.FLOWBOARD_SMTP_SECURE = 'true'
+  process.env.FLOWBOARD_SMTP_USER = DEFAULT_SMTP_EMAIL
+  process.env.FLOWBOARD_SMTP_PASS = code
+  process.env.FLOWBOARD_SMTP_FROM = DEFAULT_SMTP_EMAIL
+  writeSmtpEnvironmentFile()
+}
+
+function clearSmtpConfiguration(): void {
+  for (const key of SMTP_ENV_KEYS) delete process.env[key]
+  writeSmtpEnvironmentFile()
+}
+
+function hasQuickSmtpCommand(): boolean {
+  const command = (process.argv[2] ?? '').toLowerCase()
+  const service = (process.argv[3] ?? '').toLowerCase()
+  return command === 'set' && (service === 'stp' || service === 'smtp')
+}
+
+function runQuickSmtpCommand(): void {
+  const authorizationCode = process.argv[4] ?? ''
+  if (!authorizationCode) {
+    console.error('用法: node server-bundle.cjs set stp <QQ邮箱授权码>')
+    process.exitCode = 1
+    return
+  }
+  configureDefaultQqSmtp(authorizationCode)
+  console.log(`SMTP 已配置：smtp.qq.com:465 / ${DEFAULT_SMTP_EMAIL}`)
+  console.log(`配置已保存到：${displayPath(smtpEnvironmentFile())}`)
+}
 
 // ── MIME 类型 ─────────────────────────────────────────────
 const MIME: Record<string, string> = {
@@ -442,9 +513,10 @@ const CONSOLE_HELP = `
   deldoc <docId>              删除文档（进回收站可在网页恢复）
   deluser <邮箱>               删除用户及其全部文档
 
+  set stp <授权码>             快速配置 QQ SMTP（默认账号 804559340@qq.com）
   smtp                        显示当前 SMTP 配置状态
   smtp set <主机> <端口> <账号> <授权码> [发件人]
-      配置邮件服务（立即生效并写入 flowboard.env.cmd）
+      高级配置邮件服务（立即生效并写入当前平台环境文件）
       例：smtp set smtp.qq.com 465 me@qq.com abcdefghijklmnop
       例：smtp set smtp.163.com 465 me@163.com mypass me@163.com
       说明：QQ 邮箱授权码 = QQ邮箱→设置→账户→开启SMTP→生成授权码
@@ -475,7 +547,6 @@ function startInteractiveConsole(options: RuntimeOptions): void {
   rl.prompt()
 
   const userFile = path.join(authDirectory, 'users.json')
-  const envFile = path.join(runtimeDir, 'flowboard.env.cmd')
 
   const readJsonSafe = <T>(file: string, fallback: T): T => {
     try { return JSON.parse(fs.readFileSync(file, 'utf8')) as T } catch { return fallback }
@@ -483,15 +554,6 @@ function startInteractiveConsole(options: RuntimeOptions): void {
   const writeJsonSafe = (file: string, value: unknown): void => {
     fs.writeFileSync(file, JSON.stringify(value, null, 2), 'utf8')
   }
-  const writeSmtpEnv = (): void => {
-    const lines = ['@echo off']
-    for (const key of ['FLOWBOARD_SMTP_HOST', 'FLOWBOARD_SMTP_PORT', 'FLOWBOARD_SMTP_SECURE', 'FLOWBOARD_SMTP_USER', 'FLOWBOARD_SMTP_PASS', 'FLOWBOARD_SMTP_FROM']) {
-      const value = process.env[key]
-      if (value) lines.push(`set "${key}=${value}"`)
-    }
-    fs.writeFileSync(envFile, lines.join('\r\n') + '\r\n', 'utf8')
-  }
-
   rl.on('line', (raw) => {
     const input = raw.trim()
     if (!input) { rl.prompt(); return }
@@ -501,6 +563,20 @@ function startInteractiveConsole(options: RuntimeOptions): void {
 
     try {
       switch (cmd) {
+        case 'set': {
+          const service = (args[0] ?? '').toLowerCase()
+          if (service !== 'stp' && service !== 'smtp') {
+            console.log('用法：set stp <QQ邮箱授权码>')
+            break
+          }
+          const authorizationCode = args[1] ?? ''
+          if (!authorizationCode) { console.log('用法：set stp <QQ邮箱授权码>'); break }
+          configureDefaultQqSmtp(authorizationCode)
+          console.log(`✓ SMTP 已配置：smtp.qq.com:465 / ${DEFAULT_SMTP_EMAIL}`)
+          console.log(`  已保存到 ${displayPath(smtpEnvironmentFile())}`)
+          break
+        }
+
         case 'help': case '?': case 'h':
           console.log(CONSOLE_HELP)
           break
@@ -649,8 +725,8 @@ function startInteractiveConsole(options: RuntimeOptions): void {
             process.env.FLOWBOARD_SMTP_USER = user
             process.env.FLOWBOARD_SMTP_PASS = pass
             process.env.FLOWBOARD_SMTP_FROM = from || user
-            writeSmtpEnv()
-            console.log('SMTP 配置已保存并立即生效（已写入 flowboard.env.cmd）')
+            writeSmtpEnvironmentFile()
+            console.log(`SMTP 配置已保存并立即生效（${displayPath(smtpEnvironmentFile())}）`)
             console.log(`可执行 smtp test ${user} 发送测试邮件验证`)
             break
           }
@@ -664,7 +740,7 @@ function startInteractiveConsole(options: RuntimeOptions): void {
           }
           if (sub === 'clear') {
             for (const key of ['FLOWBOARD_SMTP_HOST', 'FLOWBOARD_SMTP_PORT', 'FLOWBOARD_SMTP_SECURE', 'FLOWBOARD_SMTP_USER', 'FLOWBOARD_SMTP_PASS', 'FLOWBOARD_SMTP_FROM']) delete process.env[key]
-            try { fs.unlinkSync(envFile) } catch { /* empty */ }
+            clearSmtpConfiguration()
             console.log('SMTP 配置已清除')
             break
           }
@@ -880,7 +956,9 @@ function runAsDaemon(): void {
   spawnChild()
 }
 
-if (hasAdminCommand()) {
+if (hasQuickSmtpCommand()) {
+  runQuickSmtpCommand()
+} else if (hasAdminCommand()) {
   // 命令行管理模式：直接操作本地数据，输出后退出
   void runAdminCommand().then(() => process.exit(0)).catch(error => {
     console.error('管理命令执行失败:', error instanceof Error ? error.message : error)
