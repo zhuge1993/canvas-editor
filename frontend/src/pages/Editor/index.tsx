@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useCanvasStore } from '@/store/useCanvasStore'
 import { useEditorStore } from '@/store/useEditorStore'
 import { getDocument, saveDocument } from '@/utils/storage'
-import { getSharedProject, saveSharedProject, type ProjectAccess } from '@/services/auth'
+import { AuthRequestError, getSharedProject, saveSharedProject, type ProjectAccess } from '@/services/auth'
 import { constrainCameraToWorkspace, createEmptyCanvasDocument, createShape, type ImageShape, type Shape } from '@/canvas/types'
 import { logError, logOperation } from '@/utils/logger'
 import TopMenu from '@/components/editor/TopMenu'
@@ -21,6 +21,7 @@ export default function EditorPage() {
   const savedContentRef = useRef('')
   const [loadedDocId, setLoadedDocId] = useState<string | null>(null)
   const [project, setProject] = useState<ProjectAccess | null>(null)
+  const [sharePassword, setSharePassword] = useState('')
   const [loadError, setLoadError] = useState('')
   const [showFindReplace, setShowFindReplace] = useState(false)
 
@@ -104,6 +105,7 @@ export default function EditorPage() {
     clearTimeout(autoSaveTimer.current)
     setLoadedDocId(null)
     setProject(null)
+    setSharePassword('')
     setLoadError('')
     savedContentRef.current = ''
     setDocumentTitle('未命名画布')
@@ -112,7 +114,22 @@ export default function EditorPage() {
     setTool('select')
 
     const load = shareToken
-      ? getSharedProject(shareToken)
+      ? (async () => {
+          let password = ''
+          while (true) {
+            try {
+              const shared = await getSharedProject(shareToken, password || undefined)
+              if (!cancelled) setSharePassword(password)
+              return shared
+            } catch (error) {
+              if (!(error instanceof AuthRequestError) || error.status !== 401) throw error
+              const entered = window.prompt(password ? '分享密码错误，请重新输入：' : '此分享链接需要密码：')
+              if (entered === null) throw new Error('已取消输入分享密码')
+              password = entered.trim()
+              if (!password) continue
+            }
+          }
+        })()
       : routeDocId ? getDocument(routeDocId) : Promise.resolve(undefined)
 
     void load.then((loaded) => {
@@ -179,7 +196,7 @@ export default function EditorPage() {
         createdAt: project?.createdAt ?? Date.now(),
         updatedAt: Date.now(),
       }
-      if (shareToken) await saveSharedProject(shareToken, payload)
+      if (shareToken) await saveSharedProject(shareToken, payload, sharePassword || undefined)
       else await saveDocument(payload)
       setProject(current => current ? { ...current, title: payload.title, content, updatedAt: payload.updatedAt } : current)
       savedContentRef.current = content
@@ -200,7 +217,7 @@ export default function EditorPage() {
       logError('project.save_failed', error, { docId, shared: Boolean(shareToken) })
       return false
     }
-  }, [canEdit, docId, documentTitle, getSnapshot, loadedDocId, project?.createdAt, setSaveStatus, shareToken])
+  }, [canEdit, docId, documentTitle, getSnapshot, loadedDocId, project?.createdAt, setSaveStatus, sharePassword, shareToken])
 
   const returnToProjectList = useCallback(async () => {
     clearTimeout(autoSaveTimer.current)
@@ -292,7 +309,7 @@ export default function EditorPage() {
       }
       void (async () => {
         const { prepareImageSrc } = await import('@/utils/image')
-        const prepared = await prepareImageSrc(imageFile, undefined, shareToken)
+        const prepared = await prepareImageSrc(imageFile, undefined, shareToken, sharePassword || undefined)
         const shape = createShape('image', world.x - prepared.width / 2, world.y - prepared.height / 2, prepared.width, prepared.height) as ImageShape
         shape.src = prepared.src
         shape.aspectRatio = prepared.width / Math.max(1, prepared.height)
@@ -429,7 +446,7 @@ export default function EditorPage() {
         {!readOnly && <LeftToolbar />}
         <div ref={viewportRef} className="relative flex-1 overflow-hidden" onDrop={handleDrop} onDragOver={(event) => event.preventDefault()}>
           <CanvasErrorBoundary>
-            <CanvasEngine readOnly={readOnly} assetShareToken={shareToken} />
+            <CanvasEngine readOnly={readOnly} assetShareToken={shareToken} assetSharePassword={sharePassword || undefined} />
           </CanvasErrorBoundary>
           <div className="canvas-scrollbar-shell pointer-events-auto absolute bottom-1 left-2 right-4 h-4 px-1">
             <input aria-label="画布水平滚动" type="range" min="0" max={horizontalScrollMax} step="any" value={scrollX} disabled={horizontalScrollMax <= 0} onChange={(event) => setHorizontalScroll(event.currentTarget.value)} className="canvas-scrollbar h-full w-full" />

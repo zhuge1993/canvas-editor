@@ -21,7 +21,17 @@ export interface ShareLink {
   permission: 'view' | 'edit'
   createdAt: number
   updatedAt: number
+  expiresAt?: number
+  expired?: boolean
+  hasPassword?: boolean
   url: string
+}
+
+export interface ShareLinkOptions {
+  expiresInHours?: number
+  password?: string
+  clearExpires?: boolean
+  clearPassword?: boolean
 }
 
 interface ApiErrorPayload {
@@ -98,24 +108,40 @@ export function getShareLinks(projectId: string): Promise<ShareLink[]> {
   return request(`/api/projects/${encodeURIComponent(projectId)}/shares`)
 }
 
-export function createShareLink(projectId: string, permission: 'view' | 'edit'): Promise<ShareLink> {
-  return request(`/api/projects/${encodeURIComponent(projectId)}/shares`, { method: 'POST', body: JSON.stringify({ permission }) })
+export function createShareLink(projectId: string, permission: 'view' | 'edit', options: ShareLinkOptions = {}): Promise<ShareLink> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/shares`, {
+    method: 'POST',
+    body: JSON.stringify({ permission, ...options }),
+  })
 }
 
-export function updateShareLink(projectId: string, token: string, permission: 'view' | 'edit'): Promise<ShareLink> {
-  return request(`/api/projects/${encodeURIComponent(projectId)}/shares/${encodeURIComponent(token)}`, { method: 'PATCH', body: JSON.stringify({ permission }) })
+export function updateShareLink(projectId: string, token: string, permission: 'view' | 'edit', options: ShareLinkOptions = {}): Promise<ShareLink> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/shares/${encodeURIComponent(token)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ permission, ...options }),
+  })
 }
 
 export function revokeShareLink(projectId: string, token: string): Promise<{ ok: boolean }> {
   return request(`/api/projects/${encodeURIComponent(projectId)}/shares/${encodeURIComponent(token)}`, { method: 'DELETE' })
 }
 
-export function getSharedProject(token: string): Promise<ProjectAccess> {
-  return request(`/api/share/${encodeURIComponent(token)}`)
+export function getSharedProject(token: string, password?: string): Promise<ProjectAccess> {
+  return request(`/api/share/${encodeURIComponent(token)}`, {
+    headers: password ? { 'X-Share-Password': password } : undefined,
+  })
 }
 
-export function saveSharedProject(token: string, project: { id: string; title: string; content: string; createdAt: number; updatedAt: number }): Promise<{ ok: boolean; permission: 'edit' }> {
-  return request(`/api/share/${encodeURIComponent(token)}`, { method: 'PUT', body: JSON.stringify(project) })
+export function saveSharedProject(
+  token: string,
+  project: { id: string; title: string; content: string; createdAt: number; updatedAt: number },
+  password?: string,
+): Promise<{ ok: boolean; permission: 'edit' }> {
+  return request(`/api/share/${encodeURIComponent(token)}`, {
+    method: 'PUT',
+    headers: password ? { 'X-Share-Password': password } : undefined,
+    body: JSON.stringify(project),
+  })
 }
 
 /** 管理员：查看所有用户的画册 */

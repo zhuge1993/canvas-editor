@@ -334,9 +334,11 @@ function resizeCircle(original: ShapeGeometry, handle: string, worldX: number, w
 export default function CanvasEngine({
   readOnly = false,
   assetShareToken,
+  assetSharePassword,
 }: {
   readOnly?: boolean
   assetShareToken?: string
+  assetSharePassword?: string
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -1458,7 +1460,7 @@ export default function CanvasEngine({
   const pasteImage = useCallback(
     async (file: File) => {
       const { prepareImageSrc } = await import('@/utils/image')
-      const prepared = await prepareImageSrc(file, undefined, assetShareToken)
+      const prepared = await prepareImageSrc(file, undefined, assetShareToken, assetSharePassword)
       const canvas = canvasRef.current
       const center = canvas
         ? screenToWorld(canvas.clientWidth / 2, canvas.clientHeight / 2)
@@ -1484,7 +1486,7 @@ export default function CanvasEngine({
         external: prepared.external,
       })
     },
-    [addShape, assetShareToken, screenToWorld, select],
+    [addShape, assetSharePassword, assetShareToken, screenToWorld, select],
   )
 
   useEffect(() => {
