@@ -166,6 +166,24 @@ interface RuntimeContext {
 }
 
 const writeQueues = new Map<string, Promise<void>>()
+const projectMutationTails = new Map<string, Promise<void>>()
+
+async function withProjectMutation<T>(projectId: string, operation: () => Promise<T>): Promise<T> {
+  const previous = projectMutationTails.get(projectId) ?? Promise.resolve()
+  let release!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve })
+  const tail = previous.catch(() => undefined).then(() => gate)
+  projectMutationTails.set(projectId, tail)
+  await previous.catch(() => undefined)
+  try {
+    return await operation()
+  } finally {
+    release()
+    void tail.finally(() => {
+      if (projectMutationTails.get(projectId) === tail) projectMutationTails.delete(projectId)
+    })
+  }
+}
 
 function filePath(paths: RuntimePaths, name: string): string {
   const authFile = new Set(['users.json', 'sessions.json', 'verification.json', 'invites.json', 'shares.json', 'login-attempts.json']).has(name)
@@ -1383,11 +1401,20 @@ async function handleShare(req: IncomingMessage, res: ServerResponse, paths: Run
       return true
     }
     const body = await readBody(req)
-    if (body.id !== project.id) {
+    if (body.id !== share.projectId) {
       sendError(res, 400, '项目 ID 不匹配')
       return true
     }
-    await writeProject(paths, body, project.ownerId ?? '', project)
+    const saved = await withProjectMutation(share.projectId, async () => {
+      const latest = await readProject(paths, share.projectId)
+      if (!latest) return false
+      await writeProject(paths, body, latest.ownerId ?? '', latest)
+      return true
+    })
+    if (!saved) {
+      sendError(res, 404, '项目不存在')
+      return true
+    }
     sendJson(res, 200, { ok: true, permission: share.permission })
     return true
   }
@@ -1547,8 +1574,18 @@ async function handleProjects(req: IncomingMessage, res: ServerResponse, paths: 
       try {
         const version = JSON.parse(await fsp.readFile(versionPath, 'utf8')) as { content: string; name?: string }
         const canvas = JSON.parse(version.content)
-        const restored: StoredDocument = { ...project, canvas, updatedAt: Date.now() }
-        await writeJson(projectPath(paths, projectId), restored)
+        const result = await withProjectMutation(projectId, async () => {
+          const latest = await readProject(paths, projectId)
+          if (!latest) return { ok: false as const, status: 404, error: '文档不存在' }
+          if (!canManageProject(user, latest)) return { ok: false as const, status: 403, error: '没有文档管理权限' }
+          const restored: StoredDocument = { ...latest, canvas, updatedAt: Date.now() }
+          await writeJson(projectPath(paths, projectId), restored)
+          return { ok: true as const }
+        })
+        if (!result.ok) {
+          sendError(res, result.status, result.error)
+          return true
+        }
         sendJson(res, 200, { ok: true, name: version.name })
       } catch {
         sendError(res, 404, '版本不存在或已损坏')
@@ -1575,22 +1612,30 @@ async function handleProjects(req: IncomingMessage, res: ServerResponse, paths: 
       return true
     }
     if (action === 'restore') {
-      if (!project.deletedAt) {
-        sendError(res, 400, '文档不在回收站中')
-        return true
-      }
-      const restored: StoredDocument = { ...project, deletedAt: undefined, updatedAt: Date.now() }
-      await writeJson(projectPath(paths, id), restored)
+      const result = await withProjectMutation(id, async () => {
+        const latest = await readProject(paths, id)
+        if (!latest) return { ok: false as const, status: 404, error: '文档不存在' }
+        if (!canManageProject(user, latest)) return { ok: false as const, status: 403, error: '没有项目管理权限' }
+        if (!latest.deletedAt) return { ok: false as const, status: 400, error: '文档不在回收站中' }
+        const restored: StoredDocument = { ...latest, deletedAt: undefined, updatedAt: Date.now() }
+        await writeJson(projectPath(paths, id), restored)
+        return { ok: true as const }
+      })
+      if (!result.ok) { sendError(res, result.status, result.error); return true }
       sendJson(res, 200, { ok: true })
       return true
     }
     if (action === 'forever') {
-      if (!project.deletedAt) {
-        sendError(res, 400, '文档不在回收站中')
-        return true
-      }
-      await fsp.unlink(projectPath(paths, id))
-      await fsp.rm(path.join(paths.dataDirectory, 'versions', id), { recursive: true, force: true })
+      const result = await withProjectMutation(id, async () => {
+        const latest = await readProject(paths, id)
+        if (!latest) return { ok: false as const, status: 404, error: '文档不存在' }
+        if (!canManageProject(user, latest)) return { ok: false as const, status: 403, error: '没有项目管理权限' }
+        if (!latest.deletedAt) return { ok: false as const, status: 400, error: '文档不在回收站中' }
+        await fsp.unlink(projectPath(paths, id))
+        await fsp.rm(path.join(paths.dataDirectory, 'versions', id), { recursive: true, force: true })
+        return { ok: true as const }
+      })
+      if (!result.ok) { sendError(res, result.status, result.error); return true }
       await withAuthMutation(async () => {
         const shares = await loadShares(paths)
         await saveShares(paths, shares.filter(share => share.projectId !== id))
@@ -1728,21 +1773,25 @@ async function handleProjects(req: IncomingMessage, res: ServerResponse, paths: 
   const user = await requireUser(req, res, paths)
   if (!user) return true
   const id = projectMatch[1]!
-  const project = await readProject(paths, id)
   if (req.method === 'PUT') {
     const body = await readBody(req)
     if (body.id !== id) {
       sendError(res, 400, '项目 ID 与请求路径不匹配')
       return true
     }
-    if (project && !canManageProject(user, project)) {
-      sendError(res, 403, '没有项目编辑权限')
-      return true
-    }
-    await writeProject(paths, body, user.id, project ?? undefined)
+    const result = await withProjectMutation(id, async () => {
+      const latest = await readProject(paths, id)
+      if (latest && !canManageProject(user, latest)) {
+        return { ok: false as const, status: 403, error: '没有项目编辑权限' }
+      }
+      await writeProject(paths, body, user.id, latest ?? undefined)
+      return { ok: true as const }
+    })
+    if (!result.ok) { sendError(res, result.status, result.error); return true }
     sendJson(res, 200, { ok: true })
     return true
   }
+  const project = await readProject(paths, id)
   if (!project) {
     sendError(res, 404, '项目不存在')
     return true
@@ -1756,10 +1805,17 @@ async function handleProjects(req: IncomingMessage, res: ServerResponse, paths: 
     return true
   }
   if (req.method === 'DELETE') {
-    // 软删除：标记 deletedAt 进入回收站，不直接删文件
-    const now = Date.now()
-    const updated: StoredDocument = { ...project, deletedAt: now, updatedAt: now }
-    await writeJson(projectPath(paths, id), updated)
+    // 软删除：标记 deletedAt 进入回收站，不直接删文件。
+    const result = await withProjectMutation(id, async () => {
+      const latest = await readProject(paths, id)
+      if (!latest) return { ok: false as const, status: 404, error: '项目不存在' }
+      if (!canManageProject(user, latest)) return { ok: false as const, status: 403, error: '没有项目管理权限' }
+      const now = Date.now()
+      const updated: StoredDocument = { ...latest, deletedAt: now, updatedAt: now }
+      await writeJson(projectPath(paths, id), updated)
+      return { ok: true as const }
+    })
+    if (!result.ok) { sendError(res, result.status, result.error); return true }
     // 删除相关分享链接。shares.json 的 read-modify-write 必须与创建/修改分享串行。
     await withAuthMutation(async () => {
       const shares = await loadShares(paths)
@@ -2143,17 +2199,22 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
       sendError(res, 400, 'sourceDocId、targetDocId、groupId 均为必填项')
       return true
     }
-    const [source, target] = await Promise.all([readProject(paths, sourceDocId), readProject(paths, targetDocId)])
-    if (!source || !target) { sendError(res, 404, '源文档或目标文档不存在'); return true }
-    if (target.ownerId !== user.id) {
-      sendError(res, 403, '目标画布必须属于当前管理员账号')
-      return true
-    }
-    const targetCanvas = canvasGraph(target)
-    const copied = cloneGroupIntoCanvas(canvasGraph(source), targetCanvas, groupId)
-    if (!copied) { sendError(res, 404, '源分组不存在'); return true }
-    await writeJson(projectPath(paths, target.id), { ...target, canvas: targetCanvas, updatedAt: Date.now() } satisfies StoredDocument)
-    sendJson(res, 201, { ok: true, ...copied, targetDocId: target.id })
+    const source = await readProject(paths, sourceDocId)
+    if (!source) { sendError(res, 404, '源文档不存在'); return true }
+    const copied = await withProjectMutation(targetDocId, async () => {
+      const target = await readProject(paths, targetDocId)
+      if (!target) return { ok: false as const, status: 404, error: '目标文档不存在' }
+      if (target.ownerId !== user.id) {
+        return { ok: false as const, status: 403, error: '目标画布必须属于当前管理员账号' }
+      }
+      const targetCanvas = canvasGraph(target)
+      const result = cloneGroupIntoCanvas(canvasGraph(source), targetCanvas, groupId)
+      if (!result) return { ok: false as const, status: 404, error: '源分组不存在' }
+      await writeJson(projectPath(paths, target.id), { ...target, canvas: targetCanvas, updatedAt: Date.now() } satisfies StoredDocument)
+      return { ok: true as const, ...result, targetDocId: target.id }
+    })
+    if (!copied.ok) { sendError(res, copied.status, copied.error); return true }
+    sendJson(res, 201, copied)
     return true
   }
 
