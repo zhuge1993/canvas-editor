@@ -227,9 +227,15 @@ async function readJson<T>(file: string, fallback: T): Promise<T> {
 
 async function writeJson(file: string, value: unknown): Promise<void> {
   await fsp.mkdir(path.dirname(file), { recursive: true })
-  const temporary = `${file}.${process.pid}.tmp`
-  await fsp.writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, 'utf8')
-  await fsp.rename(temporary, file)
+  // 同一 Node 进程可能并发保存同一画布；仅使用 PID 会让两个写入共用同一个 .tmp。
+  // 随机后缀保证每次原子替换都有独立临时文件，并把 JSON 默认落成仅服务账号可读。
+  const temporary = `${file}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`
+  try {
+    await fsp.writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 })
+    await fsp.rename(temporary, file)
+  } finally {
+    await fsp.rm(temporary, { force: true }).catch(() => undefined)
+  }
 }
 
 function queueJsonWrite(file: string, value: unknown): Promise<void> {
