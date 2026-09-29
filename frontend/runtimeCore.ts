@@ -1690,26 +1690,38 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
   if (adminUserMatch && req.method === 'PATCH') {
     const targetId = adminUserMatch[1]!
     const body = await readBody(req)
-    const target = users.find(item => item.id === targetId)
-    if (!target) { sendError(res, 404, '用户不存在'); return true }
-    if (body.isAdmin === false && (target.email.toLowerCase() === DEFAULT_ADMIN_EMAIL || target.id === user.id)) {
-      sendError(res, 400, '不能取消默认根管理员或当前登录管理员自己的管理员权限')
-      return true
-    }
-    if (typeof body.isAdmin === 'boolean') target.isAdmin = body.isAdmin
-    await saveUsers(paths, users)
-    sendJson(res, 200, { user: authUser(target) })
+    const result = await withAuthMutation(async () => {
+      const currentUsers = await loadUsers(paths)
+      const target = currentUsers.find(item => item.id === targetId)
+      if (!target) return { ok: false as const, status: 404, error: '用户不存在' }
+      if (body.isAdmin === false && (target.email.toLowerCase() === DEFAULT_ADMIN_EMAIL || target.id === user.id)) {
+        return { ok: false as const, status: 400, error: '不能取消默认根管理员或当前登录管理员自己的管理员权限' }
+      }
+      if (typeof body.isAdmin === 'boolean') target.isAdmin = body.isAdmin
+      await saveUsers(paths, currentUsers)
+      return { ok: true as const, target }
+    })
+    if (!result.ok) { sendError(res, result.status, result.error); return true }
+    sendJson(res, 200, { user: authUser(result.target) })
     return true
   }
 
   if (adminUserMatch && req.method === 'DELETE') {
     const targetId = adminUserMatch[1]!
-    const target = users.find(item => item.id === targetId)
-    if (!target) { sendError(res, 404, '用户不存在'); return true }
-    if (target.email.toLowerCase() === DEFAULT_ADMIN_EMAIL || target.id === user.id) {
-      sendError(res, 400, '不能删除当前管理员或默认根管理员')
-      return true
-    }
+    const removal = await withAuthMutation(async () => {
+      const currentUsers = await loadUsers(paths)
+      const target = currentUsers.find(item => item.id === targetId)
+      if (!target) return { ok: false as const, status: 404, error: '用户不存在' }
+      if (target.email.toLowerCase() === DEFAULT_ADMIN_EMAIL || target.id === user.id) {
+        return { ok: false as const, status: 400, error: '不能删除当前管理员或默认根管理员' }
+      }
+      await saveUsers(paths, currentUsers.filter(item => item.id !== target.id))
+      const sessions = await loadSessions(paths)
+      await saveSessions(paths, sessions.filter(item => item.userId !== target.id))
+      return { ok: true as const, target }
+    })
+    if (!removal.ok) { sendError(res, removal.status, removal.error); return true }
+
     let files: string[] = []
     try { files = (await fsp.readdir(paths.dataDirectory)).filter(file => file.endsWith('.json')) } catch { /* empty */ }
     let deletedDocs = 0
@@ -1718,19 +1730,19 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
       const fullPath = path.join(paths.dataDirectory, file)
       try {
         const project = JSON.parse(await fsp.readFile(fullPath, 'utf8')) as StoredDocument
-        if (project.ownerId === target.id) {
+        if (project.ownerId === removal.target.id) {
           deletedDocIds.add(project.id)
           await fsp.unlink(fullPath)
+          await fsp.rm(path.join(paths.dataDirectory, 'versions', project.id), { recursive: true, force: true })
           deletedDocs++
         }
       } catch { /* skip */ }
     }
-    await saveUsers(paths, users.filter(item => item.id !== target.id))
-    const sessions = await loadSessions(paths)
-    await saveSessions(paths, sessions.filter(item => item.userId !== target.id))
     if (deletedDocIds.size > 0) {
-      const shares = await loadShares(paths)
-      await saveShares(paths, shares.filter(share => !deletedDocIds.has(share.projectId)))
+      await withAuthMutation(async () => {
+        const shares = await loadShares(paths)
+        await saveShares(paths, shares.filter(share => !deletedDocIds.has(share.projectId)))
+      })
     }
     sendJson(res, 200, { ok: true, deletedDocs })
     return true
@@ -1746,20 +1758,27 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
     const body = await readBody(req)
     const requested = Number(body.maxUses ?? 1)
     const maxUses = Math.max(1, Math.min(100, Number.isFinite(requested) ? Math.floor(requested) : 1))
-    const invites = await loadInvites(paths)
-    let code = newInviteCode()
-    while (invites.some(item => item.code === code)) code = newInviteCode()
-    const invite: StoredInvite = { code, createdAt: Date.now(), createdBy: user.id, maxUses, usedCount: 0 }
-    await saveInvites(paths, [invite, ...invites])
+    const invite = await withAuthMutation(async () => {
+      const invites = await loadInvites(paths)
+      let code = newInviteCode()
+      while (invites.some(item => item.code === code)) code = newInviteCode()
+      const created: StoredInvite = { code, createdAt: Date.now(), createdBy: user.id, maxUses, usedCount: 0 }
+      await saveInvites(paths, [created, ...invites])
+      return created
+    })
     sendJson(res, 201, invite)
     return true
   }
   const inviteMatch = pathname.match(/^\/api\/admin\/invites\/([A-Z0-9]+)$/)
   if (inviteMatch && req.method === 'DELETE') {
     const code = inviteMatch[1]!
-    const invites = await loadInvites(paths)
-    if (!invites.some(item => item.code === code)) { sendError(res, 404, '邀请码不存在'); return true }
-    await saveInvites(paths, invites.map(item => item.code === code ? { ...item, disabled: true } : item))
+    const disabled = await withAuthMutation(async () => {
+      const invites = await loadInvites(paths)
+      if (!invites.some(item => item.code === code)) return false
+      await saveInvites(paths, invites.map(item => item.code === code ? { ...item, disabled: true } : item))
+      return true
+    })
+    if (!disabled) { sendError(res, 404, '邀请码不存在'); return true }
     sendJson(res, 200, { ok: true })
     return true
   }
