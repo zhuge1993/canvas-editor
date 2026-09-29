@@ -20,12 +20,22 @@ else
   exit 1
 fi
 
-if command -v rc-service >/dev/null 2>&1 && command -v rc-update >/dev/null 2>&1; then
+PID1_COMM="$(ps -p 1 -o comm= 2>/dev/null | tr -d '[:space:]' || true)"
+
+if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
+  INIT_SYSTEM="systemd"
+elif [ -d /run/openrc ] && command -v rc-service >/dev/null 2>&1 && command -v rc-update >/dev/null 2>&1; then
+  INIT_SYSTEM="openrc"
+elif [ "$PID1_COMM" = "systemd" ] && command -v systemctl >/dev/null 2>&1; then
+  INIT_SYSTEM="systemd"
+elif command -v rc-service >/dev/null 2>&1 && command -v rc-update >/dev/null 2>&1 && command -v rc-status >/dev/null 2>&1 && rc-status >/dev/null 2>&1; then
   INIT_SYSTEM="openrc"
 elif command -v systemctl >/dev/null 2>&1; then
   INIT_SYSTEM="systemd"
+elif command -v rc-service >/dev/null 2>&1 && command -v rc-update >/dev/null 2>&1; then
+  INIT_SYSTEM="openrc"
 else
-  echo "未识别到 OpenRC 或 systemd。" >&2
+  echo "未识别到正在运行的 OpenRC 或 systemd。" >&2
   exit 1
 fi
 
