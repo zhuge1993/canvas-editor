@@ -552,7 +552,13 @@ function startInteractiveConsole(options: RuntimeOptions): void {
     try { return JSON.parse(fs.readFileSync(file, 'utf8')) as T } catch { return fallback }
   }
   const writeJsonSafe = (file: string, value: unknown): void => {
-    fs.writeFileSync(file, JSON.stringify(value, null, 2), 'utf8')
+    const temporary = `${file}.${process.pid}.${Date.now()}.tmp`
+    try {
+      fs.writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 })
+      fs.renameSync(temporary, file)
+    } finally {
+      try { fs.rmSync(temporary, { force: true }) } catch { /* best effort */ }
+    }
   }
   rl.on('line', (raw) => {
     const input = raw.trim()
@@ -1039,7 +1045,13 @@ async function readJsonFileSafe<T>(file: string, fallback: T): Promise<T> {
 }
 
 async function writeJsonFileSafe(file: string, value: unknown): Promise<void> {
-  await fsp.writeFile(file, JSON.stringify(value, null, 2), 'utf8')
+  const temporary = `${file}.${process.pid}.${Date.now()}.tmp`
+  try {
+    await fsp.writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 })
+    await fsp.rename(temporary, file)
+  } finally {
+    await fsp.rm(temporary, { force: true }).catch(() => undefined)
+  }
 }
 
 async function runAdminCommand(): Promise<void> {
@@ -1292,7 +1304,7 @@ async function runAdminCommand(): Promise<void> {
       console.log(`  授权码: ${process.env.FLOWBOARD_SMTP_PASS ? '已设置(打码)' : '(未配置)'}`)
       console.log(`  发件人: ${process.env.FLOWBOARD_SMTP_FROM ?? '(未配置)'}`)
       console.log('')
-      console.log('提示: 也可在 Web 界面「首页 → 设置」中配置 SMTP（登录后即可，无需管理员）。')
+      console.log('提示: 也可由管理员在 Web 界面「首页 → 设置」中配置 SMTP。')
       return
     }
 
