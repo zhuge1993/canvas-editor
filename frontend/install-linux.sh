@@ -8,14 +8,24 @@ fi
 
 SOURCE_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 TARGET_DIR="/opt/flowboard"
-PLATFORM=""
+PACKAGE_MANAGER=""
+INIT_SYSTEM=""
 
-if command -v apk >/dev/null 2>&1 && command -v rc-service >/dev/null 2>&1; then
-  PLATFORM="openrc"
-elif command -v apt-get >/dev/null 2>&1 && command -v systemctl >/dev/null 2>&1; then
-  PLATFORM="systemd"
+if command -v apk >/dev/null 2>&1; then
+  PACKAGE_MANAGER="apk"
+elif command -v apt-get >/dev/null 2>&1; then
+  PACKAGE_MANAGER="apt"
 else
-  echo "当前脚本支持 postmarketOS/Alpine(OpenRC) 和 Debian/Ubuntu(systemd)。" >&2
+  echo "未识别到 apk 或 apt 包管理器。" >&2
+  exit 1
+fi
+
+if command -v rc-service >/dev/null 2>&1 && command -v rc-update >/dev/null 2>&1; then
+  INIT_SYSTEM="openrc"
+elif command -v systemctl >/dev/null 2>&1; then
+  INIT_SYSTEM="systemd"
+else
+  echo "未识别到 OpenRC 或 systemd。" >&2
   exit 1
 fi
 
@@ -26,17 +36,17 @@ for required in server-bundle.cjs dist/index.html start-server.sh flowboard.env.
   fi
 done
 
-if [ "$PLATFORM" = "openrc" ] && [ ! -e "$SOURCE_DIR/flowboard.openrc" ]; then
+if [ "$INIT_SYSTEM" = "openrc" ] && [ ! -e "$SOURCE_DIR/flowboard.openrc" ]; then
   echo "安装包缺少 flowboard.openrc" >&2
   exit 1
 fi
-if [ "$PLATFORM" = "systemd" ] && [ ! -e "$SOURCE_DIR/flowboard.service" ]; then
+if [ "$INIT_SYSTEM" = "systemd" ] && [ ! -e "$SOURCE_DIR/flowboard.service" ]; then
   echo "安装包缺少 flowboard.service" >&2
   exit 1
 fi
 
 if ! command -v node >/dev/null 2>&1; then
-  if [ "$PLATFORM" = "openrc" ]; then
+  if [ "$PACKAGE_MANAGER" = "apk" ]; then
     apk add --no-cache nodejs ca-certificates
   else
     apt-get update
@@ -52,7 +62,7 @@ if [ "$NODE_OK" != "1" ]; then
 fi
 
 if ! id flowboard >/dev/null 2>&1; then
-  if [ "$PLATFORM" = "openrc" ]; then
+  if [ "$PACKAGE_MANAGER" = "apk" ]; then
     addgroup -S flowboard
     adduser -S -D -H -h "$TARGET_DIR" -s /sbin/nologin -G flowboard flowboard
   else
@@ -75,7 +85,7 @@ fi
 chown -R flowboard:flowboard "$TARGET_DIR"
 chmod 0600 "$TARGET_DIR/flowboard.env"
 
-if [ "$PLATFORM" = "openrc" ]; then
+if [ "$INIT_SYSTEM" = "openrc" ]; then
   install -m 0755 "$SOURCE_DIR/flowboard.openrc" /etc/init.d/flowboard
   rc-update add flowboard default >/dev/null 2>&1 || true
   rc-service flowboard restart
@@ -87,8 +97,9 @@ fi
 
 echo
 echo "FlowBoard 已安装到 $TARGET_DIR"
-echo "运行平台: $PLATFORM"
-if [ "$PLATFORM" = "openrc" ]; then
+echo "包管理器: $PACKAGE_MANAGER"
+echo "服务管理: $INIT_SYSTEM"
+if [ "$INIT_SYSTEM" = "openrc" ]; then
   echo "服务状态: rc-service flowboard status"
   echo "重启服务: rc-service flowboard restart"
 else
