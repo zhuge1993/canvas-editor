@@ -125,6 +125,18 @@ if ! aport_complete device-xiaomi-dior "$DEVICE_APORT" \
 	if sh "$SNAPSHOT_ROOT/check-snapshot.sh"; then
 		mkdir -p "$PMB_APORTS/device/testing"
 		for package in device-xiaomi-dior linux-xiaomi-dior firmware-xiaomi-dior; do
+			case "$package" in
+				device-xiaomi-dior) current_dir="$DEVICE_APORT" ;;
+				linux-xiaomi-dior) current_dir="$KERNEL_APORT" ;;
+				firmware-xiaomi-dior) current_dir="$FIRMWARE_APORT" ;;
+			esac
+
+			# 当前 pmaports 中已经完整的包永远优先，不额外注入历史副本。
+			if aport_complete "$package" "$current_dir"; then
+				echo "继续使用当前完整 aport: $package -> $current_dir"
+				continue
+			fi
+
 			source_dir="$SNAPSHOT_ROOT/device/archived/$package"
 			target_dir="$PMB_APORTS/device/testing/$package"
 			if ! aport_complete "$package" "$source_dir"; then
