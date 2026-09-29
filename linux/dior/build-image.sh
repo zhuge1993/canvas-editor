@@ -93,13 +93,17 @@ if [ ! -d "$PMB_APORTS" ]; then
 	exit 1
 fi
 
-# Require an initialized xiaomi-dior profile. This avoids accidentally building for another phone.
-STATUS="$(pmbootstrap status 2>/dev/null || true)"
-if ! printf '%s\n' "$STATUS" | grep -Eqi 'xiaomi[- ]dior|device[^[:alnum:]]+dior|dior'; then
-	echo "当前 pmbootstrap 配置看起来不是 xiaomi-dior。" >&2
-	echo "请先执行 pmbootstrap init，并选择 vendor=xiaomi、device=dior、轻量/console UI。" >&2
-	exit 1
-fi
+# Require the exact xiaomi-dior profile. Do not infer the device from human-readable status output.
+CONFIGURED_DEVICE="$(pmbootstrap config device 2>/dev/null || true)"
+case "$CONFIGURED_DEVICE" in
+	xiaomi-dior|dior)
+		;;
+	*)
+		echo "当前 pmbootstrap 设备不是 xiaomi-dior: ${CONFIGURED_DEVICE:-<未配置>}" >&2
+		echo "请先执行 pmbootstrap init，并选择 vendor=xiaomi、device=dior、轻量/console UI。" >&2
+		exit 1
+		;;
+esac
 
 DEVICE_APORT="$(find_aport device-xiaomi-dior)"
 KERNEL_APORT="$(find_aport linux-xiaomi-dior)"
