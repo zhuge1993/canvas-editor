@@ -173,6 +173,7 @@ interface RuntimeContext {
 
 const writeQueues = new Map<string, Promise<void>>()
 const projectMutationTails = new Map<string, Promise<void>>()
+const shareMutationTails = new Map<string, Promise<void>>()
 
 async function withProjectMutation<T>(projectId: string, operation: () => Promise<T>): Promise<T> {
   const previous = projectMutationTails.get(projectId) ?? Promise.resolve()
@@ -187,6 +188,23 @@ async function withProjectMutation<T>(projectId: string, operation: () => Promis
     release()
     void tail.finally(() => {
       if (projectMutationTails.get(projectId) === tail) projectMutationTails.delete(projectId)
+    })
+  }
+}
+
+async function withShareMutation<T>(token: string, operation: () => Promise<T>): Promise<T> {
+  const previous = shareMutationTails.get(token) ?? Promise.resolve()
+  let release!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve })
+  const tail = previous.catch(() => undefined).then(() => gate)
+  shareMutationTails.set(token, tail)
+  await previous.catch(() => undefined)
+  try {
+    return await operation()
+  } finally {
+    release()
+    void tail.finally(() => {
+      if (shareMutationTails.get(token) === tail) shareMutationTails.delete(token)
     })
   }
 }
@@ -1756,18 +1774,33 @@ async function handleShare(req: IncomingMessage, res: ServerResponse, paths: Run
       sendError(res, 400, '项目 ID 不匹配')
       return true
     }
-    const saved = await withProjectMutation(share.projectId, async () => {
-      const latest = await readProject(paths, share.projectId)
-      if (!latest) return { ok: false as const, status: 404, error: '项目不存在' }
-      if (latest.deletedAt) return { ok: false as const, status: 410, error: '项目已进入回收站' }
-      await writeProject(paths, body, latest.ownerId ?? '', latest)
-      return { ok: true as const }
+    const saved = await withShareMutation(token, async () => {
+      const currentShare = (await loadShares(paths)).find(item => item.token === token)
+      if (!currentShare) return { ok: false as const, status: 404, error: '分享链接不存在或已撤销' }
+      if (currentShare.expiresAt !== undefined && currentShare.expiresAt <= Date.now()) {
+        return { ok: false as const, status: 410, error: '分享链接已过期' }
+      }
+      if (currentShare.permission !== 'edit') {
+        return { ok: false as const, status: 403, error: '此分享链接仅允许查看' }
+      }
+      // 分享权限/密码/有效期在请求期间发生变化时，要求客户端重新加载并重新鉴权。
+      if (currentShare.updatedAt !== share.updatedAt || currentShare.passwordHash !== share.passwordHash) {
+        return { ok: false as const, status: 409, error: '分享链接已更新，请重新加载后再保存' }
+      }
+
+      return withProjectMutation(currentShare.projectId, async () => {
+        const latest = await readProject(paths, currentShare.projectId)
+        if (!latest) return { ok: false as const, status: 404, error: '项目不存在' }
+        if (latest.deletedAt) return { ok: false as const, status: 410, error: '项目已进入回收站' }
+        await writeProject(paths, body, latest.ownerId ?? '', latest)
+        return { ok: true as const, permission: currentShare.permission }
+      })
     })
     if (!saved.ok) {
       sendError(res, saved.status, saved.error)
       return true
     }
-    sendJson(res, 200, { ok: true, permission: share.permission })
+    sendJson(res, 200, { ok: true, permission: saved.permission })
     return true
   }
   sendError(res, 405, 'Method not allowed')
@@ -2100,7 +2133,7 @@ async function handleProjects(req: IncomingMessage, res: ServerResponse, paths: 
           replacementPasswordHash = await passwordDigest(password)
         }
 
-        const updated = await withAuthMutation(async () => {
+        const updated = await withShareMutation(token, () => withAuthMutation(async () => {
           const shares = await loadShares(paths)
           const share = shares.find(item => item.token === token && item.projectId === projectId)
           if (!share) return null
@@ -2119,7 +2152,7 @@ async function handleProjects(req: IncomingMessage, res: ServerResponse, paths: 
 
           await saveShares(paths, shares.map(item => item.token === token ? next : item))
           return next
-        })
+        }))
         if (!updated) {
           sendError(res, 404, '分享链接不存在')
           return true
@@ -2134,12 +2167,12 @@ async function handleProjects(req: IncomingMessage, res: ServerResponse, paths: 
         return true
       }
       if (req.method === 'DELETE') {
-        const deleted = await withAuthMutation(async () => {
+        const deleted = await withShareMutation(token, () => withAuthMutation(async () => {
           const shares = await loadShares(paths)
           if (!shares.some(item => item.token === token && item.projectId === projectId)) return false
           await saveShares(paths, shares.filter(item => item.token !== token))
           return true
-        })
+        }))
         if (!deleted) {
           sendError(res, 404, '分享链接不存在')
           return true
