@@ -6,13 +6,13 @@
 
 `dior` 的社区 Linux 支持目前属于 **downstream kernel** 路线，而不是 mainline Linux。也就是说：
 
-- 可以使用新的 postmarketOS / Alpine 用户空间、Node.js、OpenSSH、OpenRC。
+- 可以使用新的 postmarketOS / Alpine 用户空间、Node.js、OpenSSH，以及 OpenRC 或 systemd。
 - 手机启动内核仍应使用 `dior` 的设备专用内核/设备包，不能直接把普通 Debian 的新内核刷进去。
 - FlowBoard 本身只依赖 Node.js 和文件系统，不依赖桌面、GPU 或 Android，因此这种“设备内核 + 新用户空间”结构正适合长期服务。
 
 ## 构建/刷入系统
 
-建议在一台普通 Linux PC 上安装 `pmbootstrap`，然后按 postmarketOS 的 `xiaomi-dior` 设备配置生成系统。
+建议在一台普通 Linux PC 上安装最新 `pmbootstrap`，然后按 postmarketOS 的 `xiaomi-dior` 设备配置生成系统。当前稳定版是 postmarketOS v26.06，基于 Alpine 3.24；若 `dior` 当前只在 edge/testing 提供，就用 pmbootstrap 的 edge 通道构建。
 
 典型流程：
 
@@ -51,28 +51,30 @@ ls -lh /tmp/postmarketOS-export/
 mkdir -p ~/flowboard-release
 cd ~/flowboard-release
 tar -xzf FlowBoard-linux.tar.gz
-doas ./install-linux.sh
+sudo ./install-linux.sh
 ```
 
-安装器会检测到 Alpine/OpenRC，自动：
+安装器会分别检测 apk/apt 和 OpenRC/systemd，自动：
 
 - 安装/检查 ARMv7 Node.js 和 CA 证书。
 - 创建低权限 `flowboard` 用户。
 - 安装到 `/opt/flowboard`。
-- 注册 `/etc/init.d/flowboard`。
-- 加入默认启动级别并启动。
+- 根据系统注册 OpenRC 或 systemd 服务。
+- 设置开机启动并立即启动。
 - 保留已有业务数据和 `flowboard.env`。
 
-查看状态：
+如果系统是 OpenRC：
 
 ```bash
-doas rc-service flowboard status
+sudo rc-service flowboard status
+sudo rc-service flowboard restart
 ```
 
-重启：
+如果系统是 systemd：
 
 ```bash
-doas rc-service flowboard restart
+sudo systemctl status flowboard --no-pager
+sudo systemctl restart flowboard
 ```
 
 ## SMTP
@@ -86,8 +88,11 @@ doas rc-service flowboard restart
 QQ 邮箱开启 SMTP 并生成授权码后，在手机执行：
 
 ```bash
-doas su -s /bin/sh flowboard -c 'node /opt/flowboard/server-bundle.cjs set stp 你的授权码'
-doas rc-service flowboard restart
+sudo su -s /bin/sh flowboard -c 'node /opt/flowboard/server-bundle.cjs set stp 你的授权码'
+# OpenRC:
+sudo rc-service flowboard restart
+# 或 systemd:
+sudo systemctl restart flowboard
 ```
 
 无需再填写 SMTP 主机、端口和发件邮箱。
@@ -127,7 +132,7 @@ FLOWBOARD_COOKIE_SECURE=true
 然后：
 
 ```bash
-doas rc-service flowboard restart
+sudo rc-service flowboard restart
 ```
 
 服务器已经支持 `X-Forwarded-Host` / `X-Forwarded-Proto`，通过反代生成分享链接时不会错误拼接内部的 `:3000`。
