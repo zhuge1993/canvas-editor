@@ -1329,8 +1329,11 @@ async function handleProjects(req: IncomingMessage, res: ServerResponse, paths: 
         return true
       }
       await fsp.unlink(projectPath(paths, id))
-      const shares = await loadShares(paths)
-      await saveShares(paths, shares.filter(share => share.projectId !== id))
+      await fsp.rm(path.join(paths.dataDirectory, 'versions', id), { recursive: true, force: true })
+      await withAuthMutation(async () => {
+        const shares = await loadShares(paths)
+        await saveShares(paths, shares.filter(share => share.projectId !== id))
+      })
       sendJson(res, 200, { ok: true })
       return true
     }
