@@ -304,25 +304,32 @@ async function storeAssetBuffer(paths: RuntimePaths, buffer: Buffer, extension: 
   const file = path.join(directory, name)
 
   return withAssetStorageMutation(directory, async () => {
+    let exists = true
     try {
       await fsp.access(file)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') exists = false
+      else throw error
+    }
+
+    if (exists) {
       // 去重命中也代表这张图刚被重新使用。刷新 mtime，让孤儿 GC 的宽限期
       // 从本次使用重新计算，避免“旧孤儿图刚复用、画布尚未保存”时被误删。
       const now = new Date()
       await fsp.utimes(file, now, now)
       return { url: `/api/assets/${name}`, deduped: true }
-    } catch {
-      const used = await assetStorageUsage(directory)
-      if (used + buffer.length > MAX_ASSET_STORAGE_BYTES) {
-        throw new RequestBodyError(
-          `图片资源库已达到容量上限（${MAX_ASSET_STORAGE_MB} MiB），请管理员清理孤儿图片或调整 FLOWBOARD_MAX_ASSET_STORAGE_MB`,
-          507,
-        )
-      }
-      await writeBufferAtomic(file, buffer)
-      assetStorageUsageCache.set(directory, used + buffer.length)
-      return { url: `/api/assets/${name}`, deduped: false }
     }
+
+    const used = await assetStorageUsage(directory)
+    if (used + buffer.length > MAX_ASSET_STORAGE_BYTES) {
+      throw new RequestBodyError(
+        `图片资源库已达到容量上限（${MAX_ASSET_STORAGE_MB} MiB），请管理员清理孤儿图片或调整 FLOWBOARD_MAX_ASSET_STORAGE_MB`,
+        507,
+      )
+    }
+    await writeBufferAtomic(file, buffer)
+    assetStorageUsageCache.set(directory, used + buffer.length)
+    return { url: `/api/assets/${name}`, deduped: false }
   })
 }
 
