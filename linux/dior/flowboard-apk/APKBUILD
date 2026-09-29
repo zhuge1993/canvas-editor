@@ -1,0 +1,38 @@
+# Local image package. build-image.sh copies this aport into the active pmaports tree
+# and runs "pmbootstrap checksum flowboard-server" before building.
+pkgname=flowboard-server
+pkgver=1.0.0
+pkgrel=0
+pkgdesc="FlowBoard always-on drawing server"
+url="https://github.com/zhuge1993/canvas-editor"
+arch="noarch"
+license="MIT"
+depends="nodejs ca-certificates"
+options="!check"
+install="$pkgname.pre-install $pkgname.post-install"
+backup="opt/flowboard/flowboard.env"
+source="flowboard-release.tar.gz"
+
+package() {
+	install -d "$pkgdir"/opt/flowboard
+	install -Dm644 "$srcdir"/server-bundle.cjs "$pkgdir"/opt/flowboard/server-bundle.cjs
+	cp -a "$srcdir"/dist "$pkgdir"/opt/flowboard/dist
+	install -Dm755 "$srcdir"/start-server.sh "$pkgdir"/opt/flowboard/start-server.sh
+	install -Dm600 "$srcdir"/flowboard.env.example "$pkgdir"/opt/flowboard/flowboard.env
+
+	install -d "$pkgdir"/opt/flowboard/project-data
+	install -d "$pkgdir"/opt/flowboard/auth-data
+	install -d "$pkgdir"/opt/flowboard/logs
+
+	# Ship both service-manager definitions. Only the selected init system uses its link.
+	install -Dm755 "$srcdir"/flowboard.openrc "$pkgdir"/etc/init.d/flowboard
+	install -Dm644 "$srcdir"/flowboard.service "$pkgdir"/usr/lib/systemd/system/flowboard.service
+
+	install -d "$pkgdir"/etc/runlevels/default
+	ln -sf /etc/init.d/flowboard "$pkgdir"/etc/runlevels/default/flowboard
+
+	install -d "$pkgdir"/etc/systemd/system/multi-user.target.wants
+	ln -sf /usr/lib/systemd/system/flowboard.service 		"$pkgdir"/etc/systemd/system/multi-user.target.wants/flowboard.service
+}
+
+sha512sums=""
