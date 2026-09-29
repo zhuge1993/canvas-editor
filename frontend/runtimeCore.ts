@@ -2321,14 +2321,40 @@ async function handleSettings(req: IncomingMessage, res: ServerResponse, paths: 
         ['FLOWBOARD_SMTP_PASS', password || process.env.FLOWBOARD_SMTP_PASS],
         ['FLOWBOARD_SMTP_FROM', from],
       ]
+      const smtpKeys = new Set(values.map(([key]) => key))
+      let existingLines: string[] = []
+      try {
+        existingLines = (await fsp.readFile(envFile, 'utf8')).split(/\r?\n/)
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      }
+
+      // 只替换 SMTP 项，保留监听地址、NODE_OPTIONS、用户上限、根管理员等其他运行配置。
+      const preservedLines = existingLines.filter(line => {
+        const cmdMatch = line.match(/^\s*set\s+"(FLOWBOARD_[^=]+)=/i)
+        const envMatch = line.match(/^\s*(FLOWBOARD_[A-Z0-9_]+)\s*=/i)
+        const key = cmdMatch?.[1] ?? envMatch?.[1]
+        return !key || !smtpKeys.has(key)
+      })
+      while (preservedLines.length > 0 && preservedLines[preservedLines.length - 1]?.trim() === '') preservedLines.pop()
+
       let text: string
       if (process.platform === 'win32') {
-        text = ['@echo off', ...values.filter(([, value]) => Boolean(value)).map(([key, value]) => `set "${key}=${value}"`)].join('\r\n') + '\r\n'
+        if (!preservedLines.some(line => /^\s*@echo\s+off\s*$/i.test(line))) preservedLines.unshift('@echo off')
+        text = [...preservedLines, ...values.filter(([, value]) => Boolean(value)).map(([key, value]) => `set "${key}=${value}"`)].join('\r\n') + '\r\n'
       } else {
         const quote = (value: string) => `'${value.replace(/'/g, `'"'"'`)}'`
-        text = values.filter(([, value]) => Boolean(value)).map(([key, value]) => `${key}=${quote(String(value))}`).join('\n') + '\n'
+        text = [...preservedLines, ...values.filter(([, value]) => Boolean(value)).map(([key, value]) => `${key}=${quote(String(value))}`)].join('\n') + '\n'
       }
-      await fsp.writeFile(envFile, text, { encoding: 'utf8', mode: 0o600 })
+
+      const temporary = `${envFile}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`
+      try {
+        await fsp.writeFile(temporary, text, { encoding: 'utf8', mode: 0o600 })
+        await fsp.rename(temporary, envFile)
+        if (process.platform !== 'win32') await fsp.chmod(envFile, 0o600)
+      } finally {
+        await fsp.rm(temporary, { force: true }).catch(() => undefined)
+      }
     } catch (error) {
       sendError(res, 500, `SMTP 配置已生效但写入文件失败: ${error instanceof Error ? error.message : String(error)}`)
       return true
