@@ -663,11 +663,11 @@ function startInteractiveConsole(options: RuntimeOptions): void {
         case 'copy': {
           const [docId, email] = args
           if (!docId || !email) { console.log('用法：copy <docId> <邮箱>    例：copy doc_123_abc me@qq.com'); break }
+          if (!/^[a-zA-Z0-9_-]+$/.test(docId)) { console.log(`文档 ID 不合法：${docId}`); break }
           const users = readJsonSafe<Array<{ id: string; email: string }>>(userFile, [])
           const target = users.find(u => u.email.toLowerCase() === email.toLowerCase())
           if (!target) { console.log(`目标用户不存在：${email}`); break }
-          const safeId = docId.replace(/[^a-zA-Z0-9_-]/g, '')
-          const doc = readJsonSafe<Record<string, unknown>>(path.join(dataDirectory, `${safeId}.json`), {})
+          const doc = readJsonSafe<Record<string, unknown>>(path.join(dataDirectory, `${docId}.json`), {})
           if (!doc.id) { console.log(`文档不存在：${docId}`); break }
           const now = Date.now()
           const copy = { ...doc, id: `doc_${now}_${Math.random().toString(36).slice(2, 8)}`, title: `${String(doc.title ?? '文档')}（副本）`, ownerId: target.id, createdAt: now, updatedAt: now }
@@ -679,8 +679,8 @@ function startInteractiveConsole(options: RuntimeOptions): void {
         case 'deldoc': {
           const docId = args[0]
           if (!docId) { console.log('用法：deldoc <docId>    例：deldoc doc_123_abc'); break }
-          const safeId = docId.replace(/[^a-zA-Z0-9_-]/g, '')
-          const file = path.join(dataDirectory, `${safeId}.json`)
+          if (!/^[a-zA-Z0-9_-]+$/.test(docId)) { console.log(`文档 ID 不合法：${docId}`); break }
+          const file = path.join(dataDirectory, `${docId}.json`)
           const doc = readJsonSafe<Record<string, unknown>>(file, {})
           if (!doc.id) { console.log(`文档不存在：${docId}`); break }
           writeJsonSafe(file, { ...doc, deletedAt: Date.now() })
@@ -1325,6 +1325,6 @@ interface StoredDocumentLike {
 }
 
 function projectPathSafe(id: string): string {
-  const safe = String(id).replace(/[^a-zA-Z0-9_-]/g, '')
-  return path.join(dataDirectory, `${safe}.json`)
+  if (!/^[a-zA-Z0-9_-]+$/.test(String(id))) throw new Error(`文档 ID 不合法: ${id}`)
+  return path.join(dataDirectory, `${id}.json`)
 }
