@@ -18,7 +18,23 @@ need() {
 }
 
 find_aport() {
-	find "$PMB_APORTS/device" -mindepth 2 -maxdepth 2 -type d -name "$1" -print -quit 2>/dev/null || true
+	package="$1"
+	first=""
+	candidates="$(find "$PMB_APORTS/device" -mindepth 2 -maxdepth 2 -type d -name "$package" -print 2>/dev/null || true)"
+	[ -n "$candidates" ] || return 0
+
+	while IFS= read -r dir; do
+		[ -n "$first" ] || first="$dir"
+		if aport_complete "$package" "$dir"; then
+			printf '%s\n' "$dir"
+			return 0
+		fi
+	done <<EOF
+$candidates
+EOF
+
+	# No complete candidate: return one partial path so diagnostics can identify it.
+	printf '%s\n' "$first"
 }
 
 aport_complete() {
