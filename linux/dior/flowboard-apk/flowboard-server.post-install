@@ -2,7 +2,15 @@
 set -e
 
 mkdir -p /opt/flowboard/project-data /opt/flowboard/auth-data /opt/flowboard/logs
-chown flowboard:flowboard 	/opt/flowboard/flowboard.env 	/opt/flowboard/project-data 	/opt/flowboard/auth-data 	/opt/flowboard/logs
+chown flowboard:flowboard \
+	/opt/flowboard/flowboard.env \
+	/opt/flowboard/project-data \
+	/opt/flowboard/auth-data \
+	/opt/flowboard/logs
 chmod 0600 /opt/flowboard/flowboard.env
+chmod 0750 \
+	/opt/flowboard/project-data \
+	/opt/flowboard/auth-data \
+	/opt/flowboard/logs
 
 exit 0
