@@ -2151,6 +2151,7 @@ interface CanvasGraph {
   shapes?: Record<string, Record<string, unknown>>
   groups?: Record<string, Record<string, unknown> & { id?: string; name?: string; childIds?: string[]; parentId?: string }>
   order?: string[]
+  workspace?: { x: number; y: number; w: number; h: number }
   [key: string]: unknown
 }
 
@@ -2180,7 +2181,31 @@ function collectGroupGraph(canvas: CanvasGraph, rootId: string): { groupIds: str
       else if (shapes[childId]) shapeIds.push(childId)
     }
   }
+
+  // 与前端 normalizeCanvasDocument 的旧数据兼容规则保持一致：
+  // 某些旧画布只在 shape.groupId 记录分组关系，却漏写 group.childIds。
+  const includedGroups = new Set(groupIds)
+  for (const [shapeId, shape] of Object.entries(shapes)) {
+    if (typeof shape.groupId === 'string' && includedGroups.has(shape.groupId)) shapeIds.push(shapeId)
+  }
   return { groupIds, shapeIds: [...new Set(shapeIds)] }
+}
+
+function expandCanvasWorkspace(canvas: CanvasGraph, shape: Record<string, unknown>): void {
+  if (typeof shape.x !== 'number' || typeof shape.y !== 'number' || typeof shape.w !== 'number' || typeof shape.h !== 'number') return
+  const current = canvas.workspace
+  const workspace = current
+    && Number.isFinite(current.x) && Number.isFinite(current.y)
+    && Number.isFinite(current.w) && Number.isFinite(current.h)
+    && current.w > 0 && current.h > 0
+      ? current
+      : { x: 0, y: 0, w: 1200, h: 800 }
+  const padding = 50
+  const right = Math.max(workspace.x + workspace.w, Math.ceil(shape.x + Math.max(0, shape.w) + padding))
+  const bottom = Math.max(workspace.y + workspace.h, Math.ceil(shape.y + Math.max(0, shape.h) + padding))
+  const x = Math.min(workspace.x, Math.floor(shape.x - padding))
+  const y = Math.min(workspace.y, Math.floor(shape.y - padding))
+  canvas.workspace = { x, y, w: right - x, h: bottom - y }
 }
 
 function cloneGroupIntoCanvas(source: CanvasGraph, target: CanvasGraph, rootId: string): { groupId: string; groupName: string } | null {
@@ -2201,7 +2226,18 @@ function cloneGroupIntoCanvas(source: CanvasGraph, target: CanvasGraph, rootId: 
     const mappedId = idMap.get(sourceId)!
     const cloned = JSON.parse(JSON.stringify(original)) as Record<string, unknown> & { childIds?: string[]; parentId?: string; id?: string }
     cloned.id = mappedId
-    cloned.childIds = (Array.isArray(original.childIds) ? original.childIds : []).map(id => idMap.get(id)).filter((id): id is string => Boolean(id))
+    const childIds = (Array.isArray(original.childIds) ? original.childIds : [])
+      .map(id => idMap.get(id))
+      .filter((id): id is string => Boolean(id))
+
+    // 旧数据中可能只有 shape.groupId，没有写进 group.childIds；把这些直接子图形补进新组。
+    for (const [shapeId, shape] of Object.entries(sourceShapes)) {
+      if (shape.groupId === sourceId) {
+        const mappedShapeId = idMap.get(shapeId)
+        if (mappedShapeId && !childIds.includes(mappedShapeId)) childIds.push(mappedShapeId)
+      }
+    }
+    cloned.childIds = childIds
     cloned.parentId = sourceId === rootId ? undefined : (original.parentId ? idMap.get(original.parentId) : undefined)
     target.groups[mappedId] = cloned
   }
@@ -2235,6 +2271,7 @@ function cloneGroupIntoCanvas(source: CanvasGraph, target: CanvasGraph, rootId: 
       cloned.endBinding = mapped ? { ...cloned.endBinding, shapeId: mapped } : undefined
     }
     target.shapes[mappedId] = cloned
+    expandCanvasWorkspace(target, cloned)
   }
 
   const newRootId = idMap.get(rootId)!
