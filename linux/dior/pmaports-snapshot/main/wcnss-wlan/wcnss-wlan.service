@@ -1,7 +1,5 @@
 [Unit]
 Description=Initialize WCNSS WLAN driver
-After=systemd-udev-settle.service
-Wants=systemd-udev-settle.service
 Before=network-pre.target
 Wants=network-pre.target
 

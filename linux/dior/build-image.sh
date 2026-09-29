@@ -74,8 +74,17 @@ aport_complete() {
 			# Firmware payloads are remote commit-pinned sources with hashes in APKBUILD.
 			;;
 		wcnss-wlan)
-			[ -f "$dir/wcnss-wlan.initd" ] || return 1
-			[ -f "$dir/wcnss-wlan-openrc.post-install" ] || return 1
+			# Accept newer pmaports layouts: validate only the local sources/features
+			# that this APKBUILD actually references instead of forcing our historical layout.
+			if grep -q 'wcnss-wlan\.initd' "$dir/APKBUILD"; then
+				[ -f "$dir/wcnss-wlan.initd" ] || return 1
+			fi
+			if grep -q 'wcnss-wlan\.service' "$dir/APKBUILD"; then
+				[ -f "$dir/wcnss-wlan.service" ] || return 1
+			fi
+			if grep -Eq 'subpackages=.*\$pkgname-openrc|default_openrc' "$dir/APKBUILD"; then
+				[ -f "$dir/wcnss-wlan-openrc.post-install" ] || return 1
+			fi
 			;;
 		*)
 			return 1
