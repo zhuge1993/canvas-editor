@@ -2,6 +2,12 @@
 set -e
 
 mkdir -p /opt/flowboard/project-data /opt/flowboard/auth-data /opt/flowboard/logs
+
+# Program directory is root-owned but traversable by the service group.
+# The service account can only write runtime config/data directories.
+chown root:flowboard /opt/flowboard
+chmod 0750 /opt/flowboard
+
 chown flowboard:flowboard \
 	/opt/flowboard/flowboard.env \
 	/opt/flowboard/project-data \
