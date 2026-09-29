@@ -1943,7 +1943,10 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
   // 管理接口：仅管理员可用（通过命令行 admin set-admin <email> 设置管理员）
   const user = await requireUser(req, res, paths)
   if (!user) return true
-  if (user.id === 'guest') return true
+  if (user.id === 'guest') {
+    sendError(res, 403, '游客模式没有管理员权限')
+    return true
+  }
   const users = await loadUsers(paths)
   const admin = users.find(item => item.id === user.id && item.isAdmin === true)
   if (!admin) {
