@@ -1449,9 +1449,18 @@ async function handleAuth(req: IncomingMessage, res: ServerResponse, paths: Runt
       }
 
       const userSnapshot = (await loadUsers(paths)).find(item => item.email === email)
-      const passwordMatches = Boolean(userSnapshot && await verifyPassword(password, userSnapshot.passwordHash))
+      if (!userSnapshot) {
+        // 不存在的随机邮箱不进入持久化失败计数，避免公网请求把 login-attempts.json 无限撑大。
+        return {
+          ok: false as const,
+          status: 401,
+          error: '邮箱或密码错误',
+          retryAfter: undefined as number | undefined,
+        }
+      }
 
-      if (!userSnapshot || !passwordMatches) {
+      const passwordMatches = await verifyPassword(password, userSnapshot.passwordHash)
+      if (!passwordMatches) {
         return withAuthMutation(async () => {
           const failedAt = Date.now()
           const currentAttempts = await loadLoginAttempts(paths)
