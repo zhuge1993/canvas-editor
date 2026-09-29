@@ -198,6 +198,22 @@ fi
 mkdir -p "$OUTPUT_DIR"
 pmbootstrap export "$OUTPUT_DIR"
 
+# pmbootstrap export intentionally emits symlinks for several artifacts.
+# Materialize file symlinks so out/dior can be copied/archive independently of the pmbootstrap workdir.
+while IFS= read -r exported_link; do
+	[ -n "$exported_link" ] || continue
+	if [ ! -f "$exported_link" ]; then
+		echo "导出目录包含非文件符号链接，拒绝生成不完整可移植产物: $exported_link" >&2
+		exit 1
+	fi
+	materialized="$exported_link.materialized.$"
+	cp -L "$exported_link" "$materialized"
+	rm "$exported_link"
+	mv "$materialized" "$exported_link"
+done <<EOF
+$(find "$OUTPUT_DIR" -type l -print)
+EOF
+
 BUILD_TIME="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 REPO_REVISION="unknown"
 PMAPORTS_REVISION="unknown"
