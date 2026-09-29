@@ -2415,7 +2415,7 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
     const projects = await Promise.all(files.map(async file => {
       try {
         const project = JSON.parse(await fsp.readFile(path.join(paths.dataDirectory, file), 'utf8')) as StoredDocument
-        if (typeof project.id !== 'string' || !project.id) return null
+        if (typeof project.id !== 'string' || !project.id || project.deletedAt) return null
         return {
           id: project.id,
           title: project.title,
@@ -2490,14 +2490,19 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
       sendError(res, 404, '文档不存在')
       return true
     }
+    if (source.deletedAt) {
+      sendError(res, 410, '源画布已进入回收站')
+      return true
+    }
     const now = Date.now()
     const copy: StoredDocument = {
       ...source,
-      id: `doc_${now}_${Math.random().toString(36).slice(2, 8)}`,
+      id: newId('doc'),
       title: `${source.title}（副本）`,
       ownerId: user.id,
       createdAt: now,
       updatedAt: now,
+      deletedAt: undefined,
     }
     await writeProject(paths, copy as unknown as Record<string, unknown>, user.id)
     sendJson(res, 201, { ok: true, id: copy.id, title: copy.title })
