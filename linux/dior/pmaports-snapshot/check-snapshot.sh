@@ -6,8 +6,10 @@ DEVICE_DIR="$SCRIPT_DIR/device/archived/device-xiaomi-dior"
 KERNEL_DIR="$SCRIPT_DIR/device/archived/linux-xiaomi-dior"
 DEVICE_APKBUILD="$DEVICE_DIR/APKBUILD"
 KERNEL_APKBUILD="$KERNEL_DIR/APKBUILD"
+WCNSS_DIR="$SCRIPT_DIR/main/wcnss-wlan"
+WCNSS_APKBUILD="$WCNSS_DIR/APKBUILD"
 
-for apkbuild in "$DEVICE_APKBUILD" "$KERNEL_APKBUILD"; do
+for apkbuild in "$DEVICE_APKBUILD" "$KERNEL_APKBUILD" "$WCNSS_APKBUILD"; do
 	if [ ! -f "$apkbuild" ]; then
 		echo "缺少 $apkbuild" >&2
 		exit 1
@@ -72,6 +74,16 @@ do
 	verify_source "$KERNEL_DIR" "$KERNEL_APKBUILD" "$name"
 done
 
+echo
+echo "校验 downstream WCNSS helper..."
+verify_source "$WCNSS_DIR" "$WCNSS_APKBUILD" "wcnss-wlan.initd"
+if [ ! -f "$WCNSS_DIR/wcnss-wlan-openrc.post-install" ]; then
+	echo "✗ 缺少 $WCNSS_DIR/wcnss-wlan-openrc.post-install" >&2
+	failed=1
+else
+	echo "✓ wcnss-wlan-openrc.post-install"
+fi
+
 if [ "$failed" -ne 0 ]; then
 	echo
 	echo "dior pmaports snapshot 仍不完整或文件哈希不匹配。" >&2
@@ -79,4 +91,4 @@ if [ "$failed" -ne 0 ]; then
 fi
 
 echo
-echo "dior deviceinfo + kernel cmdline + kernel config + 6 patches 已全部按各自 APKBUILD SHA-512 校验通过。"
+echo "dior device/kernel snapshot + WCNSS helper 已通过锁定源文件校验。"

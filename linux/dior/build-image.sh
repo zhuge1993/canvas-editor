@@ -37,6 +37,21 @@ EOF
 	printf '%s\n' "$first"
 }
 
+find_support_aport() {
+	package="$1"
+	first=""
+	for section in main community testing; do
+		dir="$PMB_APORTS/$section/$package"
+		[ -e "$dir" ] || continue
+		[ -n "$first" ] || first="$dir"
+		if aport_complete "$package" "$dir"; then
+			printf '%s\n' "$dir"
+			return 0
+		fi
+	done
+	printf '%s\n' "$first"
+}
+
 aport_complete() {
 	package="$1"
 	dir="$2"
@@ -57,6 +72,10 @@ aport_complete() {
 			;;
 		firmware-xiaomi-dior)
 			# Firmware payloads are remote commit-pinned sources with hashes in APKBUILD.
+			;;
+		wcnss-wlan)
+			[ -f "$dir/wcnss-wlan.initd" ] || return 1
+			[ -f "$dir/wcnss-wlan-openrc.post-install" ] || return 1
 			;;
 		*)
 			return 1
@@ -108,14 +127,17 @@ esac
 DEVICE_APORT="$(find_aport device-xiaomi-dior)"
 KERNEL_APORT="$(find_aport linux-xiaomi-dior)"
 FIRMWARE_APORT="$(find_aport firmware-xiaomi-dior)"
+WCNSS_APORT="$(find_support_aport wcnss-wlan)"
 
 if ! aport_complete device-xiaomi-dior "$DEVICE_APORT" \
 	|| ! aport_complete linux-xiaomi-dior "$KERNEL_APORT" \
-	|| ! aport_complete firmware-xiaomi-dior "$FIRMWARE_APORT"; then
-	echo "当前 pmaports 的 xiaomi-dior aport 缺失或结构不完整，尝试仓库锁定快照..."
+	|| ! aport_complete firmware-xiaomi-dior "$FIRMWARE_APORT" \
+	|| ! aport_complete wcnss-wlan "$WCNSS_APORT"; then
+	echo "当前 pmaports 的 xiaomi-dior aport 或 WCNSS helper 缺失/不完整，尝试仓库锁定快照..."
 	report_aport device-xiaomi-dior "$DEVICE_APORT"
 	report_aport linux-xiaomi-dior "$KERNEL_APORT"
 	report_aport firmware-xiaomi-dior "$FIRMWARE_APORT"
+	report_aport wcnss-wlan "$WCNSS_APORT"
 	if ! sh "$SNAPSHOT_ROOT/check-snapshot.sh"; then
 		if [ "${HYDRATE_SNAPSHOT:-1}" = "1" ]; then
 			echo "快照缺文件，按固定历史来源下载并做 SHA-512 校验..."
@@ -153,6 +175,26 @@ if ! aport_complete device-xiaomi-dior "$DEVICE_APORT" \
 		DEVICE_APORT="$(find_aport device-xiaomi-dior)"
 		KERNEL_APORT="$(find_aport linux-xiaomi-dior)"
 		FIRMWARE_APORT="$(find_aport firmware-xiaomi-dior)"
+
+		# firmware-xiaomi-dior depends on the downstream WCNSS init helper.
+		# Prefer any complete current pmaports copy; only inject our immutable snapshot when missing.
+		WCNSS_APORT="$(find_support_aport wcnss-wlan)"
+		if ! aport_complete wcnss-wlan "$WCNSS_APORT"; then
+			source_dir="$SNAPSHOT_ROOT/main/wcnss-wlan"
+			target_dir="$PMB_APORTS/main/wcnss-wlan"
+			if ! aport_complete wcnss-wlan "$source_dir"; then
+				echo "仓库锁定快照中的 wcnss-wlan 结构不完整，停止构建。" >&2
+				exit 1
+			fi
+			if [ -e "$target_dir" ]; then
+				echo "当前 pmaports 已有残缺 $target_dir；脚本不会覆盖，请先修复或移走。" >&2
+				exit 1
+			fi
+			mkdir -p "$PMB_APORTS/main"
+			cp -a "$source_dir" "$target_dir"
+			echo "已注入锁定 WCNSS helper: wcnss-wlan"
+			WCNSS_APORT="$(find_support_aport wcnss-wlan)"
+		fi
 	else
 		echo "锁定快照尚未通过完整性校验，拒绝构建不完整内核。" >&2
 		echo "缺失/哈希状态见上方输出和: linux/dior/pmaports-snapshot/README.md" >&2
@@ -162,11 +204,13 @@ fi
 
 if ! aport_complete device-xiaomi-dior "$DEVICE_APORT" \
 	|| ! aport_complete linux-xiaomi-dior "$KERNEL_APORT" \
-	|| ! aport_complete firmware-xiaomi-dior "$FIRMWARE_APORT"; then
-	echo "注入后 xiaomi-dior aport 仍缺失或结构不完整，停止构建。" >&2
+	|| ! aport_complete firmware-xiaomi-dior "$FIRMWARE_APORT" \
+	|| ! aport_complete wcnss-wlan "$WCNSS_APORT"; then
+	echo "注入后 xiaomi-dior aport / WCNSS helper 仍缺失或结构不完整，停止构建。" >&2
 	report_aport device-xiaomi-dior "$DEVICE_APORT"
 	report_aport linux-xiaomi-dior "$KERNEL_APORT"
 	report_aport firmware-xiaomi-dior "$FIRMWARE_APORT"
+	report_aport wcnss-wlan "$WCNSS_APORT"
 	echo "如果现有 pmaports 中已有同名残缺目录，请先自行修复或移走；脚本不会覆盖它。" >&2
 	exit 1
 fi
@@ -174,6 +218,7 @@ fi
 echo "dior device aport  : $DEVICE_APORT"
 echo "dior kernel aport  : $KERNEL_APORT"
 echo "dior firmware aport: $FIRMWARE_APORT"
+echo "WCNSS helper aport : $WCNSS_APORT"
 
 if [ ! -f "$FLOWBOARD_RELEASE" ]; then
 	need pnpm
@@ -211,6 +256,9 @@ pmbootstrap build flowboard-server
 
 echo "预构建 dior kernel，提前验证 GCC4/dtbtool 与 downstream 3.4 内核..."
 pmbootstrap build linux-xiaomi-dior
+
+echo "预构建 WCNSS helper，提前验证 downstream Wi-Fi 依赖..."
+pmbootstrap build wcnss-wlan
 
 echo "预构建 dior firmware，提前验证固定固件源与校验..."
 pmbootstrap build firmware-xiaomi-dior
@@ -252,6 +300,7 @@ FLOWBOARD_RELEASE_SHA256="$(sha256sum "$FLOWBOARD_RELEASE" | sed 's/[[:space:]].
 DEVICE_APKBUILD_SHA256="$(sha256sum "$DEVICE_APORT/APKBUILD" | sed 's/[[:space:]].*$//')"
 KERNEL_APKBUILD_SHA256="$(sha256sum "$KERNEL_APORT/APKBUILD" | sed 's/[[:space:]].*$//')"
 FIRMWARE_APKBUILD_SHA256="$(sha256sum "$FIRMWARE_APORT/APKBUILD" | sed 's/[[:space:]].*$//')"
+WCNSS_APKBUILD_SHA256="$(sha256sum "$WCNSS_APORT/APKBUILD" | sed 's/[[:space:]].*$//')"
 
 cat > "$OUTPUT_DIR/BUILD-MANIFEST.txt" <<EOF
 DiorLinux / FlowBoard build manifest
@@ -270,6 +319,8 @@ kernel_aport=$KERNEL_APORT
 kernel_apkbuild_sha256=$KERNEL_APKBUILD_SHA256
 firmware_aport=$FIRMWARE_APORT
 firmware_apkbuild_sha256=$FIRMWARE_APKBUILD_SHA256
+wcnss_aport=$WCNSS_APORT
+wcnss_apkbuild_sha256=$WCNSS_APKBUILD_SHA256
 flowboard_listen=127.0.0.1:3000
 flowboard_root_admin=804559340@qq.com
 auto_flash=false
