@@ -944,53 +944,79 @@ async function handleAuth(req: IncomingMessage, res: ServerResponse, paths: Runt
       sendError(res, 400, `邮箱、6 位验证码和至少 ${PASSWORD_MIN_LENGTH} 位密码均为必填项`)
       return true
     }
-    const users = await loadUsers(paths)
-    if (users.some(user => user.email === email)) {
-      sendError(res, 409, '该邮箱已注册')
-      return true
-    }
-    let invite: StoredInvite | undefined
-    let invites: StoredInvite[] = []
-    if (email !== DEFAULT_ADMIN_EMAIL) {
-      if (users.length >= DEFAULT_MAX_USERS) {
-        sendError(res, 403, `服务器已达到注册上限（${DEFAULT_MAX_USERS} 人），请联系管理员`)
-        return true
-      }
-      invites = await loadInvites(paths)
-      invite = invites.find(item => item.code === inviteCode)
-      if (!inviteIsUsable(invite)) {
-        sendError(res, 403, '邀请码无效、已停用或使用次数已耗尽')
-        return true
-      }
-    }
-    const now = Date.now()
-    const codes = await loadVerificationCodes(paths)
-    const record = codes.find(item => item.email === email)
-    const codeMatches = record && record.expiresAt > now && record.attempts < MAX_VERIFICATION_ATTEMPTS && sameHash(record.codeHash, hashCode(code))
-    if (!codeMatches) {
-      if (record) {
-        record.attempts += 1
-        await saveVerificationCodes(paths, codes.filter(item => item.expiresAt > now && item.attempts < MAX_VERIFICATION_ATTEMPTS))
+    // 先快速校验验证码，避免无效请求消耗 scrypt CPU；真正提交时会在全局认证锁内再次校验。
+    const preliminaryNow = Date.now()
+    const preliminaryCodes = await loadVerificationCodes(paths)
+    const preliminaryRecord = preliminaryCodes.find(item => item.email === email)
+    const preliminaryMatches = preliminaryRecord
+      && preliminaryRecord.expiresAt > preliminaryNow
+      && preliminaryRecord.attempts < MAX_VERIFICATION_ATTEMPTS
+      && sameHash(preliminaryRecord.codeHash, hashCode(code))
+    if (!preliminaryMatches) {
+      if (preliminaryRecord) {
+        preliminaryRecord.attempts += 1
+        await saveVerificationCodes(paths, preliminaryCodes.filter(item => item.expiresAt > preliminaryNow && item.attempts < MAX_VERIFICATION_ATTEMPTS))
       }
       sendError(res, 400, '验证码无效或已过期')
       return true
     }
-    const user: StoredUser = {
-      id: newId('usr'),
-      email,
-      passwordHash: await passwordDigest(password),
-      createdAt: now,
-      verifiedAt: now,
-      isAdmin: email === DEFAULT_ADMIN_EMAIL,
+
+    const passwordHash = await passwordDigest(password)
+    const registration = await withAuthMutation(async () => {
+      const users = await loadUsers(paths)
+      if (users.some(user => user.email === email)) {
+        return { ok: false as const, status: 409, error: '该邮箱已注册' }
+      }
+      if (email !== DEFAULT_ADMIN_EMAIL && users.length >= DEFAULT_MAX_USERS) {
+        return { ok: false as const, status: 403, error: `服务器已达到注册上限（${DEFAULT_MAX_USERS} 人），请联系管理员` }
+      }
+
+      const now = Date.now()
+      const codes = await loadVerificationCodes(paths)
+      const record = codes.find(item => item.email === email)
+      const codeMatches = record
+        && record.expiresAt > now
+        && record.attempts < MAX_VERIFICATION_ATTEMPTS
+        && sameHash(record.codeHash, hashCode(code))
+      if (!codeMatches) {
+        return { ok: false as const, status: 400, error: '验证码无效或已过期' }
+      }
+
+      let invites: StoredInvite[] = []
+      let invite: StoredInvite | undefined
+      if (email !== DEFAULT_ADMIN_EMAIL) {
+        invites = await loadInvites(paths)
+        invite = invites.find(item => item.code === inviteCode)
+        if (!inviteIsUsable(invite)) {
+          return { ok: false as const, status: 403, error: '邀请码无效、已停用或使用次数已耗尽' }
+        }
+      }
+
+      const user: StoredUser = {
+        id: newId('usr'),
+        email,
+        passwordHash,
+        createdAt: now,
+        verifiedAt: now,
+        isAdmin: email === DEFAULT_ADMIN_EMAIL,
+      }
+
+      await saveUsers(paths, [...users, user])
+      if (invite) {
+        await saveInvites(paths, invites.map(item => item.code === invite.code
+          ? { ...item, usedCount: item.usedCount + 1, lastUsedAt: now }
+          : item))
+      }
+      await saveVerificationCodes(paths, codes.filter(item => item.email !== email))
+      return { ok: true as const, user }
+    })
+
+    if (!registration.ok) {
+      sendError(res, registration.status, registration.error)
+      return true
     }
-    await saveUsers(paths, [...users, user])
-    if (invite) {
-      const usedAt = Date.now()
-      await saveInvites(paths, invites.map(item => item.code === invite.code
-        ? { ...item, usedCount: item.usedCount + 1, lastUsedAt: usedAt }
-        : item))
-    }
-    await saveVerificationCodes(paths, codes.filter(item => item.email !== email))
+
+    const user = registration.user
     await claimLegacyProjects(paths, user.id)
     await createSession(user.id, paths, res)
     sendJson(res, 201, { user: authUser(user) })
