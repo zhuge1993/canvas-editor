@@ -77,6 +77,7 @@ done
 echo
 echo "校验 downstream WCNSS helper..."
 verify_source "$WCNSS_DIR" "$WCNSS_APKBUILD" "wcnss-wlan.initd"
+verify_source "$WCNSS_DIR" "$WCNSS_APKBUILD" "wcnss-wlan.service"
 if [ ! -f "$WCNSS_DIR/wcnss-wlan-openrc.post-install" ]; then
 	echo "✗ 缺少 $WCNSS_DIR/wcnss-wlan-openrc.post-install" >&2
 	failed=1

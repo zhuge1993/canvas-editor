@@ -4,7 +4,7 @@ This directory pins hardware/kernel provenance for Xiaomi Redmi Note 4G (`xiaomi
 
 The original `linux-xiaomi-dior/APKBUILD` references six patch files. They are intentionally verified by the original APKBUILD SHA-512 values before this snapshot may be used as a fallback.
 
-The archived `firmware-xiaomi-dior` package also depends on the downstream `wcnss-wlan` helper. A fixed historical copy of that helper is pinned under `main/wcnss-wlan`, so a future pmaports cleanup cannot silently break the dior Wi-Fi dependency closure.
+The archived `firmware-xiaomi-dior` package also depends on the downstream `wcnss-wlan` helper. A fixed historical copy of that helper is pinned under `main/wcnss-wlan`, so a future pmaports cleanup cannot silently break the dior Wi-Fi dependency closure. The fallback keeps the historical OpenRC logic and adds an equivalent systemd oneshot unit, because modern postmarketOS installations may use either init system.
 
 ## Verify
 
@@ -22,6 +22,7 @@ The verifier checks:
 - `0001-fix-refresh-rate.patch`
 - `0001-framebuffer-fixes.patch`
 - `main/wcnss-wlan/wcnss-wlan.initd` against its APKBUILD SHA-512
+- `main/wcnss-wlan/wcnss-wlan.service` against its APKBUILD SHA-512
 - presence of `main/wcnss-wlan/wcnss-wlan-openrc.post-install`
 
 No file is trusted only because its filename matches.

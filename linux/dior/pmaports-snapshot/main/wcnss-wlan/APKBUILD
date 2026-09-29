@@ -1,17 +1,20 @@
 # Maintainer Attila Szollosi <ata2001@airmail.cc>
 pkgname=wcnss-wlan
 pkgver=2
-pkgrel=2
+pkgrel=3
 pkgdesc="Init script for enabling wcnss wlan driver (downstream Android kernels)"
 url="https://gitlab.postmarketos.org/postmarketOS/pmaports"
 arch="noarch"
 license="GPL-3.0-or-later"
-source="$pkgname.initd"
+source="$pkgname.initd $pkgname.service"
 subpackages="$pkgname-openrc"
 options="!check" # No tests
 
 package() {
 	install -Dm755 "$srcdir"/$pkgname.initd "$pkgdir"/etc/init.d/wcnss-wlan
+	install -Dm644 "$srcdir"/$pkgname.service "$pkgdir"/usr/lib/systemd/system/wcnss-wlan.service
+	install -d "$pkgdir"/etc/systemd/system/multi-user.target.wants
+	ln -sf /usr/lib/systemd/system/wcnss-wlan.service 		"$pkgdir"/etc/systemd/system/multi-user.target.wants/wcnss-wlan.service
 }
 
 openrc() {
@@ -21,4 +24,5 @@ openrc() {
 
 sha512sums="
 8bf30e5cdf71dc3e2f4ec5b426abd87036dd8748207ec133c3898c966fa33770f18f852f64a9011f20780c411364fd573a1fa7adba8f4491326026f8d85dd018  wcnss-wlan.initd
+41f67c166e64a7f117f7e521ce474a18db73c8fd5447cb3d44e50af4c620be9bef84f7ad5494fe934b3f0122409dd5dee7bf575376d8f9be18ed0c0d2fd6d9b2  wcnss-wlan.service
 "
