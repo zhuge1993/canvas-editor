@@ -601,30 +601,58 @@ async function removeSession(req: IncomingMessage, paths: RuntimePaths): Promise
 /** 遗留文档归属认领：仅需执行一次（用标记文件跳过），否则每次列表请求都要全量读盘解析 */
 const LEGACY_CLAIM_MARKER = '.legacy-claimed'
 
+let legacyClaimTail: Promise<void> = Promise.resolve()
+
+async function withLegacyClaim<T>(operation: () => Promise<T>): Promise<T> {
+  let release!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve })
+  const previous = legacyClaimTail
+  legacyClaimTail = previous.catch(() => undefined).then(() => gate)
+  await previous.catch(() => undefined)
+  try {
+    return await operation()
+  } finally {
+    release()
+  }
+}
+
 async function claimLegacyProjects(paths: RuntimePaths, userId: string): Promise<void> {
-  const marker = path.join(paths.authDirectory, LEGACY_CLAIM_MARKER)
-  try {
-    await fsp.access(marker)
-    return
-  } catch {
-    // 尚未认领过，继续
-  }
-  let files: string[]
-  try {
-    files = (await fsp.readdir(paths.dataDirectory)).filter(file => file.endsWith('.json'))
-  } catch {
-    return
-  }
-  await Promise.all(files.map(async file => {
-    const fullPath = path.join(paths.dataDirectory, file)
+  // 多用户模式下，迁移前没有 ownerId 的旧画布只能归默认根管理员。
+  // 普通用户先注册/登录时不得抢占历史数据。
+  const claimant = (await loadUsers(paths)).find(user => user.id === userId)
+  if (!claimant || claimant.email.toLowerCase() !== DEFAULT_ADMIN_EMAIL) return
+
+  await withLegacyClaim(async () => {
+    const marker = path.join(paths.authDirectory, LEGACY_CLAIM_MARKER)
     try {
-      const project = JSON.parse(await fsp.readFile(fullPath, 'utf8')) as StoredDocument
-      if (!project.ownerId && typeof project.id === 'string') await writeJson(fullPath, { ...project, ownerId: userId })
+      await fsp.access(marker)
+      return
     } catch {
-      // Leave malformed legacy files untouched.
+      // 尚未认领过，继续
     }
-  }))
-  await fsp.writeFile(marker, String(Date.now()), 'utf8').catch(() => undefined)
+
+    let files: string[]
+    try {
+      files = (await fsp.readdir(paths.dataDirectory)).filter(file => file.endsWith('.json'))
+    } catch {
+      return
+    }
+
+    // 串行读取最新内容再落盘，避免两个首次请求同时认领同一历史画布。
+    for (const file of files) {
+      const fullPath = path.join(paths.dataDirectory, file)
+      try {
+        const project = JSON.parse(await fsp.readFile(fullPath, 'utf8')) as StoredDocument
+        if (!project.ownerId && typeof project.id === 'string') {
+          await writeJson(fullPath, { ...project, ownerId: userId })
+        }
+      } catch {
+        // Leave malformed legacy files untouched.
+      }
+    }
+
+    await fsp.writeFile(marker, String(Date.now()), 'utf8')
+  })
 }
 
 function projectCanvas(project: StoredDocument): unknown {
