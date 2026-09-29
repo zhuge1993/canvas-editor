@@ -219,6 +219,7 @@ const MAX_ASSET_STORAGE_BYTES = MAX_ASSET_STORAGE_MB * 1024 * 1024
 const assetStorageUsageCache = new Map<string, number>()
 const assetStorageMutationTails = new Map<string, Promise<void>>()
 const MAX_WEB_BACKUP_ASSET_BYTES = 48 * 1024 * 1024
+const MAX_WEB_BACKUP_DOCUMENT_BYTES = 20 * 1024 * 1024
 const MAX_RESTORE_ARCHIVE_BYTES = 64 * 1024 * 1024
 const MAX_RESTORE_JSON_BYTES = 96 * 1024 * 1024
 
@@ -2558,8 +2559,23 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
     const assets = payload.assets as Record<string, string>
     const auth = payload.auth as Record<string, unknown>
 
+    let documentBytes = 0
     for (const file of dataFiles.filter(file => /^[a-zA-Z0-9_-]+\.json$/.test(file))) {
-      try { data[file] = JSON.parse(await fsp.readFile(path.join(paths.dataDirectory, file), 'utf8')) } catch { /* skip */ }
+      const fullPath = path.join(paths.dataDirectory, file)
+      try {
+        documentBytes += (await fsp.stat(fullPath)).size
+        if (documentBytes > MAX_WEB_BACKUP_DOCUMENT_BYTES) {
+          sendError(res, 413, '项目与版本历史总量超过 Web 备份安全上限，请直接备份 /opt/flowboard/project-data、auth-data 和 flowboard.env', {
+            documentBytes,
+            maxDocumentBytes: MAX_WEB_BACKUP_DOCUMENT_BYTES,
+          })
+          return true
+        }
+        data[file] = JSON.parse(await fsp.readFile(fullPath, 'utf8'))
+      } catch (error) {
+        if (error instanceof RequestBodyError) throw error
+        // 文件并发消失或损坏则跳过；完整性问题由管理员后续检查。
+      }
     }
 
     const versionsRoot = path.join(paths.dataDirectory, 'versions')
@@ -2569,8 +2585,20 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
       for (const file of await fsp.readdir(projectVersions).catch(() => [] as string[])) {
         if (!/^[a-zA-Z0-9_-]+\.json$/.test(file)) continue
         try {
-          versions[`${projectId}/${file}`] = JSON.parse(await fsp.readFile(path.join(projectVersions, file), 'utf8'))
-        } catch { /* skip */ }
+          const fullPath = path.join(projectVersions, file)
+          documentBytes += (await fsp.stat(fullPath)).size
+          if (documentBytes > MAX_WEB_BACKUP_DOCUMENT_BYTES) {
+            sendError(res, 413, '项目与版本历史总量超过 Web 备份安全上限，请直接备份 /opt/flowboard/project-data、auth-data 和 flowboard.env', {
+              documentBytes,
+              maxDocumentBytes: MAX_WEB_BACKUP_DOCUMENT_BYTES,
+            })
+            return true
+          }
+          versions[`${projectId}/${file}`] = JSON.parse(await fsp.readFile(fullPath, 'utf8'))
+        } catch (error) {
+          if (error instanceof RequestBodyError) throw error
+          // skip malformed/disappearing version
+        }
       }
     }
 
@@ -2596,8 +2624,18 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
       try { auth[file] = JSON.parse(await fsp.readFile(path.join(paths.authDirectory, file), 'utf8')) } catch { /* skip */ }
     }
 
+    const payloadJson = JSON.stringify(payload)
+    const payloadBytes = Buffer.byteLength(payloadJson, 'utf8')
+    if (payloadBytes > MAX_RESTORE_JSON_BYTES) {
+      sendError(res, 413, 'Web 备份展开后超过 Web 恢复安全上限，请改用文件系统备份', {
+        payloadBytes,
+        maxPayloadBytes: MAX_RESTORE_JSON_BYTES,
+      })
+      return true
+    }
+
     // 图片已经是 WebP/PNG/JPEG 等压缩格式；level=1 降低老 ARM CPU 负担。
-    const compressed = gzipSync(Buffer.from(JSON.stringify(payload), 'utf8'), { level: 1 })
+    const compressed = gzipSync(Buffer.from(payloadJson, 'utf8'), { level: 1 })
     res.statusCode = 200
     res.setHeader('Content-Type', 'application/gzip')
     res.setHeader('Content-Disposition', `attachment; filename="flowboard-backup-${new Date().toISOString().slice(0, 10)}.json.gz"`)
