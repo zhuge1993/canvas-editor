@@ -2403,23 +2403,43 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
     }
 
     if (payload.assets && typeof payload.assets === 'object' && !Array.isArray(payload.assets)) {
-      let restoredAssetBytes = 0
-      for (const [name, encoded] of Object.entries(payload.assets)) {
-        if (!ASSET_FILE_PATTERN.test(name) || typeof encoded !== 'string') continue
-        const buffer = Buffer.from(encoded, 'base64')
-        if (buffer.length === 0 || buffer.length > MAX_ASSET_BYTES) {
-          throw new RequestBodyError(`备份中的图片资源大小无效: ${name}`)
+      const directory = assetsDirectory(paths)
+      await fsp.mkdir(directory, { recursive: true })
+      await withAssetStorageMutation(directory, async () => {
+        let used = await assetStorageUsage(directory)
+        let restoredAssetBytes = 0
+        for (const [name, encoded] of Object.entries(payload.assets!)) {
+          if (!ASSET_FILE_PATTERN.test(name) || typeof encoded !== 'string') continue
+          const buffer = Buffer.from(encoded, 'base64')
+          if (buffer.length === 0 || buffer.length > MAX_ASSET_BYTES) {
+            throw new RequestBodyError(`备份中的图片资源大小无效: ${name}`)
+          }
+          restoredAssetBytes += buffer.length
+          if (restoredAssetBytes > MAX_WEB_BACKUP_ASSET_BYTES) {
+            throw new RequestBodyError('备份中的图片总量超过 Web 恢复安全上限', 413)
+          }
+          const extension = name.split('.').pop() ?? ''
+          const expectedName = `${createHash('sha256').update(buffer).digest('hex').slice(0, 40)}.${extension}`
+          if (expectedName !== name) throw new RequestBodyError(`备份图片哈希不匹配: ${name}`)
+
+          const target = path.join(directory, name)
+          try {
+            await fsp.access(target)
+            // 同内容寻址文件已存在，无需重复占用容量。
+          } catch {
+            if (used + buffer.length > MAX_ASSET_STORAGE_BYTES) {
+              throw new RequestBodyError(
+                `恢复后图片资源库将超过容量上限（${MAX_ASSET_STORAGE_MB} MiB）`,
+                507,
+              )
+            }
+            await writeBufferAtomic(target, buffer)
+            used += buffer.length
+            restored++
+          }
         }
-        restoredAssetBytes += buffer.length
-        if (restoredAssetBytes > MAX_WEB_BACKUP_ASSET_BYTES) {
-          throw new RequestBodyError('备份中的图片总量超过 Web 恢复安全上限', 413)
-        }
-        const extension = name.split('.').pop() ?? ''
-        const expectedName = `${createHash('sha256').update(buffer).digest('hex').slice(0, 40)}.${extension}`
-        if (expectedName !== name) throw new RequestBodyError(`备份图片哈希不匹配: ${name}`)
-        await writeBufferAtomic(path.join(assetsDirectory(paths), name), buffer)
-        restored++
-      }
+        assetStorageUsageCache.set(directory, used)
+      })
     }
 
     const durableAuthFiles = new Set(['users.json', 'invites.json', 'shares.json'])
