@@ -680,15 +680,30 @@ async function writeProject(paths: RuntimePaths, body: Record<string, unknown>, 
   await writeJson(projectPath(paths, id), project)
 }
 
+function forwardedHeader(value: string | string[] | undefined): string | undefined {
+  const first = Array.isArray(value) ? value[0] : value?.split(',')[0]
+  const normalized = first?.trim()
+  if (!normalized || !/^[A-Za-z0-9.:[\]-]+$/.test(normalized)) return undefined
+  return normalized
+}
+
 function shareUrl(req: IncomingMessage, token: string): string {
-  // 对外分享地址必须包含实际监听端口；否则非 80/443 端口会落到默认 HTTP 端口导致局域网打不开。
-  const publicHost = preferredPublicHost()
-  const host = publicHost !== 'localhost' ? publicHost : (req.headers.host ?? 'localhost')
-  const configuredPort = Number(process.env.FLOWBOARD_RUNTIME_PORT ?? process.env.FLOWBOARD_PORT ?? '3000')
-  const hostWithPort = host.includes(':') && host.startsWith('[')
-    ? `${host}:${configuredPort}`
-    : `${host}:${configuredPort}`
-  const protocol = process.env.FLOWBOARD_PUBLIC_PROTOCOL === 'https' ? 'https' : 'http'
+  // 穿透/反代优先使用显式公网域名或 X-Forwarded-*；直连时使用请求自身 Host（通常已包含 :3000）。
+  const configuredHost = process.env.FLOWBOARD_PUBLIC_HOST?.trim()
+  const forwardedHost = forwardedHeader(req.headers['x-forwarded-host'])
+  const requestHost = forwardedHeader(req.headers.host)
+  const fallbackHost = preferredPublicHost()
+  const host = configuredHost || forwardedHost || requestHost || fallbackHost
+  const forwardedProtocol = forwardedHeader(req.headers['x-forwarded-proto'])
+  const protocol = process.env.FLOWBOARD_PUBLIC_PROTOCOL === 'https'
+    ? 'https'
+    : process.env.FLOWBOARD_PUBLIC_PROTOCOL === 'http'
+      ? 'http'
+      : forwardedProtocol === 'https' ? 'https' : 'http'
+  const runtimePort = Number(process.env.FLOWBOARD_RUNTIME_PORT ?? process.env.FLOWBOARD_PORT ?? '3000')
+  const usingFallback = !configuredHost && !forwardedHost && !requestHost
+  const hasPort = /^\[[^\]]+\]:\d+$/.test(host) || /:\d+$/.test(host)
+  const hostWithPort = usingFallback && !hasPort ? `${host}:${runtimePort}` : host
   return `${protocol}://${hostWithPort}/share/${token}`
 }
 
