@@ -888,52 +888,72 @@ async function handleAuth(req: IncomingMessage, res: ServerResponse, paths: Runt
     const body = await readBody(req)
     const email = normalizeEmail(body.email)
     const purpose = typeof body.purpose === 'string' ? body.purpose : 'register'
+    const inviteCode = normalizeInviteCode(body.inviteCode)
     if (!validEmail(email)) {
       sendError(res, 400, '请输入有效邮箱地址')
       return true
     }
-    const users = await loadUsers(paths)
-    if (purpose === 'register' && users.some(user => user.email === email)) {
-      sendError(res, 409, '该邮箱已注册')
-      return true
-    }
-    if (purpose === 'reset' && !users.some(user => user.email === email)) {
-      sendError(res, 404, '该邮箱未注册')
-      return true
-    }
-    if (purpose === 'register' && email !== DEFAULT_ADMIN_EMAIL) {
-      if (users.length >= DEFAULT_MAX_USERS) {
-        sendError(res, 403, `服务器已达到注册上限（${DEFAULT_MAX_USERS} 人），请联系管理员`)
-        return true
-      }
-      const inviteCode = normalizeInviteCode(body.inviteCode)
-      const invite = (await loadInvites(paths)).find(item => item.code === inviteCode)
-      if (!inviteIsUsable(invite)) {
-        sendError(res, 403, '邀请码无效、已停用或使用次数已耗尽')
-        return true
-      }
-    }
-    const now = Date.now()
-    const existingCodes = await loadVerificationCodes(paths)
-    const previous = existingCodes.find(item => item.email === email && item.expiresAt > now)
-    if (previous && now - previous.sentAt < VERIFICATION_RESEND_DELAY) {
-      sendError(res, 429, '验证码发送过于频繁', { retryAfter: Math.ceil((VERIFICATION_RESEND_DELAY - now + previous.sentAt) / 1000) })
-      return true
-    }
+
     const code = newVerificationCode()
+    const codeHash = hashCode(code)
+    const reservation = await withAuthMutation(async () => {
+      const users = await loadUsers(paths)
+      if (purpose === 'register' && users.some(user => user.email === email)) {
+        return { ok: false as const, status: 409, error: '该邮箱已注册' }
+      }
+      if (purpose === 'reset' && !users.some(user => user.email === email)) {
+        return { ok: false as const, status: 404, error: '该邮箱未注册' }
+      }
+      if (purpose === 'register' && email !== DEFAULT_ADMIN_EMAIL) {
+        if (users.length >= DEFAULT_MAX_USERS) {
+          return { ok: false as const, status: 403, error: `服务器已达到注册上限（${DEFAULT_MAX_USERS} 人），请联系管理员` }
+        }
+        const invite = (await loadInvites(paths)).find(item => item.code === inviteCode)
+        if (!inviteIsUsable(invite)) {
+          return { ok: false as const, status: 403, error: '邀请码无效、已停用或使用次数已耗尽' }
+        }
+      }
+
+      const now = Date.now()
+      const existingCodes = await loadVerificationCodes(paths)
+      const previous = existingCodes.find(item => item.email === email && item.expiresAt > now)
+      if (previous && now - previous.sentAt < VERIFICATION_RESEND_DELAY) {
+        return {
+          ok: false as const,
+          status: 429,
+          error: '验证码发送过于频繁',
+          retryAfter: Math.ceil((VERIFICATION_RESEND_DELAY - now + previous.sentAt) / 1000),
+        }
+      }
+
+      const codes = existingCodes.filter(item => item.email !== email && item.expiresAt > now)
+      codes.push({ email, codeHash, createdAt: now, sentAt: now, expiresAt: now + VERIFICATION_TTL, attempts: 0 })
+      await saveVerificationCodes(paths, codes)
+      return { ok: true as const }
+    })
+
+    if (!reservation.ok) {
+      sendError(res, reservation.status, reservation.error, reservation.retryAfter ? { retryAfter: reservation.retryAfter } : undefined)
+      return true
+    }
+
     let development = false
     try {
       development = await sendVerificationCode(email, code)
     } catch (error) {
+      // 邮件发送失败时，仅撤回本次预留的验证码；如果期间已有更新记录则不误删。
+      await withAuthMutation(async () => {
+        const codes = await loadVerificationCodes(paths)
+        const current = codes.find(item => item.email === email)
+        if (current?.codeHash === codeHash) await saveVerificationCodes(paths, codes.filter(item => item.email !== email))
+      }).catch(() => undefined)
       const message = error instanceof Error ? error.message : String(error)
       await appendRuntimeLog(paths, { level: 'error', event: 'auth.verification_failed', message, details: { email } })
       if (message === 'SMTP is not configured') sendError(res, 503, '服务器尚未配置邮箱服务，请管理员设置 SMTP 配置')
       else sendError(res, 502, '验证码发送失败，请检查 SMTP 配置')
       return true
     }
-    const codes = existingCodes.filter(item => item.email !== email && item.expiresAt > now)
-    codes.push({ email, codeHash: hashCode(code), createdAt: now, sentAt: now, expiresAt: now + VERIFICATION_TTL, attempts: 0 })
-    await saveVerificationCodes(paths, codes)
+
     sendJson(res, 200, { ok: true, expiresIn: VERIFICATION_TTL / 1000, resendAfter: VERIFICATION_RESEND_DELAY / 1000, ...(development ? { developmentCode: code } : {}) })
     return true
   }
