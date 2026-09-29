@@ -75,6 +75,18 @@ node /opt/flowboard/server-bundle.cjs set stp <授权码>
 
 实际运行时请以 `flowboard` 用户执行，避免把配置文件所有者改成 root。
 
+独立的 `set stp` 命令只会更新 `/opt/flowboard/flowboard.env`。如果服务已经在运行，需要重启一次让新授权码进入正在运行的 Node 进程：
+
+```bash
+# OpenRC
+sudo rc-service flowboard restart
+
+# systemd
+sudo systemctl restart flowboard
+```
+
+Web 管理后台保存 SMTP 时会在当前服务进程内立即生效，不需要额外重启。
+
 ## 账号策略
 
 - 默认根管理员：`804559340@qq.com`。

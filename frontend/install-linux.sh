@@ -125,6 +125,11 @@ fi
 echo
 echo "配置 QQ SMTP（只需要授权码）："
 echo "  su -s /bin/sh flowboard -c 'node /opt/flowboard/server-bundle.cjs set stp <授权码>'"
+if [ "$INIT_SYSTEM" = "openrc" ]; then
+  echo "  配置后重启: rc-service flowboard restart"
+else
+  echo "  配置后重启: systemctl restart flowboard"
+fi
 echo
 echo "默认根管理员邮箱: 804559340@qq.com"
 echo "默认最多注册用户: 20（可在 /opt/flowboard/flowboard.env 修改 FLOWBOARD_MAX_USERS）"

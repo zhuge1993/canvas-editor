@@ -147,6 +147,11 @@ function runQuickSmtpCommand(): void {
   configureDefaultQqSmtp(authorizationCode)
   console.log(`SMTP 已配置：smtp.qq.com:465 / ${DEFAULT_SMTP_EMAIL}`)
   console.log(`配置已保存到：${displayPath(smtpEnvironmentFile())}`)
+  if (process.platform !== 'win32') {
+    console.log('若 FlowBoard 服务正在运行，请重启服务后让新授权码生效。')
+    console.log('OpenRC: doas rc-service flowboard restart  （或 sudo）')
+    console.log('systemd: doas systemctl restart flowboard  （或 sudo）')
+  }
 }
 
 // ── MIME 类型 ─────────────────────────────────────────────
