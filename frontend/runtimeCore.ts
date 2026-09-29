@@ -21,6 +21,8 @@ const VERIFICATION_TTL = 10 * 60 * 1000
 const VERIFICATION_RESEND_DELAY = 60 * 1000
 const MAX_VERIFICATION_ATTEMPTS = 5
 const PASSWORD_MIN_LENGTH = 8
+const PASSWORD_MAX_LENGTH = 256
+const AUTH_REQUEST_MAX_BYTES = 16 * 1024
 const DEFAULT_ADMIN_EMAIL = (process.env.FLOWBOARD_DEFAULT_ADMIN_EMAIL ?? '804559340@qq.com').trim().toLowerCase()
 const DEFAULT_MAX_USERS = Math.max(2, Number(process.env.FLOWBOARD_MAX_USERS ?? '20') || 20)
 
@@ -926,7 +928,7 @@ async function handleAuth(req: IncomingMessage, res: ServerResponse, paths: Runt
   }
 
   if (req.method === 'POST' && pathname === '/api/auth/send-code') {
-    const body = await readBody(req)
+    const body = await readBody(req, AUTH_REQUEST_MAX_BYTES)
     const email = normalizeEmail(body.email)
     const purpose = body.purpose === undefined || body.purpose === 'register'
       ? 'register'
@@ -1008,13 +1010,13 @@ async function handleAuth(req: IncomingMessage, res: ServerResponse, paths: Runt
   }
 
   if (req.method === 'POST' && pathname === '/api/auth/register') {
-    const body = await readBody(req)
+    const body = await readBody(req, AUTH_REQUEST_MAX_BYTES)
     const email = normalizeEmail(body.email)
     const code = typeof body.code === 'string' ? body.code.trim() : ''
     const password = typeof body.password === 'string' ? body.password : ''
     const inviteCode = normalizeInviteCode(body.inviteCode)
-    if (!validEmail(email) || !/^\d{6}$/.test(code) || password.length < PASSWORD_MIN_LENGTH) {
-      sendError(res, 400, `邮箱、6 位验证码和至少 ${PASSWORD_MIN_LENGTH} 位密码均为必填项`)
+    if (!validEmail(email) || !/^\d{6}$/.test(code) || password.length < PASSWORD_MIN_LENGTH || password.length > PASSWORD_MAX_LENGTH) {
+      sendError(res, 400, `邮箱、6 位验证码和 ${PASSWORD_MIN_LENGTH}-${PASSWORD_MAX_LENGTH} 位密码均为必填项`)
       return true
     }
     // 先快速校验验证码，避免无效请求消耗 scrypt CPU；真正提交时会在全局认证锁内再次校验。
@@ -1111,12 +1113,12 @@ async function handleAuth(req: IncomingMessage, res: ServerResponse, paths: Runt
     return true
   }
   if (req.method === 'POST' && pathname === '/api/auth/reset-password') {
-    const body = await readBody(req)
+    const body = await readBody(req, AUTH_REQUEST_MAX_BYTES)
     const email = normalizeEmail(body.email)
     const code = typeof body.code === 'string' ? body.code.trim() : ''
     const password = typeof body.password === 'string' ? body.password : ''
-    if (!validEmail(email) || !/^\d{6}$/.test(code) || password.length < PASSWORD_MIN_LENGTH) {
-      sendError(res, 400, `邮箱、6 位验证码和至少 ${PASSWORD_MIN_LENGTH} 位新密码均为必填项`)
+    if (!validEmail(email) || !/^\d{6}$/.test(code) || password.length < PASSWORD_MIN_LENGTH || password.length > PASSWORD_MAX_LENGTH) {
+      sendError(res, 400, `邮箱、6 位验证码和 ${PASSWORD_MIN_LENGTH}-${PASSWORD_MAX_LENGTH} 位新密码均为必填项`)
       return true
     }
 
@@ -1184,9 +1186,13 @@ async function handleAuth(req: IncomingMessage, res: ServerResponse, paths: Runt
   }
 
   if (req.method === 'POST' && pathname === '/api/auth/login') {
-    const body = await readBody(req)
+    const body = await readBody(req, AUTH_REQUEST_MAX_BYTES)
     const email = normalizeEmail(body.email)
     const password = typeof body.password === 'string' ? body.password : ''
+    if (!validEmail(email) || password.length < PASSWORD_MIN_LENGTH || password.length > PASSWORD_MAX_LENGTH) {
+      sendError(res, 400, `请输入有效邮箱和 ${PASSWORD_MIN_LENGTH}-${PASSWORD_MAX_LENGTH} 位密码`)
+      return true
+    }
 
     // 快照只用于快速拒绝和 scrypt 校验；最终状态必须在认证锁内重新确认。
     const attempts = await loadLoginAttempts(paths)
