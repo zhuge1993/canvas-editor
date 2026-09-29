@@ -1740,11 +1740,11 @@ async function handleShare(req: IncomingMessage, res: ServerResponse, paths: Run
     sendError(res, 410, '分享链接已过期')
     return true
   }
-  // 访问密码校验：优先 header X-Share-Password，其次 query ?password=。
+  // 分享密码只接受请求头，避免 ?password=... 进入浏览器历史、反代日志或 Referer。
   // 与登录共用 scrypt 串行队列，避免公开分享链接被并发撞库拖满低功耗 CPU。
   if (share.passwordHash) {
-    const password = (typeof req.headers['x-share-password'] === 'string' ? req.headers['x-share-password'] : '')
-      || new URL(req.url ?? '/', 'http://localhost').searchParams.get('password') || ''
+    const passwordHeader = req.headers['x-share-password']
+    const password = Array.isArray(passwordHeader) ? (passwordHeader[0] ?? '') : (passwordHeader ?? '')
     const passwordResult = await verifySharePasswordAttempt(token, share.passwordHash, password)
     if (!passwordResult.ok) {
       sendSharePasswordError(res, passwordResult)
