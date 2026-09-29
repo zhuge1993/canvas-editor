@@ -219,6 +219,7 @@ const MAX_ASSET_REQUEST_BYTES = Math.ceil(MAX_ASSET_BYTES * 4 / 3) + 64 * 1024
 const MAX_LOG_REQUEST_BYTES = 128 * 1024
 const MAX_ASSET_STORAGE_MB = Math.max(64, Math.min(4096, Number(process.env.FLOWBOARD_MAX_ASSET_STORAGE_MB ?? '512') || 512))
 const MAX_ASSET_STORAGE_BYTES = MAX_ASSET_STORAGE_MB * 1024 * 1024
+const ASSET_GC_MIN_AGE_MS = 60 * 60 * 1000
 const assetStorageUsageCache = new Map<string, number>()
 const assetStorageMutationTails = new Map<string, Promise<void>>()
 const MAX_WEB_BACKUP_ASSET_BYTES = 48 * 1024 * 1024
@@ -3173,27 +3174,41 @@ export async function collectOrphanAssets(paths: RuntimePaths): Promise<AssetGcR
       if (name) referenced.add(name)
     }
   }
+
   const result: AssetGcResult = { referenced: referenced.size, removed: 0, kept: 0, bytesFreed: 0 }
   const directory = assetsDirectory(paths)
-  let names: string[] = []
-  try {
-    names = await fsp.readdir(directory)
-  } catch {
-    return result
-  }
-  for (const name of names) {
-    if (!ASSET_FILE_PATTERN.test(name)) continue
-    if (referenced.has(name)) {
-      result.kept++
-      continue
-    }
+  const cutoff = Date.now() - ASSET_GC_MIN_AGE_MS
+
+  return withAssetStorageMutation(directory, async () => {
+    let names: string[] = []
     try {
-      const stat = await fsp.stat(path.join(directory, name))
-      await fsp.unlink(path.join(directory, name))
-      result.removed++
-      result.bytesFreed += stat.size
-    } catch { /* 跳过 */ }
-  }
-  assetStorageUsageCache.delete(directory)
-  return result
+      names = await fsp.readdir(directory)
+    } catch {
+      return result
+    }
+
+    for (const name of names) {
+      if (!ASSET_FILE_PATTERN.test(name)) continue
+      if (referenced.has(name)) {
+        result.kept++
+        continue
+      }
+      try {
+        const file = path.join(directory, name)
+        const stat = await fsp.stat(file)
+        // 上传与项目自动保存不是一个事务。给新资源留一小时宽限期，
+        // 避免图片刚上传、项目引用还没落盘时被 GC 当成孤儿误删。
+        if (stat.mtimeMs > cutoff) {
+          result.kept++
+          continue
+        }
+        await fsp.unlink(file)
+        result.removed++
+        result.bytesFreed += stat.size
+      } catch { /* 跳过 */ }
+    }
+
+    assetStorageUsageCache.delete(directory)
+    return result
+  })
 }
