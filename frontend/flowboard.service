@@ -10,7 +10,7 @@ Group=flowboard
 WorkingDirectory=/opt/flowboard
 EnvironmentFile=-/opt/flowboard/flowboard.env
 Environment=FLOWBOARD_RUNTIME_DIR=/opt/flowboard
-ExecStart=/usr/bin/env bash /opt/flowboard/start-server.sh
+ExecStart=/bin/sh /opt/flowboard/start-server.sh
 Restart=always
 RestartSec=3
 TimeoutStopSec=15
