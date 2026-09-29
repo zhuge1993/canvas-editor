@@ -957,6 +957,7 @@ async function writeProject(paths: RuntimePaths, body: Record<string, unknown>, 
     createdAt: existing?.createdAt ?? (typeof body.createdAt === 'number' ? body.createdAt : now),
     updatedAt: now,
     ownerId: existing?.ownerId ?? ownerId,
+    deletedAt: existing?.deletedAt,
   }
   await writeJson(projectPath(paths, id), project)
 }
@@ -1566,6 +1567,10 @@ async function handleShare(req: IncomingMessage, res: ServerResponse, paths: Run
     sendError(res, 404, '项目不存在')
     return true
   }
+  if (project.deletedAt) {
+    sendError(res, 410, '项目已进入回收站')
+    return true
+  }
   if (req.method === 'GET') {
     sendJson(res, 200, projectResponse(project, share.permission))
     return true
@@ -1582,12 +1587,13 @@ async function handleShare(req: IncomingMessage, res: ServerResponse, paths: Run
     }
     const saved = await withProjectMutation(share.projectId, async () => {
       const latest = await readProject(paths, share.projectId)
-      if (!latest) return false
+      if (!latest) return { ok: false as const, status: 404, error: '项目不存在' }
+      if (latest.deletedAt) return { ok: false as const, status: 410, error: '项目已进入回收站' }
       await writeProject(paths, body, latest.ownerId ?? '', latest)
-      return true
+      return { ok: true as const }
     })
-    if (!saved) {
-      sendError(res, 404, '项目不存在')
+    if (!saved.ok) {
+      sendError(res, saved.status, saved.error)
       return true
     }
     sendJson(res, 200, { ok: true, permission: share.permission })
@@ -1988,6 +1994,9 @@ async function handleProjects(req: IncomingMessage, res: ServerResponse, paths: 
     }
     const result = await withProjectMutation(id, async () => {
       const latest = await readProject(paths, id)
+      if (latest?.deletedAt) {
+        return { ok: false as const, status: 410, error: '项目已进入回收站，请先恢复' }
+      }
       if (latest && !canManageProject(user, latest)) {
         return { ok: false as const, status: 403, error: '没有项目编辑权限' }
       }
@@ -2008,10 +2017,18 @@ async function handleProjects(req: IncomingMessage, res: ServerResponse, paths: 
     return true
   }
   if (req.method === 'GET') {
+    if (project.deletedAt) {
+      sendError(res, 410, '项目已进入回收站，请先恢复')
+      return true
+    }
     sendJson(res, 200, projectResponse(project, 'owner'))
     return true
   }
   if (req.method === 'DELETE') {
+    if (project.deletedAt) {
+      sendError(res, 400, '项目已经在回收站中')
+      return true
+    }
     // 软删除：标记 deletedAt 进入回收站，不直接删文件。
     const result = await withProjectMutation(id, async () => {
       const latest = await readProject(paths, id)
@@ -2408,9 +2425,11 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
     }
     const source = await readProject(paths, sourceDocId)
     if (!source) { sendError(res, 404, '源文档不存在'); return true }
+    if (source.deletedAt) { sendError(res, 410, '源画布已进入回收站'); return true }
     const copied = await withProjectMutation(targetDocId, async () => {
       const target = await readProject(paths, targetDocId)
       if (!target) return { ok: false as const, status: 404, error: '目标文档不存在' }
+      if (target.deletedAt) return { ok: false as const, status: 410, error: '目标画布已进入回收站' }
       if (target.ownerId !== user.id) {
         return { ok: false as const, status: 403, error: '目标画布必须属于当前管理员账号' }
       }
