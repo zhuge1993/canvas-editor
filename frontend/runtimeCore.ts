@@ -550,6 +550,9 @@ interface LoginAttempt {
 
 const LOGIN_MAX_ATTEMPTS = 5
 const LOGIN_LOCK_MS = 5 * 60 * 1000
+const SHARE_PASSWORD_MAX_ATTEMPTS = 5
+const SHARE_PASSWORD_LOCK_MS = 5 * 60 * 1000
+const sharePasswordAttempts = new Map<string, { count: number; lastFailAt: number }>()
 
 async function loadLoginAttempts(paths: RuntimePaths): Promise<LoginAttempt[]> {
   return readJson(filePath(paths, 'login-attempts.json'), [])
@@ -1420,13 +1423,43 @@ async function handleShare(req: IncomingMessage, res: ServerResponse, paths: Run
     sendError(res, 410, '分享链接已过期')
     return true
   }
-  // 访问密码校验：优先 header X-Share-Password，其次 query ?password=
+  // 访问密码校验：优先 header X-Share-Password，其次 query ?password=。
+  // 与登录共用 scrypt 串行队列，避免公开分享链接被并发撞库拖满低功耗 CPU。
   if (share.passwordHash) {
     const password = (typeof req.headers['x-share-password'] === 'string' ? req.headers['x-share-password'] : '')
       || new URL(req.url ?? '/', 'http://localhost').searchParams.get('password') || ''
-    const ok = await verifyPassword(password, share.passwordHash)
-    if (!ok) {
-      sendError(res, 401, '分享密码错误')
+    if (password.length > 256) {
+      sendError(res, 400, '分享密码过长')
+      return true
+    }
+
+    const passwordResult = await withLoginPasswordWork(async () => {
+      const checkedAt = Date.now()
+      const attempt = sharePasswordAttempts.get(token)
+      if (attempt && checkedAt - attempt.lastFailAt < SHARE_PASSWORD_LOCK_MS && attempt.count >= SHARE_PASSWORD_MAX_ATTEMPTS) {
+        const retryAfter = Math.ceil((SHARE_PASSWORD_LOCK_MS - (checkedAt - attempt.lastFailAt)) / 1000)
+        return { ok: false as const, status: 429, retryAfter }
+      }
+
+      const ok = await verifyPassword(password, share.passwordHash!)
+      if (ok) {
+        sharePasswordAttempts.delete(token)
+        return { ok: true as const, status: 200, retryAfter: undefined as number | undefined }
+      }
+
+      const failedAt = Date.now()
+      const current = sharePasswordAttempts.get(token)
+      const recentCount = current && failedAt - current.lastFailAt < SHARE_PASSWORD_LOCK_MS ? current.count : 0
+      sharePasswordAttempts.set(token, { count: recentCount + 1, lastFailAt: failedAt })
+      return { ok: false as const, status: 401, retryAfter: undefined as number | undefined }
+    })
+
+    if (!passwordResult.ok) {
+      if (passwordResult.status === 429) {
+        sendError(res, 429, '分享密码尝试过于频繁，请稍后再试', { retryAfter: passwordResult.retryAfter })
+      } else {
+        sendError(res, 401, '分享密码错误')
+      }
       return true
     }
   }
