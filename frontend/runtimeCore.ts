@@ -649,9 +649,12 @@ async function saveLoginAttempts(paths: RuntimePaths, attempts: LoginAttempt[]):
 }
 
 async function passwordDigest(password: string): Promise<string> {
-  const salt = randomBytes(16).toString('hex')
-  const hash = await scryptAsync(password, salt, 64, { N: 16384, r: 8, p: 1, maxmem: 32 * 1024 * 1024 })
-  return `scrypt$16384$8$1$${salt}$${hash.toString('hex')}`
+  // 哈希生成和密码校验共用同一个 scrypt 工作队列，避免低配 ARM 同时分配多份 scrypt 内存。
+  return withLoginPasswordWork(async () => {
+    const salt = randomBytes(16).toString('hex')
+    const hash = await scryptAsync(password, salt, 64, { N: 16384, r: 8, p: 1, maxmem: 32 * 1024 * 1024 })
+    return `scrypt$16384$8$1${salt}${hash.toString('hex')}`
+  })
 }
 
 async function verifyPassword(password: string, encoded: string): Promise<boolean> {
