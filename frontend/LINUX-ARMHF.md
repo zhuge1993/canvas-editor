@@ -1,26 +1,20 @@
-# FlowBoard — Debian 13 ARMv7 / Redmi Note 4G 部署
+# FlowBoard ARMv7 Linux 部署
 
-这套 Linux 发布包用于 **Debian 13 armhf + Node.js 20.19+**。绘图核心仍在浏览器运行，手机承担账号、画布存储、分享、邮件验证和 API 服务，因此不会因为改成 Linux 而删减现有绘图功能。
+FlowBoard 的 Linux 服务端不需要桌面、GPU 或 Electron。浏览器继续承担画布渲染，Linux 设备负责账号、画布持久化、分享、邮件验证码和管理 API，所以现有绘图能力不因服务器迁移到 Linux 而删减。
 
-## 推荐运行结构
+## 推荐平台
 
-```
-Internet
-   |
-HTTPS 内网穿透 / 反向代理
-   |
-127.0.0.1:3000
-   |
-FlowBoard (Node.js)
-   |
-/opt/flowboard/{project-data,auth-data,logs}
-```
+### Redmi Note 4G / dior
 
-默认只监听 `127.0.0.1`。如果你的穿透客户端运行在同一台手机上，直接把上游指向 `http://127.0.0.1:3000` 即可。
+优先使用 **postmarketOS / Alpine + OpenRC**。该机型是社区 downstream-kernel 设备，因此应保留设备专用内核，同时使用尽可能新的 Linux 用户空间。具体看 [PMOS-DIOR.md](./PMOS-DIOR.md)。
 
-## 安装
+### 其他 ARMv7 主机
 
-先在开发机生成 Linux 包：
+也支持 Debian 13 armhf + systemd，只要 Node.js >= 20.19。
+
+## 生成发布包
+
+在开发机：
 
 ```bash
 cd frontend
@@ -28,76 +22,82 @@ pnpm install --frozen-lockfile
 pnpm run build:linux
 ```
 
-得到 `FlowBoard-linux.tar.gz`。传到手机上的 Debian 13，解压后：
+生成：
 
-```bash
-tar -xzf FlowBoard-linux.tar.gz
-cd <解压目录>
-sudo ./install-linux.sh
+```
+FlowBoard-linux.tar.gz
 ```
 
-安装脚本会：
+包内包含前端静态资源、单文件 Node 服务 bundle、OpenRC/systemd 服务文件和自动安装脚本。
 
-- 检查 Node.js 20.19+；Debian 系统缺失时尝试用 apt 安装。
-- 创建低权限系统用户 `flowboard`。
-- 安装到 `/opt/flowboard`。
-- 创建并启用 systemd 服务。
-- 保留已有 `flowboard.env` 和业务数据，不覆盖已有配置。
+## 安装
 
-## QQ 邮箱验证码
+解压后以 root 运行：
 
-发件邮箱固定默认使用：
+```bash
+./install-linux.sh
+```
+
+安装器自动识别：
+
+- `apk + OpenRC` → postmarketOS/Alpine。
+- `apt + systemd` → Debian/Ubuntu。
+
+程序目录：
+
+```
+/opt/flowboard
+├── server-bundle.cjs
+├── dist/
+├── flowboard.env
+├── project-data/
+├── auth-data/
+└── logs/
+```
+
+业务数据与程序文件分离，升级时不要覆盖三个数据目录和 `flowboard.env`。
+
+## QQ SMTP 快速配置
+
+默认邮箱：
 
 ```
 804559340@qq.com
 ```
 
-只需要设置 QQ 邮箱 SMTP 授权码：
+只填 QQ 邮箱授权码：
 
 ```bash
-sudo -u flowboard node /opt/flowboard/server-bundle.cjs set stp <你的QQ邮箱授权码>
-sudo systemctl restart flowboard
+node /opt/flowboard/server-bundle.cjs set stp <授权码>
 ```
 
-也接受拼写 `set smtp <授权码>`。
+实际运行时请以 `flowboard` 用户执行，避免把配置文件所有者改成 root。
 
-配置写入 `/opt/flowboard/flowboard.env`，权限为 600。不要把真实授权码提交到 Git。
+## 账号策略
 
-## 第一个管理员
+- 默认根管理员：`804559340@qq.com`。
+- 根管理员首次注册免邀请码。
+- 其他注册必须邀请码。
+- 默认 `FLOWBOARD_MAX_USERS=20`。
+- 管理后台可创建一次或多次使用的邀请码、停用邀请码、管理用户与管理员权限。
+- 根管理员不可被 Web 后台删除或取消管理员权限。
 
-首次访问注册页时：
+## 管理画布
 
-- `804559340@qq.com` 不需要邀请码。
-- 它完成邮箱验证码注册后自动成为根管理员。
-- 根管理员不能被取消管理员权限，也不能从 Web 管理后台删除。
-- 其他邮箱必须填写有效邀请码。
+管理员可以：
 
-登录根管理员后，首页进入「管理」：
+- 查看所有用户的画布。
+- 用原始完整编辑器直接编辑任何用户画布，保存后所有权仍属于原用户。
+- 把整张画布复制到自己。
+- 读取任意画布的分组列表，把指定分组连同嵌套子组、图形和内部绑定复制到自己的目标画布。
 
-- 生成/停用邀请码，并设置每个邀请码允许使用的次数。
-- 查看注册用户、授权普通管理员、删除用户。
-- 查看所有用户画布。
-- 直接打开并编辑任意用户画布。
-- 整张画布复制到自己的账号。
-- 从任意画布选择一个分组（含嵌套子组与图形）复制到自己的某张画布。
-
-默认用户总量上限是 20：
-
-```bash
-FLOWBOARD_MAX_USERS=20
-```
-
-这不是并发数，而是服务器允许存在的注册账号总数。2 GB RAM 的手机建议从 10–20 人开始。
+普通用户仍只在自己的首页看到自己的画布。
 
 ## 外部访问
 
-推荐让穿透/反向代理终止 HTTPS，然后回源：
+默认监听 `127.0.0.1:3000`，推荐把内网穿透或 HTTPS 反代指向该地址。服务端识别 `X-Forwarded-Host` 和 `X-Forwarded-Proto`，分享链接可使用外部域名。
 
-```
-http://127.0.0.1:3000
-```
-
-如果有固定公网域名，在 `/opt/flowboard/flowboard.env` 里设置：
+环境变量：
 
 ```bash
 FLOWBOARD_PUBLIC_HOST=draw.example.com
@@ -105,35 +105,6 @@ FLOWBOARD_PUBLIC_PROTOCOL=https
 FLOWBOARD_COOKIE_SECURE=true
 ```
 
-修改后：
+## 低配优化
 
-```bash
-sudo systemctl restart flowboard
-```
-
-## 常用运维
-
-```bash
-systemctl status flowboard --no-pager
-journalctl -u flowboard -f
-systemctl restart flowboard
-systemctl stop flowboard
-```
-
-健康检查：
-
-```bash
-curl http://127.0.0.1:3000/api/health
-```
-
-数据目录：
-
-- `/opt/flowboard/project-data`：画布和资源。
-- `/opt/flowboard/auth-data`：用户、会话、邀请码。
-- `/opt/flowboard/logs`：应用日志。
-
-升级应用时先备份这三个目录；Linux 发布包与业务数据分离。
-
-## 2 GB RAM / 8 GB 存储建议
-
-systemd 默认把 FlowBoard 服务最大内存限制为约 1.2 GB，`NODE_OPTIONS` 默认把 V8 heap 限到 768 MB。图片仍建议限制尺寸，并把长期备份迁移到 microSD/NAS。不要在这台手机上同时运行数据库、桌面环境和多个重型服务。
+默认 V8 heap 上限 768 MB。不要在 2 GB RAM 手机上同时运行桌面、数据库、容器平台或 Chromium 服务端渲染。FlowBoard 的 SVG/Canvas 绘制在客户端浏览器完成，更适合这种低功耗 ARMv7 常驻服务器。
