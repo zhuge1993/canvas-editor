@@ -194,6 +194,9 @@ const ASSET_MIME: Record<string, string> = {
 const MAX_ASSET_BYTES = 8 * 1024 * 1024
 const MAX_ASSET_REQUEST_BYTES = Math.ceil(MAX_ASSET_BYTES * 4 / 3) + 64 * 1024
 const MAX_LOG_REQUEST_BYTES = 128 * 1024
+const MAX_WEB_BACKUP_ASSET_BYTES = 48 * 1024 * 1024
+const MAX_RESTORE_ARCHIVE_BYTES = 64 * 1024 * 1024
+const MAX_RESTORE_JSON_BYTES = 96 * 1024 * 1024
 
 /** 从 dataURL 中解析出图片本体；非图片 dataURL 返回 null */
 function decodeImageDataUrl(dataUrl: string): { buffer: Buffer; extension: string } | null {
@@ -236,6 +239,17 @@ async function writeJson(file: string, value: unknown): Promise<void> {
   const temporary = `${file}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`
   try {
     await fsp.writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 })
+    await fsp.rename(temporary, file)
+  } finally {
+    await fsp.rm(temporary, { force: true }).catch(() => undefined)
+  }
+}
+
+async function writeBufferAtomic(file: string, value: Buffer): Promise<void> {
+  await fsp.mkdir(path.dirname(file), { recursive: true })
+  const temporary = `${file}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`
+  try {
+    await fsp.writeFile(temporary, value, { mode: 0o600 })
     await fsp.rename(temporary, file)
   } finally {
     await fsp.rm(temporary, { force: true }).catch(() => undefined)
@@ -299,14 +313,18 @@ function sendError(res: ServerResponse, status: number, message: string, details
 }
 
 /** 读取请求体为原始 Buffer（用于备份恢复等二进制场景） */
-function readBodyRaw(req: IncomingMessage): Promise<Buffer> {
+function readBodyRaw(req: IncomingMessage, maxBytes = 50 * 1024 * 1024): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = []
     let size = 0
     const onData = (chunk: Buffer | string) => {
       const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
       size += buffer.length
-      if (size > 50 * 1024 * 1024) { cleanup(); reject(new RequestBodyError('请求体不能超过 50 MiB', 413)); return }
+      if (size > maxBytes) {
+        cleanup()
+        reject(new RequestBodyError(`请求体不能超过 ${Math.ceil(maxBytes / 1024 / 1024)} MiB`, 413))
+        return
+      }
       chunks.push(buffer)
     }
     const onEnd = () => { cleanup(); resolve(Buffer.concat(chunks)) }
@@ -2156,27 +2174,70 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
     return true
   }
 
-  // GET /api/admin/backup —— 导出全部数据为 .json.gz 备份文件
+  // GET /api/admin/backup —— 导出可完整恢复的 .json.gz 备份。
+  // Web 备份受低内存门禁保护；大型资源库应直接备份 /opt/flowboard 数据目录。
   if (req.method === 'GET' && pathname === '/api/admin/backup') {
     const dataFiles = await fsp.readdir(paths.dataDirectory).catch(() => [] as string[])
     const authFiles = await fsp.readdir(paths.authDirectory).catch(() => [] as string[])
-    // 只备份长期认证数据。Session token、验证码和失败计数属于短期安全状态，
-    // 不应被导出，更不能在恢复旧备份时重新激活。
     const durableAuthFiles = new Set(['users.json', 'invites.json', 'shares.json'])
     const payload: Record<string, unknown> = {
-      meta: { app: 'FlowBoard', backupAt: new Date().toISOString(), formatVersion: 2 },
+      meta: {
+        app: 'FlowBoard',
+        backupAt: new Date().toISOString(),
+        formatVersion: 3,
+        includesAssets: true,
+        includesVersions: true,
+      },
       data: {} as Record<string, unknown>,
+      versions: {} as Record<string, unknown>,
+      assets: {} as Record<string, string>,
       auth: {} as Record<string, unknown>,
     }
     const data = payload.data as Record<string, unknown>
+    const versions = payload.versions as Record<string, unknown>
+    const assets = payload.assets as Record<string, string>
     const auth = payload.auth as Record<string, unknown>
-    for (const file of dataFiles.filter(f => f.endsWith('.json'))) {
+
+    for (const file of dataFiles.filter(file => /^[a-zA-Z0-9_-]+\.json$/.test(file))) {
       try { data[file] = JSON.parse(await fsp.readFile(path.join(paths.dataDirectory, file), 'utf8')) } catch { /* skip */ }
     }
+
+    const versionsRoot = path.join(paths.dataDirectory, 'versions')
+    for (const projectId of await fsp.readdir(versionsRoot).catch(() => [] as string[])) {
+      if (!validProjectId(projectId)) continue
+      const projectVersions = path.join(versionsRoot, projectId)
+      for (const file of await fsp.readdir(projectVersions).catch(() => [] as string[])) {
+        if (!/^[a-zA-Z0-9_-]+\.json$/.test(file)) continue
+        try {
+          versions[`${projectId}/${file}`] = JSON.parse(await fsp.readFile(path.join(projectVersions, file), 'utf8'))
+        } catch { /* skip */ }
+      }
+    }
+
+    const assetNames = (await fsp.readdir(assetsDirectory(paths)).catch(() => [] as string[])).filter(name => ASSET_FILE_PATTERN.test(name))
+    let assetBytes = 0
+    for (const name of assetNames) {
+      try {
+        assetBytes += (await fsp.stat(path.join(assetsDirectory(paths), name))).size
+      } catch { /* skip missing file */ }
+      if (assetBytes > MAX_WEB_BACKUP_ASSET_BYTES) {
+        sendError(res, 413, '外置图片总量超过 Web 备份安全上限，请直接备份 /opt/flowboard/project-data、auth-data 和 flowboard.env', {
+          assetBytes,
+          maxAssetBytes: MAX_WEB_BACKUP_ASSET_BYTES,
+        })
+        return true
+      }
+    }
+    for (const name of assetNames) {
+      try { assets[name] = (await fsp.readFile(path.join(assetsDirectory(paths), name))).toString('base64') } catch { /* skip */ }
+    }
+
     for (const file of authFiles.filter(file => durableAuthFiles.has(file))) {
       try { auth[file] = JSON.parse(await fsp.readFile(path.join(paths.authDirectory, file), 'utf8')) } catch { /* skip */ }
     }
-    const compressed = gzipSync(Buffer.from(JSON.stringify(payload), 'utf8'))
+
+    // 图片已经是 WebP/PNG/JPEG 等压缩格式；level=1 降低老 ARM CPU 负担。
+    const compressed = gzipSync(Buffer.from(JSON.stringify(payload), 'utf8'), { level: 1 })
     res.statusCode = 200
     res.setHeader('Content-Type', 'application/gzip')
     res.setHeader('Content-Disposition', `attachment; filename="flowboard-backup-${new Date().toISOString().slice(0, 10)}.json.gz"`)
@@ -2186,14 +2247,25 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
 
   // POST /api/admin/restore —— 从备份恢复（body 为 gzip 压缩的 JSON 或纯 JSON）
   if (req.method === 'POST' && pathname === '/api/admin/restore') {
-    const body = await readBodyRaw(req)
+    const body = await readBodyRaw(req, MAX_RESTORE_ARCHIVE_BYTES)
     let text: string
-    try {
-      text = gunzipSync(body).toString('utf8')
-    } catch {
+    const isGzip = body.length >= 2 && body[0] === 0x1f && body[1] === 0x8b
+    if (isGzip) {
+      try {
+        text = gunzipSync(body, { maxOutputLength: MAX_RESTORE_JSON_BYTES }).toString('utf8')
+      } catch {
+        sendError(res, 400, `备份 gzip 已损坏或解压后超过 ${Math.ceil(MAX_RESTORE_JSON_BYTES / 1024 / 1024)} MiB`)
+        return true
+      }
+    } else {
       text = body.toString('utf8')
     }
-    let payload: { data?: Record<string, unknown>; auth?: Record<string, unknown> }
+    let payload: {
+      data?: Record<string, unknown>
+      versions?: Record<string, unknown>
+      assets?: Record<string, unknown>
+      auth?: Record<string, unknown>
+    }
     try {
       payload = JSON.parse(text)
     } catch {
@@ -2206,6 +2278,35 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
         // 顶层项目文件名只能来自合法项目 ID，禁止恢复包借路径字符写到其他目录。
         if (!/^[a-zA-Z0-9_-]+\.json$/.test(file)) continue
         await writeJson(path.join(paths.dataDirectory, file), content)
+        restored++
+      }
+    }
+
+    if (payload.versions && typeof payload.versions === 'object' && !Array.isArray(payload.versions)) {
+      for (const [relativePath, content] of Object.entries(payload.versions)) {
+        const match = relativePath.match(/^([a-zA-Z0-9_-]+)\/([a-zA-Z0-9_-]+\.json)$/)
+        if (!match) continue
+        await writeJson(path.join(paths.dataDirectory, 'versions', match[1]!, match[2]!), content)
+        restored++
+      }
+    }
+
+    if (payload.assets && typeof payload.assets === 'object' && !Array.isArray(payload.assets)) {
+      let restoredAssetBytes = 0
+      for (const [name, encoded] of Object.entries(payload.assets)) {
+        if (!ASSET_FILE_PATTERN.test(name) || typeof encoded !== 'string') continue
+        const buffer = Buffer.from(encoded, 'base64')
+        if (buffer.length === 0 || buffer.length > MAX_ASSET_BYTES) {
+          throw new RequestBodyError(`备份中的图片资源大小无效: ${name}`)
+        }
+        restoredAssetBytes += buffer.length
+        if (restoredAssetBytes > MAX_WEB_BACKUP_ASSET_BYTES) {
+          throw new RequestBodyError('备份中的图片总量超过 Web 恢复安全上限', 413)
+        }
+        const extension = name.split('.').pop() ?? ''
+        const expectedName = `${createHash('sha256').update(buffer).digest('hex').slice(0, 40)}.${extension}`
+        if (expectedName !== name) throw new RequestBodyError(`备份图片哈希不匹配: ${name}`)
+        await writeBufferAtomic(path.join(assetsDirectory(paths), name), buffer)
         restored++
       }
     }
