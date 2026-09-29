@@ -1,0 +1,33 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+flowboard.env.cmd
+dist-ssr
+*.local
+
+# 运行时数据（业务数据：用户凭据 / 画布内容 / 日志）——不入库
+FlowBoard-发布包/auth-data
+FlowBoard-发布包/project-data
+FlowBoard-发布包/logs
+
+# 数据迁移前的备份（确认无误后可手动删除）
+.backup-project-data-*
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
