@@ -2160,8 +2160,11 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
   if (req.method === 'GET' && pathname === '/api/admin/backup') {
     const dataFiles = await fsp.readdir(paths.dataDirectory).catch(() => [] as string[])
     const authFiles = await fsp.readdir(paths.authDirectory).catch(() => [] as string[])
+    // 只备份长期认证数据。Session token、验证码和失败计数属于短期安全状态，
+    // 不应被导出，更不能在恢复旧备份时重新激活。
+    const durableAuthFiles = new Set(['users.json', 'invites.json', 'shares.json'])
     const payload: Record<string, unknown> = {
-      meta: { app: 'FlowBoard', backupAt: new Date().toISOString() },
+      meta: { app: 'FlowBoard', backupAt: new Date().toISOString(), formatVersion: 2 },
       data: {} as Record<string, unknown>,
       auth: {} as Record<string, unknown>,
     }
@@ -2170,7 +2173,7 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
     for (const file of dataFiles.filter(f => f.endsWith('.json'))) {
       try { data[file] = JSON.parse(await fsp.readFile(path.join(paths.dataDirectory, file), 'utf8')) } catch { /* skip */ }
     }
-    for (const file of authFiles.filter(f => f.endsWith('.json'))) {
+    for (const file of authFiles.filter(file => durableAuthFiles.has(file))) {
       try { auth[file] = JSON.parse(await fsp.readFile(path.join(paths.authDirectory, file), 'utf8')) } catch { /* skip */ }
     }
     const compressed = gzipSync(Buffer.from(JSON.stringify(payload), 'utf8'))
@@ -2198,21 +2201,50 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
       return true
     }
     let restored = 0
-    if (payload.data && typeof payload.data === 'object') {
+    if (payload.data && typeof payload.data === 'object' && !Array.isArray(payload.data)) {
       for (const [file, content] of Object.entries(payload.data)) {
-        if (!file.endsWith('.json') || file.includes('..')) continue
-        await fsp.writeFile(path.join(paths.dataDirectory, file), JSON.stringify(content), 'utf8')
+        // 顶层项目文件名只能来自合法项目 ID，禁止恢复包借路径字符写到其他目录。
+        if (!/^[a-zA-Z0-9_-]+\.json$/.test(file)) continue
+        await writeJson(path.join(paths.dataDirectory, file), content)
         restored++
       }
     }
-    if (payload.auth && typeof payload.auth === 'object') {
-      for (const [file, content] of Object.entries(payload.auth)) {
-        if (!file.endsWith('.json') || file.includes('..')) continue
-        await fsp.writeFile(path.join(paths.authDirectory, file), JSON.stringify(content), 'utf8')
-        restored++
+
+    const durableAuthFiles = new Set(['users.json', 'invites.json', 'shares.json'])
+    await withAuthMutation(async () => {
+      const currentUsers = await loadUsers(paths)
+      const currentRoot = currentUsers.find(item => item.email.toLowerCase() === DEFAULT_ADMIN_EMAIL)
+
+      if (payload.auth && typeof payload.auth === 'object' && !Array.isArray(payload.auth)) {
+        for (const [file, rawContent] of Object.entries(payload.auth)) {
+          if (!durableAuthFiles.has(file)) continue
+          if (!Array.isArray(rawContent)) throw new RequestBodyError(`备份中的 ${file} 格式无效`)
+
+          let content: unknown = rawContent
+          if (file === 'users.json') {
+            const restoredUsers = (rawContent as StoredUser[]).map(item =>
+              item && typeof item === 'object' && item.email?.toLowerCase() === DEFAULT_ADMIN_EMAIL
+                ? { ...item, isAdmin: true }
+                : item)
+            const hasRoot = restoredUsers.some(item =>
+              item && typeof item === 'object' && item.email?.toLowerCase() === DEFAULT_ADMIN_EMAIL)
+            if (!hasRoot && currentRoot) restoredUsers.push({ ...currentRoot, isAdmin: true })
+            content = restoredUsers
+          }
+
+          await writeJson(path.join(paths.authDirectory, file), content)
+          restored++
+        }
       }
-    }
-    sendJson(res, 200, { ok: true, restored })
+
+      // 恢复完成后统一撤销所有旧会话和一次性认证状态。
+      await saveSessions(paths, [])
+      await saveVerificationCodes(paths, [])
+      await saveLoginAttempts(paths, [])
+    })
+
+    clearSessionCookie(res)
+    sendJson(res, 200, { ok: true, restored, sessionsRevoked: true })
     return true
   }
 
