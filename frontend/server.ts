@@ -621,6 +621,10 @@ function startInteractiveConsole(options: RuntimeOptions): void {
           const users = readJsonSafe<Array<{ id: string; email: string; isAdmin?: boolean }>>(userFile, [])
           const user = users.find(u => u.email.toLowerCase() === email)
           if (!user) { console.log(`用户不存在：${email}（输入 users 查看已注册用户）`); break }
+          if (cmd === 'unadmin' && email === DEFAULT_SMTP_EMAIL) {
+            console.log(`不能取消默认根管理员：${DEFAULT_SMTP_EMAIL}`)
+            break
+          }
           user.isAdmin = cmd === 'admin'
           writeJsonSafe(userFile, users)
           console.log(`${cmd === 'admin' ? '已设为管理员' : '已取消管理员'}：${user.email}`)
@@ -739,7 +743,6 @@ function startInteractiveConsole(options: RuntimeOptions): void {
             return
           }
           if (sub === 'clear') {
-            for (const key of ['FLOWBOARD_SMTP_HOST', 'FLOWBOARD_SMTP_PORT', 'FLOWBOARD_SMTP_SECURE', 'FLOWBOARD_SMTP_USER', 'FLOWBOARD_SMTP_PASS', 'FLOWBOARD_SMTP_FROM']) delete process.env[key]
             clearSmtpConfiguration()
             console.log('SMTP 配置已清除')
             break
@@ -1070,6 +1073,11 @@ async function runAdminCommand(): Promise<void> {
       const user = users.find(item => item.email.toLowerCase() === email)
       if (!user) {
         console.error(`用户不存在: ${email}（先执行 admin users 查看已注册用户）`)
+        process.exit(1)
+        return
+      }
+      if (command === 'remove-admin' && email === DEFAULT_SMTP_EMAIL) {
+        console.error(`不能取消默认根管理员: ${DEFAULT_SMTP_EMAIL}`)
         process.exit(1)
         return
       }
