@@ -1981,7 +1981,9 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
         if (project.ownerId === removal.target.id) {
           deletedDocIds.add(project.id)
           await fsp.unlink(fullPath)
-          await fsp.rm(path.join(paths.dataDirectory, 'versions', project.id), { recursive: true, force: true })
+          if (validProjectId(project.id)) {
+            await fsp.rm(path.join(paths.dataDirectory, 'versions', project.id), { recursive: true, force: true })
+          }
           deletedDocs++
         }
       } catch { /* skip */ }

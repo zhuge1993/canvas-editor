@@ -701,7 +701,9 @@ function startInteractiveConsole(options: RuntimeOptions): void {
                 fs.unlinkSync(path.join(dataDirectory, file))
                 if (doc.id) {
                   deletedDocIds.add(doc.id)
-                  fs.rmSync(path.join(dataDirectory, 'versions', doc.id), { recursive: true, force: true })
+                  if (/^[a-zA-Z0-9_-]+$/.test(doc.id)) {
+                    fs.rmSync(path.join(dataDirectory, 'versions', doc.id), { recursive: true, force: true })
+                  }
                 }
                 deleted++
               }
@@ -1239,7 +1241,9 @@ async function runAdminCommand(): Promise<void> {
           await fsp.unlink(path.join(dataDirectory, file)).catch(() => undefined)
           if (typeof project.id === 'string') {
             deletedDocIds.add(project.id)
-            await fsp.rm(path.join(dataDirectory, 'versions', project.id), { recursive: true, force: true })
+            if (/^[a-zA-Z0-9_-]+$/.test(project.id)) {
+              await fsp.rm(path.join(dataDirectory, 'versions', project.id), { recursive: true, force: true })
+            }
           }
           deleted++
         }
