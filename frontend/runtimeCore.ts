@@ -378,15 +378,12 @@ function authUser(user: StoredUser): PublicUser {
 
 async function loadUsers(paths: RuntimePaths): Promise<StoredUser[]> {
   const users = await readJson<StoredUser[]>(filePath(paths, 'users.json'), [])
-  let changed = false
-  for (const user of users) {
-    if (user.email.toLowerCase() === DEFAULT_ADMIN_EMAIL && user.isAdmin !== true) {
-      user.isAdmin = true
-      changed = true
-    }
-  }
-  if (changed) await queueJsonWrite(filePath(paths, 'users.json'), users)
-  return users
+  // 根管理员权限在读取时强制生效，但读取路径不写磁盘。
+  // 这样既保证旧数据里的根管理员永远拥有管理员权限，也避免普通鉴权读取
+  // 与注册/用户管理事务并发时通过一次“自动修复写”覆盖 users.json。
+  return users.map(user => user.email.toLowerCase() === DEFAULT_ADMIN_EMAIL && user.isAdmin !== true
+    ? { ...user, isAdmin: true }
+    : user)
 }
 
 async function saveUsers(paths: RuntimePaths, users: StoredUser[]): Promise<void> {
@@ -542,7 +539,15 @@ async function currentUser(req: IncomingMessage, paths: RuntimePaths): Promise<S
   const now = Date.now()
   const sessions = await loadSessions(paths)
   const validSessions = sessions.filter(session => session.expiresAt > now)
-  if (validSessions.length !== sessions.length) void saveSessions(paths, validSessions).catch(() => undefined)
+  if (validSessions.length !== sessions.length) {
+    // 清理过期会话也属于 sessions.json 的 read-modify-write，必须进入认证事务锁。
+    // 锁内重新读取，避免覆盖同时发生的登录、登出、重置密码或管理员删用户写入。
+    void withAuthMutation(async () => {
+      const current = await loadSessions(paths)
+      const pruned = current.filter(session => session.expiresAt > Date.now())
+      if (pruned.length !== current.length) await saveSessions(paths, pruned)
+    }).catch(() => undefined)
+  }
   const session = validSessions.find(item => item.token === token)
   if (!session) return null
   const users = await loadUsers(paths)
@@ -887,10 +892,18 @@ async function handleAuth(req: IncomingMessage, res: ServerResponse, paths: Runt
   if (req.method === 'POST' && pathname === '/api/auth/send-code') {
     const body = await readBody(req)
     const email = normalizeEmail(body.email)
-    const purpose = typeof body.purpose === 'string' ? body.purpose : 'register'
+    const purpose = body.purpose === undefined || body.purpose === 'register'
+      ? 'register'
+      : body.purpose === 'reset'
+        ? 'reset'
+        : null
     const inviteCode = normalizeInviteCode(body.inviteCode)
     if (!validEmail(email)) {
       sendError(res, 400, '请输入有效邮箱地址')
+      return true
+    }
+    if (!purpose) {
+      sendError(res, 400, '验证码用途必须是 register 或 reset')
       return true
     }
 
@@ -977,12 +990,25 @@ async function handleAuth(req: IncomingMessage, res: ServerResponse, paths: Runt
       && preliminaryRecord.attempts < MAX_VERIFICATION_ATTEMPTS
       && sameHash(preliminaryRecord.codeHash, hashCode(code))
     if (!preliminaryMatches) {
-      if (preliminaryRecord) {
-        preliminaryRecord.attempts += 1
-        await saveVerificationCodes(paths, preliminaryCodes.filter(item => item.expiresAt > preliminaryNow && item.attempts < MAX_VERIFICATION_ATTEMPTS))
+      const stillInvalid = await withAuthMutation(async () => {
+        const codes = await loadVerificationCodes(paths)
+        const now = Date.now()
+        const record = codes.find(item => item.email === email)
+        const matches = record
+          && record.expiresAt > now
+          && record.attempts < MAX_VERIFICATION_ATTEMPTS
+          && sameHash(record.codeHash, hashCode(code))
+        if (matches) return false
+        if (record) {
+          record.attempts += 1
+          await saveVerificationCodes(paths, codes.filter(item => item.expiresAt > now && item.attempts < MAX_VERIFICATION_ATTEMPTS))
+        }
+        return true
+      })
+      if (stillInvalid) {
+        sendError(res, 400, '验证码无效或已过期')
+        return true
       }
-      sendError(res, 400, '验证码无效或已过期')
-      return true
     }
 
     const passwordHash = await passwordDigest(password)
@@ -1064,16 +1090,25 @@ async function handleAuth(req: IncomingMessage, res: ServerResponse, paths: Runt
       && preliminaryRecord.attempts < MAX_VERIFICATION_ATTEMPTS
       && sameHash(preliminaryRecord.codeHash, hashCode(code))
     if (!preliminaryMatches) {
-      await withAuthMutation(async () => {
+      const stillInvalid = await withAuthMutation(async () => {
         const codes = await loadVerificationCodes(paths)
+        const now = Date.now()
         const record = codes.find(item => item.email === email)
+        const matches = record
+          && record.expiresAt > now
+          && record.attempts < MAX_VERIFICATION_ATTEMPTS
+          && sameHash(record.codeHash, hashCode(code))
+        if (matches) return false
         if (record) {
           record.attempts += 1
-          await saveVerificationCodes(paths, codes.filter(item => item.expiresAt > Date.now() && item.attempts < MAX_VERIFICATION_ATTEMPTS))
+          await saveVerificationCodes(paths, codes.filter(item => item.expiresAt > now && item.attempts < MAX_VERIFICATION_ATTEMPTS))
         }
+        return true
       })
-      sendError(res, 400, '验证码无效或已过期')
-      return true
+      if (stillInvalid) {
+        sendError(res, 400, '验证码无效或已过期')
+        return true
+      }
     }
 
     const passwordHash = await passwordDigest(password)
@@ -1123,19 +1158,35 @@ async function handleAuth(req: IncomingMessage, res: ServerResponse, paths: Runt
     }
     const user = (await loadUsers(paths)).find(item => item.email === email)
     if (!user || !(await verifyPassword(password, user.passwordHash))) {
-      // 记录失败
-      const next = attempts.filter(item => item.email !== email)
-      next.push({ email, count: (attempt?.count ?? 0) + 1, lastFailAt: now })
-      await saveLoginAttempts(paths, next)
+      // 失败计数必须锁内重新读取并累加，否则并发错误密码请求会相互覆盖，削弱限流。
+      await withAuthMutation(async () => {
+        const currentAttempts = await loadLoginAttempts(paths)
+        const currentAttempt = currentAttempts.find(item => item.email === email)
+        const failedAt = Date.now()
+        const next = currentAttempts.filter(item => item.email !== email)
+        next.push({ email, count: (currentAttempt?.count ?? 0) + 1, lastFailAt: failedAt })
+        await saveLoginAttempts(paths, next)
+      })
       sendError(res, 401, '邮箱或密码错误')
       return true
     }
-    // 登录成功：清除失败记录
-    await saveLoginAttempts(paths, attempts.filter(item => item.email !== email))
-    const updatedUser = { ...user, lastLoginAt: now }
-    await saveUsers(paths, (await loadUsers(paths)).map(item => item.id === user.id ? updatedUser : item))
-    await claimLegacyProjects(paths, user.id)
-    await createSession(user.id, paths, res)
+    // 登录成功时同时串行清除失败记录并更新用户元数据，避免覆盖管理员/注册并发写入。
+    const updatedUser = await withAuthMutation(async () => {
+      const currentAttempts = await loadLoginAttempts(paths)
+      await saveLoginAttempts(paths, currentAttempts.filter(item => item.email !== email))
+      const currentUsers = await loadUsers(paths)
+      const currentUserRecord = currentUsers.find(item => item.id === user.id)
+      if (!currentUserRecord) return null
+      const updated = { ...currentUserRecord, lastLoginAt: Date.now() }
+      await saveUsers(paths, currentUsers.map(item => item.id === user.id ? updated : item))
+      return updated
+    })
+    if (!updatedUser) {
+      sendError(res, 401, '用户不存在')
+      return true
+    }
+    await claimLegacyProjects(paths, updatedUser.id)
+    await createSession(updatedUser.id, paths, res)
     sendJson(res, 200, { user: authUser(updatedUser) })
     return true
   }
