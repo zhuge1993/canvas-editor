@@ -46,9 +46,33 @@ KERNEL_APORT="$(find_aport linux-xiaomi-dior)"
 FIRMWARE_APORT="$(find_aport firmware-xiaomi-dior)"
 
 if [ -z "$DEVICE_APORT" ] || [ -z "$KERNEL_APORT" ]; then
-	echo "当前 pmaports 没有完整的 xiaomi-dior 设备/内核 aport。" >&2
-	echo "仓库内的 pmaports-snapshot 目前只作为来源快照，不能在缺少全部内核 patch 时自动注入。" >&2
-	echo "缺失状态见: linux/dior/pmaports-snapshot/README.md" >&2
+	echo "当前 pmaports 没有完整的 xiaomi-dior 设备/内核 aport，尝试仓库锁定快照..."
+	if sh "$SNAPSHOT_ROOT/check-snapshot.sh"; then
+		mkdir -p "$PMB_APORTS/device/testing"
+		for package in device-xiaomi-dior linux-xiaomi-dior firmware-xiaomi-dior; do
+			source_dir="$SNAPSHOT_ROOT/device/archived/$package"
+			target_dir="$PMB_APORTS/device/testing/$package"
+			if [ -d "$source_dir" ]; then
+				if [ -e "$target_dir" ]; then
+					echo "保留当前 pmaports 已存在的 $target_dir"
+				else
+					cp -a "$source_dir" "$target_dir"
+					echo "已注入锁定快照: $package"
+				fi
+			fi
+		done
+		DEVICE_APORT="$(find_aport device-xiaomi-dior)"
+		KERNEL_APORT="$(find_aport linux-xiaomi-dior)"
+		FIRMWARE_APORT="$(find_aport firmware-xiaomi-dior)"
+	else
+		echo "锁定快照尚未通过完整性校验，拒绝构建不完整内核。" >&2
+		echo "缺失/哈希状态见上方输出和: linux/dior/pmaports-snapshot/README.md" >&2
+		exit 1
+	fi
+fi
+
+if [ -z "$DEVICE_APORT" ] || [ -z "$KERNEL_APORT" ]; then
+	echo "注入后仍找不到 xiaomi-dior 设备/内核 aport，停止构建。" >&2
 	exit 1
 fi
 
