@@ -1055,31 +1055,58 @@ async function handleAuth(req: IncomingMessage, res: ServerResponse, paths: Runt
       sendError(res, 400, `邮箱、6 位验证码和至少 ${PASSWORD_MIN_LENGTH} 位新密码均为必填项`)
       return true
     }
-    const users = await loadUsers(paths)
-    const user = users.find(item => item.email === email)
-    if (!user) {
-      sendError(res, 404, '该邮箱未注册')
-      return true
-    }
-    const now = Date.now()
-    const codes = await loadVerificationCodes(paths)
-    const record = codes.find(item => item.email === email)
-    const codeMatches = record && record.expiresAt > now && record.attempts < MAX_VERIFICATION_ATTEMPTS && sameHash(record.codeHash, hashCode(code))
-    if (!codeMatches) {
-      if (record) {
-        record.attempts += 1
-        await saveVerificationCodes(paths, codes.filter(item => item.expiresAt > now && item.attempts < MAX_VERIFICATION_ATTEMPTS))
-      }
+
+    const preliminaryNow = Date.now()
+    const preliminaryCodes = await loadVerificationCodes(paths)
+    const preliminaryRecord = preliminaryCodes.find(item => item.email === email)
+    const preliminaryMatches = preliminaryRecord
+      && preliminaryRecord.expiresAt > preliminaryNow
+      && preliminaryRecord.attempts < MAX_VERIFICATION_ATTEMPTS
+      && sameHash(preliminaryRecord.codeHash, hashCode(code))
+    if (!preliminaryMatches) {
+      await withAuthMutation(async () => {
+        const codes = await loadVerificationCodes(paths)
+        const record = codes.find(item => item.email === email)
+        if (record) {
+          record.attempts += 1
+          await saveVerificationCodes(paths, codes.filter(item => item.expiresAt > Date.now() && item.attempts < MAX_VERIFICATION_ATTEMPTS))
+        }
+      })
       sendError(res, 400, '验证码无效或已过期')
       return true
     }
-    const updatedUser = { ...user, passwordHash: await passwordDigest(password) }
-    await saveUsers(paths, users.map(item => item.id === user.id ? updatedUser : item))
-    await saveVerificationCodes(paths, codes.filter(item => item.email !== email))
+
+    const passwordHash = await passwordDigest(password)
+    const reset = await withAuthMutation(async () => {
+      const users = await loadUsers(paths)
+      const user = users.find(item => item.email === email)
+      if (!user) return { ok: false as const, status: 404, error: '该邮箱未注册' }
+
+      const now = Date.now()
+      const codes = await loadVerificationCodes(paths)
+      const record = codes.find(item => item.email === email)
+      const codeMatches = record
+        && record.expiresAt > now
+        && record.attempts < MAX_VERIFICATION_ATTEMPTS
+        && sameHash(record.codeHash, hashCode(code))
+      if (!codeMatches) return { ok: false as const, status: 400, error: '验证码无效或已过期' }
+
+      const updatedUser = { ...user, passwordHash }
+      await saveUsers(paths, users.map(item => item.id === user.id ? updatedUser : item))
+      await saveVerificationCodes(paths, codes.filter(item => item.email !== email))
+      const sessions = await loadSessions(paths)
+      await saveSessions(paths, sessions.filter(item => item.userId !== user.id))
+      return { ok: true as const }
+    })
+
+    if (!reset.ok) {
+      sendError(res, reset.status, reset.error)
+      return true
+    }
+    clearSessionCookie(res)
     sendJson(res, 200, { ok: true })
     return true
   }
-
 
   if (req.method === 'POST' && pathname === '/api/auth/login') {
     const body = await readBody(req)
