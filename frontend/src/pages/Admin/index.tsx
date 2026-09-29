@@ -282,7 +282,7 @@ export default function AdminPage() {
 
           {!loading && tab === 'docs' && (
             <div>
-              <div className="mb-4 flex flex-wrap gap-2">
+              {user?.isRootAdmin && <div className="mb-4 flex flex-wrap gap-2">
                 <button className="btn-ghost border border-surface-border text-sm" onClick={() => { window.open('/api/admin/backup', '_blank') }}><Download size={14} />备份所有数据</button>
                 <button className="btn-ghost border border-surface-border text-sm" onClick={() => fileInputRef.current?.click()}><Upload size={14} />恢复数据</button>
                 <input ref={fileInputRef} type="file" accept=".json,.gz" className="hidden" onChange={async event => {
@@ -299,7 +299,7 @@ export default function AdminPage() {
                   }
                   event.target.value = ''
                 }} />
-              </div>
+              </div>}
 
               {groupSourceDoc && (
                 <div className="mb-4 rounded-lg border border-brand-200 bg-brand-50 p-4">

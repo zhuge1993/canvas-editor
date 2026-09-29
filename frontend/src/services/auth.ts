@@ -3,6 +3,7 @@ export interface AuthUser {
   email: string
   createdAt: number
   isAdmin?: boolean
+  isRootAdmin?: boolean
 }
 
 export interface ProjectAccess {

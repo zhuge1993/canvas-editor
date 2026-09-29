@@ -154,6 +154,7 @@ interface PublicUser {
   email: string
   createdAt: number
   isAdmin?: boolean
+  isRootAdmin?: boolean
 }
 
 interface ProjectResponse {
@@ -645,7 +646,13 @@ function projectPath(paths: RuntimePaths, id: string): string {
 }
 
 function authUser(user: StoredUser): PublicUser {
-  return { id: user.id, email: user.email, createdAt: user.createdAt, isAdmin: user.isAdmin === true }
+  return {
+    id: user.id,
+    email: user.email,
+    createdAt: user.createdAt,
+    isAdmin: user.isAdmin === true,
+    isRootAdmin: user.email.toLowerCase() === DEFAULT_ADMIN_EMAIL,
+  }
 }
 
 async function loadUsers(paths: RuntimePaths): Promise<StoredUser[]> {
@@ -2470,6 +2477,11 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
     sendError(res, 403, '需要管理员权限')
     return true
   }
+  const isRootAdmin = admin.email.toLowerCase() === DEFAULT_ADMIN_EMAIL
+  if ((pathname === '/api/admin/backup' || pathname === '/api/admin/restore') && !isRootAdmin) {
+    sendError(res, 403, '只有默认根管理员可以备份或恢复整机数据')
+    return true
+  }
 
   // GET /api/admin/users —— 查看所有注册用户
   if (req.method === 'GET' && pathname === '/api/admin/users') {
@@ -2990,11 +3002,11 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
 
 async function handleSettings(req: IncomingMessage, res: ServerResponse, paths: RuntimePaths, pathname: string): Promise<boolean> {
   if (pathname !== '/api/settings' && pathname !== '/api/settings/smtp-test') return false
-  // SMTP 是服务器级配置，仅管理员可修改或测试。
+  // SMTP 授权码属于整机机密，仅默认根管理员可修改或测试。
   const user = await requireUser(req, res, paths)
   if (!user) return true
-  if (user.id === 'guest' || user.isAdmin !== true) {
-    sendError(res, 403, '仅管理员可管理服务器 SMTP 配置')
+  if (user.id === 'guest' || user.email.toLowerCase() !== DEFAULT_ADMIN_EMAIL) {
+    sendError(res, 403, '只有默认根管理员可以管理服务器 SMTP 配置')
     return true
   }
 
