@@ -232,21 +232,15 @@ async function writeJson(file: string, value: unknown): Promise<void> {
   await fsp.rename(temporary, file)
 }
 
-const writeDebounceTimers = new Map<string, NodeJS.Timeout>()
 function queueJsonWrite(file: string, value: unknown): Promise<void> {
-  // 防抖：同一文件 200ms 内多次写入合并为一次。
-  clearTimeout(writeDebounceTimers.get(file))
-  return new Promise((resolve) => {
-    writeDebounceTimers.set(file, setTimeout(() => {
-      writeDebounceTimers.delete(file)
-      const previous = writeQueues.get(file) ?? Promise.resolve()
-      const next = previous.catch(() => undefined).then(() => writeJson(file, value))
-      writeQueues.set(file, next)
-      void next.then(
-        () => { if (writeQueues.get(file) === next) writeQueues.delete(file); resolve() },
-        () => { if (writeQueues.get(file) === next) writeQueues.delete(file); resolve() },
-      )
-    }, 200))
+  // 认证/会话文件写入量很小，优先保证严格顺序和错误可见性。
+  // 不做定时防抖：清除前一个 timer 会让前一个 Promise 永远不结束，
+  // 并且不能把磁盘写入失败伪装成成功。
+  const previous = writeQueues.get(file) ?? Promise.resolve()
+  const next = previous.catch(() => undefined).then(() => writeJson(file, value))
+  writeQueues.set(file, next)
+  return next.finally(() => {
+    if (writeQueues.get(file) === next) writeQueues.delete(file)
   })
 }
 
@@ -421,6 +415,21 @@ async function loadInvites(paths: RuntimePaths): Promise<StoredInvite[]> {
 
 async function saveInvites(paths: RuntimePaths, invites: StoredInvite[]): Promise<void> {
   await queueJsonWrite(filePath(paths, 'invites.json'), invites)
+}
+
+let authMutationTail: Promise<void> = Promise.resolve()
+
+async function withAuthMutation<T>(operation: () => Promise<T>): Promise<T> {
+  let release!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve })
+  const previous = authMutationTail
+  authMutationTail = previous.catch(() => undefined).then(() => gate)
+  await previous.catch(() => undefined)
+  try {
+    return await operation()
+  } finally {
+    release()
+  }
 }
 
 async function loadShares(paths: RuntimePaths): Promise<StoredShare[]> {
