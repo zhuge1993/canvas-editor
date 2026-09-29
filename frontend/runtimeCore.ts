@@ -26,7 +26,10 @@ const PASSWORD_MAX_LENGTH = 256
 const AUTH_REQUEST_MAX_BYTES = 16 * 1024
 const SMTP_TIMEOUT_MS = Math.max(5000, Math.min(60000, Number(process.env.FLOWBOARD_SMTP_TIMEOUT_MS ?? '15000') || 15000))
 const DEFAULT_ADMIN_EMAIL = (process.env.FLOWBOARD_DEFAULT_ADMIN_EMAIL ?? '804559340@qq.com').trim().toLowerCase()
-const DEFAULT_MAX_USERS = Math.max(2, Number(process.env.FLOWBOARD_MAX_USERS ?? '20') || 20)
+const configuredMaxUsers = Number(process.env.FLOWBOARD_MAX_USERS ?? '20')
+const DEFAULT_MAX_USERS = Number.isFinite(configuredMaxUsers)
+  ? Math.max(2, Math.min(1000, Math.floor(configuredMaxUsers)))
+  : 20
 
 /**
  * 检测本机局域网 IPv4 地址（非回环、非内部保留的常规私有网段）。
