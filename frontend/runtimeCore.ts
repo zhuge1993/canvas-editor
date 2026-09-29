@@ -2000,6 +2000,18 @@ async function handleProjects(req: IncomingMessage, res: ServerResponse, paths: 
       if (latest && !canManageProject(user, latest)) {
         return { ok: false as const, status: 403, error: '没有项目编辑权限' }
       }
+
+      if (!latest && user.id !== 'guest') {
+        // 新建项目时把“账号仍存在”检查与首次文件落盘放进同一认证事务。
+        // 避免管理员删除用户后，已通过早期鉴权的旧请求又创建出无主项目。
+        return withAuthMutation(async () => {
+          const activeUser = (await loadUsers(paths)).find(item => item.id === user.id)
+          if (!activeUser) return { ok: false as const, status: 401, error: '账号已不存在，请重新登录' }
+          await writeProject(paths, body, activeUser.id)
+          return { ok: true as const }
+        })
+      }
+
       await writeProject(paths, body, user.id, latest ?? undefined)
       return { ok: true as const }
     })
@@ -2350,17 +2362,23 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
     const deletedDocIds = new Set<string>()
     for (const file of files) {
       const fullPath = path.join(paths.dataDirectory, file)
+      const fileProjectId = file.slice(0, -5)
+      if (!validProjectId(fileProjectId)) continue
       try {
-        const project = JSON.parse(await fsp.readFile(fullPath, 'utf8')) as StoredDocument
-        if (project.ownerId === removal.target.id) {
-          deletedDocIds.add(project.id)
+        const deleted = await withProjectMutation(fileProjectId, async () => {
+          const project = JSON.parse(await fsp.readFile(fullPath, 'utf8')) as StoredDocument
+          if (project.ownerId !== removal.target.id) return null
           await fsp.unlink(fullPath)
-          if (validProjectId(project.id)) {
-            await fsp.rm(path.join(paths.dataDirectory, 'versions', project.id), { recursive: true, force: true })
+          if (project.id === fileProjectId) {
+            await fsp.rm(path.join(paths.dataDirectory, 'versions', fileProjectId), { recursive: true, force: true })
           }
+          return typeof project.id === 'string' ? project.id : fileProjectId
+        })
+        if (deleted) {
+          deletedDocIds.add(deleted)
           deletedDocs++
         }
-      } catch { /* skip */ }
+      } catch { /* 文件已被其他合法操作移除或损坏则跳过 */ }
     }
     if (deletedDocIds.size > 0) {
       await withAuthMutation(async () => {
