@@ -6,7 +6,7 @@ FlowBoard 的 Linux 服务端不需要桌面、GPU 或 Electron。浏览器继�
 
 ### Redmi Note 4G / dior
 
-优先使用 **postmarketOS / Alpine + OpenRC**。该机型是社区 downstream-kernel 设备，因此应保留设备专用内核，同时使用尽可能新的 Linux 用户空间。具体看 [PMOS-DIOR.md](./PMOS-DIOR.md)。
+优先使用 **postmarketOS / Alpine**。该机型是社区 downstream-kernel 设备，因此应保留设备专用内核，同时使用尽可能新的 Linux 用户空间；安装器同时支持 postmarketOS 的 OpenRC 与 systemd 变体。具体看 [PMOS-DIOR.md](./PMOS-DIOR.md)。
 
 ### 其他 ARMv7 主机
 
@@ -38,10 +38,12 @@ FlowBoard-linux.tar.gz
 ./install-linux.sh
 ```
 
-安装器自动识别：
+安装器会把包管理器和服务管理器分开识别：
 
-- `apk + OpenRC` → postmarketOS/Alpine。
-- `apt + systemd` → Debian/Ubuntu。
+- `apk` → postmarketOS/Alpine 软件包。
+- `apt` → Debian/Ubuntu 软件包。
+- `OpenRC` → 安装 `flowboard.openrc`。
+- `systemd` → 安装 `flowboard.service`。
 
 程序目录：
 
