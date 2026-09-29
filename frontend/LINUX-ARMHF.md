@@ -123,10 +123,14 @@ FLOWBOARD_COOKIE_SECURE=true
 
 默认 V8 heap 上限 768 MB。不要在 2 GB RAM 手机上同时运行桌面、数据库、容器平台或 Chromium 服务端渲染。FlowBoard 的 SVG/Canvas 绘制在客户端浏览器完成，更适合这种低功耗 ARMv7 常驻服务器。
 
-默认还会保留至少 128 MiB 文件系统空闲空间，避免项目 JSON、版本历史或图片把 eMMC 完全写满：
+默认启用两道磁盘保护：
 
 ```bash
+# 至少保留 128 MiB 文件系统空闲空间，避免把系统分区完全写满
 FLOWBOARD_MIN_FREE_STORAGE_MB=128
+
+# 外置图片资源库默认最多使用 512 MiB
+FLOWBOARD_MAX_ASSET_STORAGE_MB=512
 ```
 
-设为 `0` 可以关闭这项保护；低容量手机不建议关闭。
+当空闲空间低于保底值或图片库达到上限时，服务会拒绝继续扩容写入，而不是把 eMMC 写满。前者设为 `0` 可以关闭，但低容量手机不建议关闭；图片库上限可按实际 microSD/eMMC 空间调整。

@@ -144,6 +144,14 @@ sudo rc-service flowboard restart
 ```bash
 NODE_OPTIONS=--max-old-space-size=768
 FLOWBOARD_MAX_USERS=20
+
+# 防止 8 GB eMMC 被业务数据彻底写满
+FLOWBOARD_MIN_FREE_STORAGE_MB=128
+
+# 外置图片资源库默认容量上限
+FLOWBOARD_MAX_ASSET_STORAGE_MB=512
 ```
 
-对于 2 GB RAM 的手机，建议初期保持 10–20 个注册用户，并控制同时在线人数。前端绘图发生在访问者浏览器里，手机主要处理账号、JSON/图片存储和 HTTP 请求，因此比服务端渲染型绘图程序轻得多。
+对于 2 GB RAM / 8 GB eMMC 的 dior，建议初期保持 10–20 个注册用户，并控制同时在线人数。FlowBoard 在磁盘接近保底空间时会停止扩容写入，图片资源库达到上限时也会拒绝新增图片，而不是继续把系统分区写满。
+
+如果 microSD 在该内核上长期运行稳定，可以把长期备份和大体积导出放到 microSD；不要因为插了存储卡就关闭内部 eMMC 的保底空间。前端绘图发生在访问者浏览器里，手机主要处理账号、JSON/图片存储和 HTTP 请求，因此比服务端渲染型绘图程序轻得多。
