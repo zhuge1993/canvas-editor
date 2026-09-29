@@ -231,6 +231,12 @@ const MIN_FREE_STORAGE_MB = Number.isFinite(configuredMinFreeStorageMb)
   ? Math.max(0, Math.min(4096, Math.floor(configuredMinFreeStorageMb)))
   : 128
 const MIN_FREE_STORAGE_BYTES = MIN_FREE_STORAGE_MB * 1024 * 1024
+const configuredMaxInflightBodyMb = Number(process.env.FLOWBOARD_MAX_INFLIGHT_BODY_MB ?? '64')
+const MAX_INFLIGHT_BODY_MB = Number.isFinite(configuredMaxInflightBodyMb)
+  ? Math.max(16, Math.min(512, Math.floor(configuredMaxInflightBodyMb)))
+  : 64
+const MAX_INFLIGHT_BODY_BYTES = MAX_INFLIGHT_BODY_MB * 1024 * 1024
+let inFlightRequestBodyBytes = 0
 
 /** 从 dataURL 中解析出图片本体；非图片 dataURL 返回 null */
 function decodeImageDataUrl(dataUrl: string): { buffer: Buffer; extension: string } | null {
@@ -413,22 +419,47 @@ function readBodyRaw(req: IncomingMessage, maxBytes = 50 * 1024 * 1024): Promise
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = []
     let size = 0
-    const onData = (chunk: Buffer | string) => {
-      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
-      size += buffer.length
-      if (size > maxBytes) {
-        cleanup()
-        reject(new RequestBodyError(`请求体不能超过 ${Math.ceil(maxBytes / 1024 / 1024)} MiB`, 413))
-        return
-      }
-      chunks.push(buffer)
-    }
-    const onEnd = () => { cleanup(); resolve(Buffer.concat(chunks)) }
-    const onError = (error: Error) => { cleanup(); reject(error) }
-    const cleanup = () => {
+    let cleaned = false
+
+    const cleanup = (dropChunks = false) => {
+      if (cleaned) return
+      cleaned = true
+      inFlightRequestBodyBytes = Math.max(0, inFlightRequestBodyBytes - size)
       req.removeListener('data', onData)
       req.removeListener('end', onEnd)
       req.removeListener('error', onError)
+      if (dropChunks) chunks.length = 0
+    }
+
+    const onData = (chunk: Buffer | string) => {
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+      if (size + buffer.length > maxBytes) {
+        cleanup(true)
+        req.resume()
+        reject(new RequestBodyError(`请求体不能超过 ${Math.ceil(maxBytes / 1024 / 1024)} MiB`, 413))
+        return
+      }
+      if (inFlightRequestBodyBytes + buffer.length > MAX_INFLIGHT_BODY_BYTES) {
+        cleanup(true)
+        req.resume()
+        reject(new RequestBodyError(
+          `服务器当前请求体内存负载过高（上限 ${MAX_INFLIGHT_BODY_MB} MiB），请稍后重试`,
+          503,
+        ))
+        return
+      }
+      size += buffer.length
+      inFlightRequestBodyBytes += buffer.length
+      chunks.push(buffer)
+    }
+    const onEnd = () => {
+      const body = Buffer.concat(chunks)
+      cleanup()
+      resolve(body)
+    }
+    const onError = (error: Error) => {
+      cleanup(true)
+      reject(error)
     }
     req.on('data', onData)
     req.on('end', onEnd)
@@ -442,19 +473,42 @@ async function readBody(req: IncomingMessage, maxBytes = 25 * 1024 * 1024): Prom
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = []
     let size = 0
+    let cleaned = false
+
+    const cleanup = (dropChunks = false) => {
+      if (cleaned) return
+      cleaned = true
+      inFlightRequestBodyBytes = Math.max(0, inFlightRequestBodyBytes - size)
+      req.removeListener('data', onData)
+      req.removeListener('end', onEnd)
+      req.removeListener('error', onError)
+      if (dropChunks) chunks.length = 0
+    }
+
     const onData = (chunk: Buffer | string) => {
       const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
-      size += buffer.length
-      if (size > maxBytes) {
-        cleanup()
+      if (size + buffer.length > maxBytes) {
+        cleanup(true)
+        req.resume()
         reject(new RequestBodyError(`请求体不能超过 ${Math.ceil(maxBytes / 1024 / 1024)} MiB`, 413))
         return
       }
+      if (inFlightRequestBodyBytes + buffer.length > MAX_INFLIGHT_BODY_BYTES) {
+        cleanup(true)
+        req.resume()
+        reject(new RequestBodyError(
+          `服务器当前请求体内存负载过高（上限 ${MAX_INFLIGHT_BODY_MB} MiB），请稍后重试`,
+          503,
+        ))
+        return
+      }
+      size += buffer.length
+      inFlightRequestBodyBytes += buffer.length
       chunks.push(buffer)
     }
     const onEnd = () => {
-      cleanup()
       const text = Buffer.concat(chunks).toString('utf8')
+      cleanup()
       if (!text) { resolve({}); return }
       try {
         const parsed = JSON.parse(text)
@@ -467,11 +521,9 @@ async function readBody(req: IncomingMessage, maxBytes = 25 * 1024 * 1024): Prom
         reject(new RequestBodyError('请求体必须是有效 JSON'))
       }
     }
-    const onError = (error: Error) => { cleanup(); reject(new RequestBodyError(error.message)) }
-    const cleanup = () => {
-      req.removeListener('data', onData)
-      req.removeListener('end', onEnd)
-      req.removeListener('error', onError)
+    const onError = (error: Error) => {
+      cleanup(true)
+      reject(new RequestBodyError(error.message))
     }
     req.on('data', onData)
     req.on('end', onEnd)

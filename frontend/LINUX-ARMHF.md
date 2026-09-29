@@ -131,6 +131,12 @@ FLOWBOARD_TRUST_PROXY=true
 
 默认 V8 heap 上限 768 MB。不要在 2 GB RAM 手机上同时运行桌面、数据库、容器平台或 Chromium 服务端渲染。FlowBoard 的 SVG/Canvas 绘制在客户端浏览器完成，更适合这种低功耗 ARMv7 常驻服务器。
 
+并发 HTTP 请求体的总缓冲默认限制为 64 MiB。单个画布原有上限不变，但多用户同时提交大画布时，超过总预算的后续请求会返回 503，让客户端稍后重试，而不是把 Node heap 顶满：
+
+```bash
+FLOWBOARD_MAX_INFLIGHT_BODY_MB=64
+```
+
 默认启用两道磁盘保护：
 
 ```bash
