@@ -2,13 +2,17 @@
 set -eu
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+DEVICE_DIR="$SCRIPT_DIR/device/archived/device-xiaomi-dior"
 KERNEL_DIR="$SCRIPT_DIR/device/archived/linux-xiaomi-dior"
-APKBUILD="$KERNEL_DIR/APKBUILD"
+DEVICE_APKBUILD="$DEVICE_DIR/APKBUILD"
+KERNEL_APKBUILD="$KERNEL_DIR/APKBUILD"
 
-if [ ! -f "$APKBUILD" ]; then
-	echo "缺少 $APKBUILD" >&2
-	exit 1
-fi
+for apkbuild in "$DEVICE_APKBUILD" "$KERNEL_APKBUILD"; do
+	if [ ! -f "$apkbuild" ]; then
+		echo "缺少 $apkbuild" >&2
+		exit 1
+	fi
+done
 
 need() {
 	command -v "$1" >/dev/null 2>&1 || {
@@ -19,30 +23,26 @@ need() {
 need sha512sum
 need awk
 
-required="
-config-xiaomi-dior.armv7
-gcc10-extern_YYLOC_global_declaration.patch
-linux3.4-vfs-Fix-proc-tid-fdinfo-fd-file-handling.patch
-kernel-use-the-gnu89-standard-explicitly.patch
-linux3.4-ARM-8933-1-replace-Sun-Solaris-style-flag-on-section.patch
-0001-fix-refresh-rate.patch
-0001-framebuffer-fixes.patch
-"
-
 failed=0
-for name in $required; do
-	file="$KERNEL_DIR/$name"
-	expected="$(awk -v target="$name" '$2 == target { print $1; exit }' "$APKBUILD")"
+
+verify_source() {
+	dir="$1"
+	apkbuild="$2"
+	name="$3"
+	file="$dir/$name"
+	expected="$(awk -v target="$name" '$2 == target { print $1; exit }' "$apkbuild")"
+
 	if [ -z "$expected" ]; then
-		echo "✗ APKBUILD 没有 $name 的 SHA-512" >&2
+		echo "✗ $(basename "$apkbuild") 没有 $name 的 SHA-512" >&2
 		failed=1
-		continue
+		return
 	fi
 	if [ ! -f "$file" ]; then
-		echo "✗ 缺少 $name"
+		echo "✗ 缺少 $file" >&2
 		failed=1
-		continue
+		return
 	fi
+
 	actual="$(sha512sum "$file" | awk '{print $1}')"
 	if [ "$actual" != "$expected" ]; then
 		echo "✗ $name"
@@ -52,6 +52,24 @@ for name in $required; do
 	else
 		echo "✓ $name"
 	fi
+}
+
+echo "校验 dior device 本地源文件..."
+verify_source "$DEVICE_DIR" "$DEVICE_APKBUILD" "deviceinfo"
+verify_source "$DEVICE_DIR" "$DEVICE_APKBUILD" "kernel-cmdline.conf"
+
+echo
+echo "校验 dior kernel config + 6 patches..."
+for name in \
+	config-xiaomi-dior.armv7 \
+	gcc10-extern_YYLOC_global_declaration.patch \
+	linux3.4-vfs-Fix-proc-tid-fdinfo-fd-file-handling.patch \
+	kernel-use-the-gnu89-standard-explicitly.patch \
+	linux3.4-ARM-8933-1-replace-Sun-Solaris-style-flag-on-section.patch \
+	0001-fix-refresh-rate.patch \
+	0001-framebuffer-fixes.patch
+do
+	verify_source "$KERNEL_DIR" "$KERNEL_APKBUILD" "$name"
 done
 
 if [ "$failed" -ne 0 ]; then
@@ -61,4 +79,4 @@ if [ "$failed" -ne 0 ]; then
 fi
 
 echo
-echo "dior kernel config + 6 patches 已全部按 APKBUILD SHA-512 校验通过。"
+echo "dior deviceinfo + kernel cmdline + kernel config + 6 patches 已全部按各自 APKBUILD SHA-512 校验通过。"
