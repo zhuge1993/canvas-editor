@@ -174,6 +174,12 @@ if [ ! -s "$FLOWBOARD_RELEASE" ]; then
 	exit 1
 fi
 
+if [ -d "$OUTPUT_DIR" ] && [ -n "$(find "$OUTPUT_DIR" -mindepth 1 -print -quit 2>/dev/null || true)" ]; then
+	echo "输出目录不是空目录，拒绝把新镜像与旧产物混在一起: $OUTPUT_DIR" >&2
+	echo "请先把旧产物移走，或设置 OUTPUT_DIR=/新的/空目录。" >&2
+	exit 1
+fi
+
 LOCAL_APORT="$PMB_APORTS/main/flowboard-server"
 mkdir -p "$LOCAL_APORT"
 cp "$APORT_TEMPLATE/APKBUILD" "$LOCAL_APORT/APKBUILD"
@@ -187,14 +193,18 @@ pmbootstrap checksum flowboard-server
 echo "先单独构建 flowboard-server APK，尽早暴露打包错误..."
 pmbootstrap build flowboard-server
 
+echo "预构建 dior kernel，提前验证 GCC4/dtbtool 与 downstream 3.4 内核..."
+pmbootstrap build linux-xiaomi-dior
+
+echo "预构建 dior firmware，提前验证固定固件源与校验..."
+pmbootstrap build firmware-xiaomi-dior
+
+echo "预构建 dior device package，提前验证设备包依赖闭包..."
+pmbootstrap build device-xiaomi-dior
+
 echo "生成 xiaomi-dior 分离式 boot/rootfs 镜像，并把 FlowBoard 直接装进 rootfs..."
 pmbootstrap install --split --add=flowboard-server
 
-if [ -d "$OUTPUT_DIR" ] && [ -n "$(find "$OUTPUT_DIR" -mindepth 1 -print -quit 2>/dev/null || true)" ]; then
-	echo "输出目录不是空目录，拒绝把新镜像与旧产物混在一起: $OUTPUT_DIR" >&2
-	echo "请先把旧产物移走，或设置 OUTPUT_DIR=/新的/空目录。" >&2
-	exit 1
-fi
 mkdir -p "$OUTPUT_DIR"
 pmbootstrap export "$OUTPUT_DIR"
 
@@ -264,7 +274,10 @@ EOF
 
 (
 	cd "$OUTPUT_DIR"
-	find . -type f ! -name SHA256SUMS -print 		| LC_ALL=C sort 		| while IFS= read -r file; do sha256sum "$file"; done 		> SHA256SUMS
+	find . -type f ! -name SHA256SUMS -print \
+		| LC_ALL=C sort \
+		| while IFS= read -r file; do sha256sum "$file"; done \
+		> SHA256SUMS
 )
 
 echo
