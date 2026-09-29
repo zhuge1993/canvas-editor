@@ -754,6 +754,7 @@ async function writeProject(paths: RuntimePaths, body: Record<string, unknown>, 
   const id = typeof body.id === 'string' ? body.id : ''
   const title = typeof body.title === 'string' ? body.title.trim().slice(0, 200) : ''
   if (!validProjectId(id) || !title) throw new Error('Invalid project data')
+  if (existing && existing.id !== id) throw new Error('Project ID mismatch')
   const canvas = body.content ? JSON.parse(String(body.content)) : body.canvas ?? { shapes: {} }
   const now = Date.now()
   const project: StoredDocument = {
@@ -1729,11 +1730,16 @@ async function handleProjects(req: IncomingMessage, res: ServerResponse, paths: 
   const id = projectMatch[1]!
   const project = await readProject(paths, id)
   if (req.method === 'PUT') {
+    const body = await readBody(req)
+    if (body.id !== id) {
+      sendError(res, 400, '项目 ID 与请求路径不匹配')
+      return true
+    }
     if (project && !canManageProject(user, project)) {
       sendError(res, 403, '没有项目编辑权限')
       return true
     }
-    await writeProject(paths, await readBody(req), user.id, project ?? undefined)
+    await writeProject(paths, body, user.id, project ?? undefined)
     sendJson(res, 200, { ok: true })
     return true
   }
