@@ -2993,7 +2993,21 @@ export async function handleRuntimeRequest(req: IncomingMessage, res: ServerResp
     if (await handleSettings(req, res, paths, pathname)) return true
     if (await handleLogs(req, res, paths, pathname, url)) return true
     if (req.method === 'GET' && pathname === '/api/health') {
-      // 返回运行状态 + 本机全部可用访问地址（供前端状态栏 / 分享页展示）
+      const base = {
+        status: 'ok',
+        app: 'FlowBoard',
+        version: typeof (process.env as Record<string, string | undefined>).FLOWBOARD_VERSION === 'string'
+          ? (process.env as Record<string, string | undefined>).FLOWBOARD_VERSION
+          : 'dev-build',
+        uptimeSeconds: Math.floor(process.uptime()),
+        timestamp: new Date().toISOString(),
+      }
+      // 公网健康检查只需要基础状态；局域网地址属于服务器内部信息，仅登录用户可见。
+      const healthUser = await currentUser(req, paths)
+      if (!healthUser) {
+        sendJson(res, 200, base)
+        return true
+      }
       const lanAddresses = detectLanIPv4Addresses()
       const publicHost = preferredPublicHost()
       const port = Number(process.env.FLOWBOARD_PORT ?? '3000')
@@ -3002,17 +3016,7 @@ export async function handleRuntimeRequest(req: IncomingMessage, res: ServerResp
       if (publicHost !== 'localhost') urls.push(`http://${publicHost}:${port}`)
       else if (lanAddresses.length > 0) urls.push(...lanAddresses.map(address => `http://${address}:${port}`))
       urls.push(localUrl)
-      sendJson(res, 200, {
-        status: 'ok',
-        app: 'FlowBoard',
-        version: typeof (process.env as Record<string, string | undefined>).FLOWBOARD_VERSION === 'string'
-          ? (process.env as Record<string, string | undefined>).FLOWBOARD_VERSION
-          : 'dev-build',
-        uptimeSeconds: Math.floor(process.uptime()),
-        timestamp: new Date().toISOString(),
-        urls: [...new Set(urls)],
-        lanAddresses,
-      })
+      sendJson(res, 200, { ...base, urls: [...new Set(urls)], lanAddresses })
       return true
     }
     return false
