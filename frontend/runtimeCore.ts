@@ -873,6 +873,18 @@ async function handleAuth(req: IncomingMessage, res: ServerResponse, paths: Runt
       sendError(res, 404, '该邮箱未注册')
       return true
     }
+    if (purpose === 'register' && email !== DEFAULT_ADMIN_EMAIL) {
+      if (users.length >= DEFAULT_MAX_USERS) {
+        sendError(res, 403, `服务器已达到注册上限（${DEFAULT_MAX_USERS} 人），请联系管理员`)
+        return true
+      }
+      const inviteCode = normalizeInviteCode(body.inviteCode)
+      const invite = (await loadInvites(paths)).find(item => item.code === inviteCode)
+      if (!inviteIsUsable(invite)) {
+        sendError(res, 403, '邀请码无效、已停用或使用次数已耗尽')
+        return true
+      }
+    }
     const now = Date.now()
     const existingCodes = await loadVerificationCodes(paths)
     const previous = existingCodes.find(item => item.email === email && item.expiresAt > now)
@@ -903,6 +915,7 @@ async function handleAuth(req: IncomingMessage, res: ServerResponse, paths: Runt
     const email = normalizeEmail(body.email)
     const code = typeof body.code === 'string' ? body.code.trim() : ''
     const password = typeof body.password === 'string' ? body.password : ''
+    const inviteCode = normalizeInviteCode(body.inviteCode)
     if (!validEmail(email) || !/^\d{6}$/.test(code) || password.length < PASSWORD_MIN_LENGTH) {
       sendError(res, 400, `邮箱、6 位验证码和至少 ${PASSWORD_MIN_LENGTH} 位密码均为必填项`)
       return true
@@ -911,6 +924,20 @@ async function handleAuth(req: IncomingMessage, res: ServerResponse, paths: Runt
     if (users.some(user => user.email === email)) {
       sendError(res, 409, '该邮箱已注册')
       return true
+    }
+    let invite: StoredInvite | undefined
+    let invites: StoredInvite[] = []
+    if (email !== DEFAULT_ADMIN_EMAIL) {
+      if (users.length >= DEFAULT_MAX_USERS) {
+        sendError(res, 403, `服务器已达到注册上限（${DEFAULT_MAX_USERS} 人），请联系管理员`)
+        return true
+      }
+      invites = await loadInvites(paths)
+      invite = invites.find(item => item.code === inviteCode)
+      if (!inviteIsUsable(invite)) {
+        sendError(res, 403, '邀请码无效、已停用或使用次数已耗尽')
+        return true
+      }
     }
     const now = Date.now()
     const codes = await loadVerificationCodes(paths)
@@ -930,8 +957,15 @@ async function handleAuth(req: IncomingMessage, res: ServerResponse, paths: Runt
       passwordHash: await passwordDigest(password),
       createdAt: now,
       verifiedAt: now,
+      isAdmin: email === DEFAULT_ADMIN_EMAIL,
     }
     await saveUsers(paths, [...users, user])
+    if (invite) {
+      const usedAt = Date.now()
+      await saveInvites(paths, invites.map(item => item.code === invite.code
+        ? { ...item, usedCount: item.usedCount + 1, lastUsedAt: usedAt }
+        : item))
+    }
     await saveVerificationCodes(paths, codes.filter(item => item.email !== email))
     await claimLegacyProjects(paths, user.id)
     await createSession(user.id, paths, res)
@@ -1121,7 +1155,7 @@ async function handleProjects(req: IncomingMessage, res: ServerResponse, paths: 
       try {
         const project = JSON.parse(await fsp.readFile(path.join(paths.dataDirectory, file), 'utf8')) as StoredDocument
         // 排除回收站中的文档
-        if (project.ownerId !== user.id || project.deletedAt) return null
+        if (!canManageProject(user, project) || project.deletedAt) return null
         return projectSummary(project, 'owner')
       } catch { return null }
     }))
@@ -1138,7 +1172,7 @@ async function handleProjects(req: IncomingMessage, res: ServerResponse, paths: 
     const projects = await Promise.all(files.map(async file => {
       try {
         const project = JSON.parse(await fsp.readFile(path.join(paths.dataDirectory, file), 'utf8')) as StoredDocument
-        if (project.ownerId !== user.id || !project.deletedAt) return null
+        if (!canManageProject(user, project) || !project.deletedAt) return null
         return { ...projectSummary(project, 'owner'), deletedAt: project.deletedAt }
       } catch { return null }
     }))
@@ -1158,7 +1192,7 @@ async function handleProjects(req: IncomingMessage, res: ServerResponse, paths: 
       sendError(res, 404, '文档不存在')
       return true
     }
-    if (project.ownerId !== user.id) {
+    if (!canManageProject(user, project)) {
       sendError(res, 403, '没有文档管理权限')
       return true
     }
@@ -1221,7 +1255,7 @@ async function handleProjects(req: IncomingMessage, res: ServerResponse, paths: 
       sendError(res, 404, '文档不存在')
       return true
     }
-    if (project.ownerId !== user.id) {
+    if (!canManageProject(user, project)) {
       sendError(res, 403, '没有项目管理权限')
       return true
     }
@@ -1259,7 +1293,7 @@ async function handleProjects(req: IncomingMessage, res: ServerResponse, paths: 
       sendError(res, 404, '项目不存在')
       return true
     }
-    if (project.ownerId !== user.id) {
+    if (!canManageProject(user, project)) {
       sendError(res, 403, '没有项目管理权限')
       return true
     }
@@ -1355,7 +1389,7 @@ async function handleProjects(req: IncomingMessage, res: ServerResponse, paths: 
   const id = projectMatch[1]!
   const project = await readProject(paths, id)
   if (req.method === 'PUT') {
-    if (project && project.ownerId !== user.id) {
+    if (project && !canManageProject(user, project)) {
       sendError(res, 403, '没有项目编辑权限')
       return true
     }
@@ -1367,7 +1401,7 @@ async function handleProjects(req: IncomingMessage, res: ServerResponse, paths: 
     sendError(res, 404, '项目不存在')
     return true
   }
-  if (project.ownerId !== user.id) {
+  if (!canManageProject(user, project)) {
     sendError(res, 403, '没有项目访问权限')
     return true
   }
