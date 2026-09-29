@@ -21,11 +21,52 @@ find_aport() {
 	find "$PMB_APORTS/device" -mindepth 2 -maxdepth 2 -type d -name "$1" -print -quit 2>/dev/null || true
 }
 
+aport_complete() {
+	package="$1"
+	dir="$2"
+	[ -n "$dir" ] && [ -d "$dir" ] && [ -f "$dir/APKBUILD" ] || return 1
+
+	case "$package" in
+		device-xiaomi-dior)
+			[ -f "$dir/deviceinfo" ] || return 1
+			if grep -q 'kernel-cmdline\.conf' "$dir/APKBUILD"; then
+				[ -f "$dir/kernel-cmdline.conf" ] || return 1
+			fi
+			;;
+		linux-xiaomi-dior)
+			[ -f "$dir/config-xiaomi-dior.armv7" ] || return 1
+			for patch in $(sed -n 's/^[[:space:]]*\([^[:space:]]*\.patch\)[[:space:]]*$/\1/p' "$dir/APKBUILD"); do
+				[ -e "$dir/$patch" ] || return 1
+			done
+			;;
+		firmware-xiaomi-dior)
+			# Firmware payloads are remote commit-pinned sources with hashes in APKBUILD.
+			;;
+		*)
+			return 1
+			;;
+	esac
+	return 0
+}
+
+report_aport() {
+	package="$1"
+	dir="$2"
+	if aport_complete "$package" "$dir"; then
+		echo "完整: $package -> $dir"
+	elif [ -n "$dir" ]; then
+		echo "残缺: $package -> $dir" >&2
+	else
+		echo "缺失: $package" >&2
+	fi
+}
+
 need pmbootstrap
 need find
 need cp
 need mkdir
 need grep
+need sed
 
 if [ ! -d "$PMB_APORTS" ]; then
 	echo "找不到 pmbootstrap pmaports: $PMB_APORTS" >&2
@@ -45,8 +86,13 @@ DEVICE_APORT="$(find_aport device-xiaomi-dior)"
 KERNEL_APORT="$(find_aport linux-xiaomi-dior)"
 FIRMWARE_APORT="$(find_aport firmware-xiaomi-dior)"
 
-if [ -z "$DEVICE_APORT" ] || [ -z "$KERNEL_APORT" ] || [ -z "$FIRMWARE_APORT" ]; then
-	echo "当前 pmaports 没有完整的 xiaomi-dior 设备/内核/固件 aport，尝试仓库锁定快照..."
+if ! aport_complete device-xiaomi-dior "$DEVICE_APORT" \
+	|| ! aport_complete linux-xiaomi-dior "$KERNEL_APORT" \
+	|| ! aport_complete firmware-xiaomi-dior "$FIRMWARE_APORT"; then
+	echo "当前 pmaports 的 xiaomi-dior aport 缺失或结构不完整，尝试仓库锁定快照..."
+	report_aport device-xiaomi-dior "$DEVICE_APORT"
+	report_aport linux-xiaomi-dior "$KERNEL_APORT"
+	report_aport firmware-xiaomi-dior "$FIRMWARE_APORT"
 	if ! sh "$SNAPSHOT_ROOT/check-snapshot.sh"; then
 		if [ "${HYDRATE_SNAPSHOT:-1}" = "1" ]; then
 			echo "快照缺文件，按固定历史来源下载并做 SHA-512 校验..."
@@ -58,13 +104,15 @@ if [ -z "$DEVICE_APORT" ] || [ -z "$KERNEL_APORT" ] || [ -z "$FIRMWARE_APORT" ];
 		for package in device-xiaomi-dior linux-xiaomi-dior firmware-xiaomi-dior; do
 			source_dir="$SNAPSHOT_ROOT/device/archived/$package"
 			target_dir="$PMB_APORTS/device/testing/$package"
-			if [ -d "$source_dir" ]; then
-				if [ -e "$target_dir" ]; then
-					echo "保留当前 pmaports 已存在的 $target_dir"
-				else
-					cp -a "$source_dir" "$target_dir"
-					echo "已注入锁定快照: $package"
-				fi
+			if ! aport_complete "$package" "$source_dir"; then
+				echo "仓库锁定快照中的 $package 结构不完整，停止构建。" >&2
+				exit 1
+			fi
+			if [ -e "$target_dir" ]; then
+				echo "保留当前 pmaports 已存在的 $target_dir（绝不覆盖用户 aport）"
+			else
+				cp -a "$source_dir" "$target_dir"
+				echo "已注入锁定快照: $package"
 			fi
 		done
 		DEVICE_APORT="$(find_aport device-xiaomi-dior)"
@@ -77,8 +125,14 @@ if [ -z "$DEVICE_APORT" ] || [ -z "$KERNEL_APORT" ] || [ -z "$FIRMWARE_APORT" ];
 	fi
 fi
 
-if [ -z "$DEVICE_APORT" ] || [ -z "$KERNEL_APORT" ] || [ -z "$FIRMWARE_APORT" ]; then
-	echo "注入后仍找不到完整的 xiaomi-dior 设备/内核/固件 aport，停止构建。" >&2
+if ! aport_complete device-xiaomi-dior "$DEVICE_APORT" \
+	|| ! aport_complete linux-xiaomi-dior "$KERNEL_APORT" \
+	|| ! aport_complete firmware-xiaomi-dior "$FIRMWARE_APORT"; then
+	echo "注入后 xiaomi-dior aport 仍缺失或结构不完整，停止构建。" >&2
+	report_aport device-xiaomi-dior "$DEVICE_APORT"
+	report_aport linux-xiaomi-dior "$KERNEL_APORT"
+	report_aport firmware-xiaomi-dior "$FIRMWARE_APORT"
+	echo "如果现有 pmaports 中已有同名残缺目录，请先自行修复或移走；脚本不会覆盖它。" >&2
 	exit 1
 fi
 
