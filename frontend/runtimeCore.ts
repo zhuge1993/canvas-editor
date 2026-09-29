@@ -457,6 +457,89 @@ function validProjectId(id: string): boolean {
   return /^[a-zA-Z0-9_-]+$/.test(id)
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value))
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value)
+}
+
+function validateRestoredUsers(value: unknown): StoredUser[] {
+  if (!Array.isArray(value)) throw new RequestBodyError('备份中的 users.json 格式无效')
+  const users: StoredUser[] = []
+  const ids = new Set<string>()
+  const emails = new Set<string>()
+  for (const item of value) {
+    if (!isRecord(item)
+      || typeof item.id !== 'string' || !validProjectId(item.id)
+      || typeof item.email !== 'string' || !validEmail(item.email.toLowerCase())
+      || typeof item.passwordHash !== 'string' || !item.passwordHash
+      || !isFiniteNumber(item.createdAt) || !isFiniteNumber(item.verifiedAt)
+      || (item.lastLoginAt !== undefined && !isFiniteNumber(item.lastLoginAt))
+      || (item.isAdmin !== undefined && typeof item.isAdmin !== 'boolean')) {
+      throw new RequestBodyError('备份中的 users.json 包含无效用户记录')
+    }
+    const email = item.email.trim().toLowerCase()
+    if (ids.has(item.id) || emails.has(email)) throw new RequestBodyError('备份中的 users.json 存在重复用户')
+    ids.add(item.id)
+    emails.add(email)
+    users.push({
+      id: item.id,
+      email,
+      passwordHash: item.passwordHash,
+      createdAt: item.createdAt,
+      verifiedAt: item.verifiedAt,
+      lastLoginAt: item.lastLoginAt as number | undefined,
+      isAdmin: item.isAdmin as boolean | undefined,
+    })
+  }
+  return users
+}
+
+function validateRestoredInvites(value: unknown): StoredInvite[] {
+  if (!Array.isArray(value)) throw new RequestBodyError('备份中的 invites.json 格式无效')
+  const invites: StoredInvite[] = []
+  const codes = new Set<string>()
+  for (const item of value) {
+    if (!isRecord(item)
+      || typeof item.code !== 'string' || !/^[A-Z0-9]{4,64}$/.test(item.code)
+      || !isFiniteNumber(item.createdAt)
+      || typeof item.createdBy !== 'string'
+      || !Number.isInteger(item.maxUses) || (item.maxUses as number) < 1
+      || !Number.isInteger(item.usedCount) || (item.usedCount as number) < 0 || (item.usedCount as number) > (item.maxUses as number)
+      || (item.lastUsedAt !== undefined && !isFiniteNumber(item.lastUsedAt))
+      || (item.disabled !== undefined && typeof item.disabled !== 'boolean')) {
+      throw new RequestBodyError('备份中的 invites.json 包含无效邀请码记录')
+    }
+    if (codes.has(item.code)) throw new RequestBodyError('备份中的 invites.json 存在重复邀请码')
+    codes.add(item.code)
+    invites.push(item as unknown as StoredInvite)
+  }
+  return invites
+}
+
+function validateRestoredShares(value: unknown): StoredShare[] {
+  if (!Array.isArray(value)) throw new RequestBodyError('备份中的 shares.json 格式无效')
+  const shares: StoredShare[] = []
+  const tokens = new Set<string>()
+  for (const item of value) {
+    if (!isRecord(item)
+      || typeof item.token !== 'string' || !/^[A-Za-z0-9_-]{16,128}$/.test(item.token)
+      || typeof item.projectId !== 'string' || !validProjectId(item.projectId)
+      || (item.permission !== 'view' && item.permission !== 'edit')
+      || !isFiniteNumber(item.createdAt) || !isFiniteNumber(item.updatedAt)
+      || (item.expiresAt !== undefined && !isFiniteNumber(item.expiresAt))
+      || (item.passwordHash !== undefined && typeof item.passwordHash !== 'string')) {
+      throw new RequestBodyError('备份中的 shares.json 包含无效分享记录')
+    }
+    if (tokens.has(item.token)) throw new RequestBodyError('备份中的 shares.json 存在重复分享 token')
+    tokens.add(item.token)
+    shares.push(item as unknown as StoredShare)
+  }
+  return shares
+}
+
 function projectPath(paths: RuntimePaths, id: string): string {
   if (!validProjectId(id)) throw new Error('Invalid project id')
   return path.join(paths.dataDirectory, `${id}.json`)
@@ -2419,9 +2502,18 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
     let restored = 0
     if (payload.data && typeof payload.data === 'object' && !Array.isArray(payload.data)) {
       for (const [file, content] of Object.entries(payload.data)) {
-        // 顶层项目文件名只能来自合法项目 ID，禁止恢复包借路径字符写到其他目录。
+        // 顶层项目文件名只能来自合法项目 ID，且内容中的 id 必须与文件名一致。
         if (!/^[a-zA-Z0-9_-]+\.json$/.test(file)) continue
-        await writeJson(path.join(paths.dataDirectory, file), content)
+        const projectId = file.slice(0, -5)
+        if (!isRecord(content)
+          || content.id !== projectId
+          || typeof content.title !== 'string' || !content.title.trim()
+          || !isFiniteNumber(content.createdAt) || !isFiniteNumber(content.updatedAt)
+          || (content.ownerId !== undefined && typeof content.ownerId !== 'string')
+          || (content.deletedAt !== undefined && !isFiniteNumber(content.deletedAt))) {
+          throw new RequestBodyError(`备份中的项目文件格式无效: ${file}`)
+        }
+        await withProjectMutation(projectId, () => writeJson(path.join(paths.dataDirectory, file), content))
         restored++
       }
     }
@@ -2430,6 +2522,14 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
       for (const [relativePath, content] of Object.entries(payload.versions)) {
         const match = relativePath.match(/^([a-zA-Z0-9_-]+)\/([a-zA-Z0-9_-]+\.json)$/)
         if (!match) continue
+        const versionId = match[2]!.slice(0, -5)
+        if (!isRecord(content)
+          || content.id !== versionId
+          || typeof content.content !== 'string'
+          || !isFiniteNumber(content.createdAt)
+          || (content.name !== undefined && typeof content.name !== 'string')) {
+          throw new RequestBodyError(`备份中的版本文件格式无效: ${relativePath}`)
+        }
         await writeJson(path.join(paths.dataDirectory, 'versions', match[1]!, match[2]!), content)
         restored++
       }
@@ -2483,18 +2583,18 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
       if (payload.auth && typeof payload.auth === 'object' && !Array.isArray(payload.auth)) {
         for (const [file, rawContent] of Object.entries(payload.auth)) {
           if (!durableAuthFiles.has(file)) continue
-          if (!Array.isArray(rawContent)) throw new RequestBodyError(`备份中的 ${file} 格式无效`)
 
-          let content: unknown = rawContent
+          let content: unknown
           if (file === 'users.json') {
-            const restoredUsers = (rawContent as StoredUser[]).map(item =>
-              item && typeof item === 'object' && item.email?.toLowerCase() === DEFAULT_ADMIN_EMAIL
-                ? { ...item, isAdmin: true }
-                : item)
-            const hasRoot = restoredUsers.some(item =>
-              item && typeof item === 'object' && item.email?.toLowerCase() === DEFAULT_ADMIN_EMAIL)
+            const restoredUsers = validateRestoredUsers(rawContent).map(item =>
+              item.email === DEFAULT_ADMIN_EMAIL ? { ...item, isAdmin: true } : item)
+            const hasRoot = restoredUsers.some(item => item.email === DEFAULT_ADMIN_EMAIL)
             if (!hasRoot && currentRoot) restoredUsers.push({ ...currentRoot, isAdmin: true })
             content = restoredUsers
+          } else if (file === 'invites.json') {
+            content = validateRestoredInvites(rawContent)
+          } else {
+            content = validateRestoredShares(rawContent)
           }
 
           await writeJson(path.join(paths.authDirectory, file), content)
