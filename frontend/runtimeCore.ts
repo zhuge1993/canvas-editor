@@ -226,6 +226,11 @@ const MAX_WEB_BACKUP_ASSET_BYTES = 48 * 1024 * 1024
 const MAX_WEB_BACKUP_DOCUMENT_BYTES = 20 * 1024 * 1024
 const MAX_RESTORE_ARCHIVE_BYTES = 64 * 1024 * 1024
 const MAX_RESTORE_JSON_BYTES = 96 * 1024 * 1024
+const configuredMinFreeStorageMb = Number(process.env.FLOWBOARD_MIN_FREE_STORAGE_MB ?? '128')
+const MIN_FREE_STORAGE_MB = Number.isFinite(configuredMinFreeStorageMb)
+  ? Math.max(0, Math.min(4096, Math.floor(configuredMinFreeStorageMb)))
+  : 128
+const MIN_FREE_STORAGE_BYTES = MIN_FREE_STORAGE_MB * 1024 * 1024
 
 /** 从 dataURL 中解析出图片本体；非图片 dataURL 返回 null */
 function decodeImageDataUrl(dataUrl: string): { buffer: Buffer; extension: string } | null {
@@ -301,13 +306,34 @@ async function readJson<T>(file: string, fallback: T): Promise<T> {
   }
 }
 
+async function ensureFreeStorageForWrite(file: string, bytesToWrite: number): Promise<void> {
+  if (MIN_FREE_STORAGE_BYTES <= 0) return
+  const directory = path.dirname(file)
+  try {
+    const stat = await fsp.statfs(directory)
+    const available = stat.bavail * stat.bsize
+    if (available - Math.max(0, bytesToWrite) < MIN_FREE_STORAGE_BYTES) {
+      throw new RequestBodyError(
+        `磁盘剩余空间不足；至少需要保留 ${MIN_FREE_STORAGE_MB} MiB 空闲空间`,
+        507,
+      )
+    }
+  } catch (error) {
+    if (error instanceof RequestBodyError) throw error
+    // 某些非标准文件系统若不支持 statfs，不让兼容性检查阻断正常写入。
+    if ((error as NodeJS.ErrnoException).code !== 'ENOSYS') throw error
+  }
+}
+
 async function writeJson(file: string, value: unknown): Promise<void> {
   await fsp.mkdir(path.dirname(file), { recursive: true })
+  const serialized = `${JSON.stringify(value, null, 2)}\n`
+  await ensureFreeStorageForWrite(file, Buffer.byteLength(serialized, 'utf8'))
   // 同一 Node 进程可能并发保存同一画布；仅使用 PID 会让两个写入共用同一个 .tmp。
   // 随机后缀保证每次原子替换都有独立临时文件，并把 JSON 默认落成仅服务账号可读。
   const temporary = `${file}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`
   try {
-    await fsp.writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 })
+    await fsp.writeFile(temporary, serialized, { encoding: 'utf8', mode: 0o600 })
     await fsp.rename(temporary, file)
   } finally {
     await fsp.rm(temporary, { force: true }).catch(() => undefined)
@@ -316,6 +342,7 @@ async function writeJson(file: string, value: unknown): Promise<void> {
 
 async function writeBufferAtomic(file: string, value: Buffer): Promise<void> {
   await fsp.mkdir(path.dirname(file), { recursive: true })
+  await ensureFreeStorageForWrite(file, value.length)
   const temporary = `${file}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`
   try {
     await fsp.writeFile(temporary, value, { mode: 0o600 })
