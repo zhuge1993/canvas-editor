@@ -1,12 +1,12 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/bin/sh
+set -eu
 
-if [[ "${EUID}" -ne 0 ]]; then
+if [ "$(id -u)" -ne 0 ]; then
   echo "请使用 root 运行，例如: doas ./install-linux.sh 或 sudo ./install-linux.sh" >&2
   exit 1
 fi
 
-SOURCE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+SOURCE_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 TARGET_DIR="/opt/flowboard"
 PLATFORM=""
 
@@ -20,23 +20,23 @@ else
 fi
 
 for required in server-bundle.cjs dist/index.html start-server.sh flowboard.env.example; do
-  if [[ ! -e "$SOURCE_DIR/$required" ]]; then
+  if [ ! -e "$SOURCE_DIR/$required" ]; then
     echo "安装包缺少 $required，请先生成并解压 FlowBoard-linux.tar.gz" >&2
     exit 1
   fi
 done
 
-if [[ "$PLATFORM" == "openrc" && ! -e "$SOURCE_DIR/flowboard.openrc" ]]; then
+if [ "$PLATFORM" = "openrc" ] && [ ! -e "$SOURCE_DIR/flowboard.openrc" ]; then
   echo "安装包缺少 flowboard.openrc" >&2
   exit 1
 fi
-if [[ "$PLATFORM" == "systemd" && ! -e "$SOURCE_DIR/flowboard.service" ]]; then
+if [ "$PLATFORM" = "systemd" ] && [ ! -e "$SOURCE_DIR/flowboard.service" ]; then
   echo "安装包缺少 flowboard.service" >&2
   exit 1
 fi
 
 if ! command -v node >/dev/null 2>&1; then
-  if [[ "$PLATFORM" == "openrc" ]]; then
+  if [ "$PLATFORM" = "openrc" ]; then
     apk add --no-cache nodejs ca-certificates
   else
     apt-get update
@@ -45,14 +45,14 @@ if ! command -v node >/dev/null 2>&1; then
 fi
 
 NODE_OK="$(node -e 'const [a,b]=process.versions.node.split(".").map(Number); process.stdout.write(a>20 || (a===20 && b>=19) ? "1" : "0")')"
-if [[ "$NODE_OK" != "1" ]]; then
+if [ "$NODE_OK" != "1" ]; then
   echo "Node.js 版本过低：$(node --version)，需要 20.19+。" >&2
   echo "postmarketOS/Alpine 新版 ARMv7 Node.js 或 Debian 13 armhf 均可满足。" >&2
   exit 1
 fi
 
 if ! id flowboard >/dev/null 2>&1; then
-  if [[ "$PLATFORM" == "openrc" ]]; then
+  if [ "$PLATFORM" = "openrc" ]; then
     addgroup -S flowboard
     adduser -S -D -H -h "$TARGET_DIR" -s /sbin/nologin -G flowboard flowboard
   else
@@ -68,14 +68,14 @@ cp -a "$SOURCE_DIR/dist" "$TARGET_DIR/dist"
 install -m 0755 "$SOURCE_DIR/start-server.sh" "$TARGET_DIR/start-server.sh"
 install -m 0644 "$SOURCE_DIR/flowboard.env.example" "$TARGET_DIR/flowboard.env.example"
 
-if [[ ! -f "$TARGET_DIR/flowboard.env" ]]; then
+if [ ! -f "$TARGET_DIR/flowboard.env" ]; then
   install -m 0600 -o flowboard -g flowboard "$SOURCE_DIR/flowboard.env.example" "$TARGET_DIR/flowboard.env"
 fi
 
 chown -R flowboard:flowboard "$TARGET_DIR"
 chmod 0600 "$TARGET_DIR/flowboard.env"
 
-if [[ "$PLATFORM" == "openrc" ]]; then
+if [ "$PLATFORM" = "openrc" ]; then
   install -m 0755 "$SOURCE_DIR/flowboard.openrc" /etc/init.d/flowboard
   rc-update add flowboard default >/dev/null 2>&1 || true
   rc-service flowboard restart
@@ -88,7 +88,7 @@ fi
 echo
 echo "FlowBoard 已安装到 $TARGET_DIR"
 echo "运行平台: $PLATFORM"
-if [[ "$PLATFORM" == "openrc" ]]; then
+if [ "$PLATFORM" = "openrc" ]; then
   echo "服务状态: rc-service flowboard status"
   echo "重启服务: rc-service flowboard restart"
 else
