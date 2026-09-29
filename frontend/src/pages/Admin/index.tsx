@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ArrowLeft, Copy, Download, KeyRound, Pencil, Plus, ShieldCheck, Trash2, Upload, Users } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -190,7 +190,7 @@ export default function AdminPage() {
     return new Date(timestamp).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
   }
 
-  const tabButton = (value: AdminTab, label: string, icon: React.ReactNode) => (
+  const tabButton = (value: AdminTab, label: string, icon: ReactNode) => (
     <button className={`btn-ghost border ${tab === value ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-surface-border'}`} onClick={() => setTab(value)}>
       {icon}{label}
     </button>
