@@ -63,7 +63,8 @@ function Invoke-DiorFastboot([string]$Executable, [string[]]$Arguments) {
     return 'OKAY (TEST MOCK ONLY)'
 }
 function Read-DiorConfirmation { return $script:Answer }
-function Get-Writes { return @($script:Calls | Where-Object { $_ -match '\|(flash:raw|flash|reboot)(\||$)' }) }
+# Keep zero/one result arrays intact under PowerShell 5.1 StrictMode.
+function Get-Writes { return ,@($script:Calls | Where-Object { $_ -match '\|(flash:raw|flash|reboot)(\||$)' }) }
 function Invoke-Test([string]$Name, [scriptblock]$Action) {
     New-Fixture
     & $Action
