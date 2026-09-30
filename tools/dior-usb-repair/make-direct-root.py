@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Extract the verified pmOS_root ext4 subpartition for direct userdata flashing."""
+"""Extract the verified pmOS_root ext4 subpartition for direct userdata flashing.\nDirect userdata avoids nested GPT discovery on the downstream 3.4 initramfs.\n"""
 from __future__ import annotations
 import argparse, hashlib, json, struct, uuid
 from pathlib import Path
