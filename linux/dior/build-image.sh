@@ -316,6 +316,12 @@ pmbootstrap chroot -r -- sh -ec '
 	test -f /opt/flowboard/flowboard.env
 	id flowboard >/dev/null 2>&1
 
+	# Hardware contract established from the physical dior probe.
+	# The downstream 3.4 kernel needs WCNSS firmware in the legacy root path.
+	test -s /lib/firmware/wcnss.mdt
+	test -s /lib/firmware/wlan/prima/WCNSS_qcom_wlan_nv.bin
+	test -s /lib/firmware/wlan/prima/WCNSS_qcom_cfg.ini
+
 	node -e '\''const [a,b]=process.versions.node.split(".").map(Number); if (!(a>20 || (a===20 && b>=19))) process.exit(1)'\''
 
 	if command -v rc-update >/dev/null 2>&1; then
