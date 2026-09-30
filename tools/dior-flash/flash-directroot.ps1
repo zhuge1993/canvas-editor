@@ -9,6 +9,13 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+function Resolve-DirectRootFastboot([string]$Requested) {
+    if ([IO.File]::Exists($Requested)) { return (Get-Item -LiteralPath $Requested -Force).FullName }
+    $cmd = Get-Command fastboot.exe -ErrorAction SilentlyContinue
+    if ($null -ne $cmd -and [IO.File]::Exists($cmd.Source)) { return $cmd.Source }
+    throw "fastboot.exe was not found. Put Android platform-tools next to this package or install fastboot in PATH."
+}
+
 function Invoke-DirectRootFastboot([string]$Exe, [string[]]$Arguments) {
     foreach ($arg in $Arguments) { if ($arg -match "[`r`n`"]") { throw "Unsafe fastboot argument" } }
     $psi = New-Object Diagnostics.ProcessStartInfo
@@ -83,7 +90,7 @@ function Read-DirectRootConfirmation { return (Read-Host "This erases userdata. 
 
 function Start-DiorDirectRootFlash([string]$Directory,[string]$Executable,[bool]$Write,[bool]$KeepFastboot) {
     $bundle = Test-DirectRootBundle $Directory
-    $exe = (Get-Item -LiteralPath $Executable -Force).FullName
+    $exe = Resolve-DirectRootFastboot $Executable
     $serial = Get-DirectRootSerial $exe
     if ((Get-DirectRootVar $exe $serial "product") -cne "dior") { throw "Connected phone is not product=dior" }
     $capText = Get-DirectRootVar $exe $serial "partition-size:userdata"
