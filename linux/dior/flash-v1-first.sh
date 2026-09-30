@@ -17,6 +17,8 @@ need fastboot
 need sha256sum
 need grep
 need awk
+need mktemp
+need find
 
 DEVICE="$(pmbootstrap config device 2>/dev/null || true)"
 case "$DEVICE" in
@@ -52,6 +54,44 @@ if [ ! -f "$BOOT_IMAGE" ]; then
 	echo "请检查 pmbootstrap export 输出；V1 不会猜测其他 boot 文件名。" >&2
 	exit 1
 fi
+
+# pmbootstrap flasher flash_rootfs 使用当前工作区，而不是 OUTPUT_DIR 里的副本。
+# 重新导出当前工作区并与已校验的 V1 导出文件逐一比对，避免“校验 A、实际刷 B”。
+VERIFY_EXPORT_DIR="$(mktemp -d)"
+cleanup_verify_export() {
+	rm -rf "$VERIFY_EXPORT_DIR"
+}
+trap cleanup_verify_export EXIT INT TERM
+
+pmbootstrap export "$VERIFY_EXPORT_DIR" >/dev/null
+
+verified_export_count=0
+while IFS= read -r current_file; do
+	[ -n "$current_file" ] || continue
+	name="${current_file##*/}"
+	expected_file="$OUTPUT_DIR/$name"
+	if [ ! -f "$expected_file" ]; then
+		echo "当前 pmbootstrap 工作区导出了未在 V1 校验目录出现的文件: $name" >&2
+		exit 1
+	fi
+	current_hash="$(sha256sum "$current_file" | awk '{print $1}')"
+	expected_hash="$(sha256sum "$expected_file" | awk '{print $1}')"
+	if [ "$current_hash" != "$expected_hash" ]; then
+		echo "当前 pmbootstrap 工作区与 V1 校验产物不一致: $name" >&2
+		echo "请重新执行 build-v1-first-flash.sh，再进行刷机。" >&2
+		exit 1
+	fi
+	verified_export_count=$((verified_export_count + 1))
+done <<EOF
+$(find "$VERIFY_EXPORT_DIR" -mindepth 1 -maxdepth 1 \( -type f -o -type l \) -print)
+EOF
+
+if [ "$verified_export_count" -eq 0 ]; then
+	echo "当前 pmbootstrap 工作区没有可验证的导出文件，拒绝刷机。" >&2
+	exit 1
+fi
+
+echo "当前 pmbootstrap 工作区与 V1 导出产物一致（$verified_export_count 个文件）。"
 
 DEVICES="$(fastboot devices 2>/dev/null | awk 'NF {print $1}')"
 DEVICE_COUNT="$(printf '%s\n' "$DEVICES" | awk 'NF {count++} END {print count+0}')"
