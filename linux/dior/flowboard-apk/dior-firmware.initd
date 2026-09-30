@@ -1,0 +1,60 @@
+#!/sbin/openrc-run
+
+description="Expose stock dior firmware partition to downstream Linux 3.4"
+
+depend() {
+	need localmount
+	before wcnss-wlan dior-adsp networkmanager
+}
+
+find_modem_partition() {
+	for p in \
+		/dev/disk/by-partlabel/modem \
+		/dev/block/bootdevice/by-name/modem \
+		/dev/block/platform/msm_sdcc.1/by-name/modem \
+		/dev/block/platform/msm_sdcc.1/by-name/firmware
+	do
+		[ -e "$p" ] && { printf '%s\n' "$p"; return 0; }
+	done
+	if command -v findfs >/dev/null 2>&1; then
+		findfs PARTLABEL=modem 2>/dev/null && return 0
+	fi
+	return 1
+}
+
+link_firmware_family() {
+	base="$1"
+	for src in "$base"/adsp.* "$base"/mba.* "$base"/modem.* "$base"/venus.* "$base"/wcnss.*; do
+		[ -f "$src" ] || continue
+		name="$(basename "$src")"
+		dst="/lib/firmware/$name"
+		[ -e "$dst" ] || ln -s "$src" "$dst"
+	done
+}
+
+start() {
+	ebegin "Preparing dior stock firmware bridge"
+	mkdir -p /run/dior-firmware /lib/firmware
+	if ! mountpoint -q /run/dior-firmware 2>/dev/null; then
+		part="$(find_modem_partition 2>/dev/null || true)"
+		if [ -n "$part" ]; then
+			if ! mount -o ro "$part" /run/dior-firmware 2>/dev/null; then
+				ewarn "Found firmware/modem partition but could not mount it read-only"
+			fi
+		else
+			ewarn "No modem firmware partition alias found"
+		fi
+	fi
+
+	if mountpoint -q /run/dior-firmware 2>/dev/null; then
+		link_firmware_family /run/dior-firmware
+		link_firmware_family /run/dior-firmware/image
+	fi
+
+	if [ -s /lib/firmware/adsp.mdt ]; then
+		einfo "ADSP firmware is available"
+	else
+		ewarn "ADSP firmware is not available yet; audio DSP cannot start"
+	fi
+	eend 0
+}
