@@ -26,13 +26,20 @@ for _i in $_files_prima; do
 done
 
 package() {
+	# Keep the postmarketOS namespace, but also install the legacy paths used
+	# by dior's downstream Linux 3.4 firmware loader. This kernel cannot change
+	# firmware_class.path at runtime, so PIL/Pronto looks directly in /lib/firmware.
 	for _i in $_files; do
-		install -Dm644 "$srcdir/$pkgname-$_commit-$_i" \
-			"$pkgdir"/lib/firmware/postmarketos/"$_i"
+		src="$srcdir/$pkgname-$_commit-$_i"
+		install -Dm644 "$src" "$pkgdir"/lib/firmware/postmarketos/"$_i"
+		install -Dm644 "$src" "$pkgdir"/lib/firmware/"$_i"
 	done
 	for _i in $_files_prima; do
-		install -Dm644 "$srcdir/$pkgname-$_commit-$_i" \
-			"$pkgdir"/lib/firmware/postmarketos/wlan/prima/"$_i"
+		src="$srcdir/$pkgname-$_commit-$_i"
+		install -Dm644 "$src" "$pkgdir"/lib/firmware/postmarketos/wlan/prima/"$_i"
+		install -Dm644 "$src" "$pkgdir"/lib/firmware/wlan/prima/"$_i"
+		# Qualcomm's Android Prima userspace commonly resolves this path too.
+		install -Dm644 "$src" "$pkgdir"/etc/firmware/wlan/prima/"$_i"
 	done
 }
 
