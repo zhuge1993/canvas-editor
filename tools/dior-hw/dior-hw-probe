@@ -76,11 +76,13 @@ for r in /sys/class/rfkill/rfkill*; do
     "$(cat "$r/name" 2>/dev/null || true)" "$(cat "$r/state" 2>/dev/null || true)" \
     "$(cat "$r/soft" 2>/dev/null || true)" "$(cat "$r/hard" 2>/dev/null || true)"
 done
+printf "hci_smd enable: "; safe_cat /sys/module/hci_smd/parameters/hcismd_set
 ls -ld /sys/class/bluetooth/hci* 2>/dev/null || true
 command -v hciconfig >/dev/null 2>&1 && hciconfig -a 2>/dev/null || true
 
 section "GPS / MODEM / NMEA"
 ls -l /dev/smd* /dev/ttyHS* /dev/ttyUSB* /dev/qcqmi* /dev/diag 2>/dev/null || true
+[ -e /dev/smd27 ] && echo "/dev/smd27: kernel GPSNMEA SMD channel"
 for n in /sys/class/net/rmnet* /sys/class/net/rev_rmnet*; do
   [ -e "$n" ] || continue
   printf "%s carrier=%s operstate=%s\n" "$(basename "$n")" \
@@ -95,6 +97,7 @@ done
 
 section "SENSORS / VIBRATOR"
 find /sys/class/sensors -maxdepth 2 -type f -name name -print -exec cat {} \; 2>/dev/null || true
+ls -l /dev/tspdrv 2>/dev/null || true
 for p in /sys/class/timed_output/vibrator /sys/class/leds/*vib*; do
   [ -e "$p" ] && ls -ld "$p"
 done
