@@ -177,7 +177,9 @@ def build() -> None:
         "device": "xiaomi-dior", "ui": "console", "service_manager": "openrc",
         "user": "dior", "hostname": "dior-flowboard", "is_default_channel": "False",
         "ssh_keys": "False", "ui_extras": "False", "timezone": "Asia/Shanghai",
-        "build_default_device_arch": "True", "boot_size": "64", "extra_space": "0",
+        # Size of the boot FILESYSTEM inside the standard rootfs disk image,
+        # not the phone's Android boot partition. pmbootstrap rejects 64 MiB.
+        "build_default_device_arch": "True", "boot_size": "512", "extra_space": "0",
         "extra_packages": "firmware-xiaomi-dior,wcnss-wlan,networkmanager,networkmanager-wifi,networkmanager-cli",
     }
     cfg["providers"] = {}
