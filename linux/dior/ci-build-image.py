@@ -183,7 +183,8 @@ path.write_text("\n".join(out) + "\n", encoding="utf-8")
         "Flash contract: userdata only; boot/system/recovery are not written.\n"
         "The extracted pmOS_root UUID is retargeted to the proven boot contract and the "
         "separate /boot fstab entry is removed.\n"
-        "After boot run: dior-hw-verify ; dior-hw-smoke ; dior-hw-probe\n",
+        "After boot first read /var/log/dior-hardware-firstboot.log, then run: "
+        "dior-hw-verify ; dior-hw-smoke ; dior-hw-probe\n",
         encoding="utf-8")
     files = sorted(x for x in safe.iterdir() if x.is_file() and x.name != "SHA256SUMS")
     (safe / "SHA256SUMS").write_text("".join(
