@@ -4,6 +4,7 @@ description="Expose stock dior firmware partition to downstream Linux 3.4"
 
 depend() {
 	need localmount
+	after udev udev-trigger
 	before wcnss-wlan dior-adsp networkmanager
 }
 
@@ -64,13 +65,27 @@ start() {
 	mkdir -p /run/dior-firmware /lib/firmware
 	mirror_pmos_legacy_firmware
 	if ! is_mounted; then
-		part="$(find_modem_partition 2>/dev/null || true)"
+		# by-name links are udev-created on this downstream platform. The old
+		# service ran before they existed and silently missed the modem/firmware
+		# partition, leaving ADSP/MBA unavailable for the whole boot.
+		part=""
+		tries=0
+		while [ "$tries" -lt 40 ]; do
+			part="$(find_modem_partition 2>/dev/null || true)"
+			[ -n "$part" ] && break
+			sleep 0.25
+			tries=$((tries + 1))
+		done
 		if [ -n "$part" ]; then
-			if ! mount -o ro "$part" /run/dior-firmware 2>/dev/null; then
-				ewarn "Found firmware/modem partition but could not mount it read-only"
+			if mount -o ro "$part" /run/dior-firmware 2>/dev/null; then
+				einfo "Mounted stock firmware read-only from $part"
+			elif mount -t vfat -o ro "$part" /run/dior-firmware 2>/dev/null; then
+				einfo "Mounted stock firmware as vfat read-only from $part"
+			else
+				ewarn "Found firmware/modem partition at $part but could not mount it read-only"
 			fi
 		else
-			ewarn "No modem firmware partition alias found"
+			ewarn "No modem firmware partition alias found after waiting for udev"
 		fi
 	fi
 
