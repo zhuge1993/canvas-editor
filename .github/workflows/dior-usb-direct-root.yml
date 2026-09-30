@@ -53,6 +53,19 @@ jobs:
           sudo cp "$RUNNER_TEMP/rootmnt/etc/fstab" "$RUNNER_TEMP/release/FSTAB-BEFORE.txt"
           sudo install -Dm755 tools/dior-hw/dior-hw-probe "$RUNNER_TEMP/rootmnt/usr/local/sbin/dior-hw-probe"
           sudo install -Dm755 tools/dior-hw/dior-touch-test "$RUNNER_TEMP/rootmnt/usr/local/sbin/dior-touch-test"
+          # Dior's downstream 3.4 firmware loader ignores the pmOS firmware search
+          # namespace. Mirror the already-shipped verified firmware into the legacy
+          # locations before WCNSS/Prima is triggered on the physical phone.
+          test -s "$RUNNER_TEMP/rootmnt/lib/firmware/postmarketos/wcnss.mdt"
+          for fw in "$RUNNER_TEMP"/rootmnt/lib/firmware/postmarketos/wcnss.*; do
+            sudo cp -a "$fw" "$RUNNER_TEMP/rootmnt/lib/firmware/$(basename "$fw")"
+          done
+          test -s "$RUNNER_TEMP/rootmnt/lib/firmware/postmarketos/wlan/prima/WCNSS_qcom_wlan_nv.bin"
+          sudo mkdir -p "$RUNNER_TEMP/rootmnt/lib/firmware/wlan/prima" "$RUNNER_TEMP/rootmnt/etc/firmware/wlan/prima"
+          sudo cp -a "$RUNNER_TEMP/rootmnt"/lib/firmware/postmarketos/wlan/prima/* "$RUNNER_TEMP/rootmnt/lib/firmware/wlan/prima/"
+          sudo cp -a "$RUNNER_TEMP/rootmnt"/lib/firmware/postmarketos/wlan/prima/* "$RUNNER_TEMP/rootmnt/etc/firmware/wlan/prima/"
+          test -s "$RUNNER_TEMP/rootmnt/lib/firmware/wcnss.mdt"
+          test -s "$RUNNER_TEMP/rootmnt/lib/firmware/wlan/prima/WCNSS_qcom_wlan_nv.bin"
           grep -q '2b3bcea5-5043-47de-a4f3-4959104f4762[[:space:]]\+/[[:space:]]' "$RUNNER_TEMP/rootmnt/etc/fstab"
           sudo sed -i '\|[[:space:]]/boot[[:space:]]|d' "$RUNNER_TEMP/rootmnt/etc/fstab"
           ! grep -q '[[:space:]]/boot[[:space:]]' "$RUNNER_TEMP/rootmnt/etc/fstab"
@@ -73,7 +86,7 @@ jobs:
           The current boot ramdisk already contains init_2nd.sh, so no pmOS_boot partition is required.
           This raw ext4 pmOS_root avoids nested-subpartition discovery on the downstream 3.4 kernel.
           The stale /boot fstab entry is removed offline and e2fsck is run afterward.
-          Physical-device boot is not claimed until tested on the target phone.
+          Includes the dior Linux 3.4 legacy WCNSS/Prima firmware-path compatibility mirror.\n          Physical-device boot is not claimed until tested on the target phone.
           EOF
           mkdir -p "$RUNNER_TEMP/package"
           (
