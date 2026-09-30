@@ -26,6 +26,9 @@ ls -l /dev/input 2>/dev/null || true
 section "WIFI / WCNSS"
 ls -l /dev/wcnss_wlan 2>/dev/null || true
 printf "fwpath: "; safe_cat /sys/module/wlan/parameters/fwpath
+echo "--- legacy firmware paths ---"
+ls -l /lib/firmware/wcnss.mdt /lib/firmware/wcnss.b00 /lib/firmware/wlan/prima/WCNSS_qcom_wlan_nv.bin /lib/firmware/wlan/prima/WCNSS_qcom_cfg.ini 2>/dev/null || true
+echo "--- postmarketOS firmware namespace ---"
 find /lib/firmware/postmarketos -maxdepth 3 -type f 2>/dev/null | grep -Ei "wcnss|prima|wlan" | sort || true
 ip -details link show 2>/dev/null || ip link 2>/dev/null || true
 command -v nmcli >/dev/null 2>&1 && nmcli device status || true
@@ -59,7 +62,12 @@ ls -l /dev/snd 2>/dev/null || true
 for c in /sys/class/sound/card*/id; do [ -r "$c" ] && printf "%s: %s\n" "$c" "$(cat "$c")"; done
 
 section "AUDIO FIRMWARE / DSP"
+ls -l /lib/firmware/adsp.mdt /lib/firmware/adsp.b00 /lib/firmware/mba.mdt 2>/dev/null || true
+grep " /run/dior-firmware " /proc/mounts 2>/dev/null || true
+find /run/dior-firmware -maxdepth 3 -type f 2>/dev/null | grep -Ei "adsp|mba|modem|venus|wcnss" | sort | head -200 || true
 find /lib/firmware /etc/firmware -maxdepth 4 -type f 2>/dev/null | grep -Ei "adsp|lpass|audio|wcd|dsp" | sort || true
+echo "--- partition aliases ---"
+ls -l /dev/disk/by-partlabel /dev/block/bootdevice/by-name /dev/block/platform/msm_sdcc.1/by-name 2>/dev/null || true
 
 section "CAMERA / V4L2"
 ls -l /dev/video* /dev/media* /dev/v4l-subdev* 2>/dev/null || true
