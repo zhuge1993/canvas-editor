@@ -15,7 +15,7 @@ depends="nodejs ca-certificates dropbear alsa-utils v4l-utils evtest bluez bluez
 options="!check !fhs"
 install="$pkgname.pre-install $pkgname.post-install"
 backup="opt/flowboard/flowboard.env"
-source="flowboard-release.tar.gz dior-dropbear.initd dior-firmware.initd dior-adsp.initd dior-bluetooth.initd dior-gps.initd dior-hw-probe dior-touch-test dior-hw-verify dior-hw-smoke"
+source="flowboard-release.tar.gz dior-dropbear.initd dior-firmware.initd dior-adsp.initd dior-bluetooth.initd dior-gps.initd dior-hw-report.initd dior-hw-probe dior-touch-test dior-hw-verify dior-hw-smoke"
 
 package() {
 	install -d "$pkgdir"/opt/flowboard
@@ -36,6 +36,7 @@ package() {
 	install -Dm755 "$srcdir"/dior-adsp.initd "$pkgdir"/etc/init.d/dior-adsp
 	install -Dm755 "$srcdir"/dior-bluetooth.initd "$pkgdir"/etc/init.d/dior-bluetooth
 	install -Dm755 "$srcdir"/dior-gps.initd "$pkgdir"/etc/init.d/dior-gps
+	install -Dm755 "$srcdir"/dior-hw-report.initd "$pkgdir"/etc/init.d/dior-hw-report
 	install -Dm755 "$srcdir"/dior-hw-probe "$pkgdir"/usr/local/sbin/dior-hw-probe
 	install -Dm755 "$srcdir"/dior-touch-test "$pkgdir"/usr/local/sbin/dior-touch-test
 	install -Dm755 "$srcdir"/dior-hw-verify "$pkgdir"/usr/local/sbin/dior-hw-verify
@@ -48,6 +49,7 @@ package() {
 	ln -sf /etc/init.d/dior-adsp "$pkgdir"/etc/runlevels/default/dior-adsp
 	ln -sf /etc/init.d/dior-bluetooth "$pkgdir"/etc/runlevels/default/dior-bluetooth
 	ln -sf /etc/init.d/dior-gps "$pkgdir"/etc/runlevels/default/dior-gps
+	ln -sf /etc/init.d/dior-hw-report "$pkgdir"/etc/runlevels/default/dior-hw-report
 	ln -sf /etc/init.d/bluetooth "$pkgdir"/etc/runlevels/default/bluetooth
 
 	install -d "$pkgdir"/etc/systemd/system/multi-user.target.wants
