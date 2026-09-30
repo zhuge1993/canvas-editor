@@ -19,14 +19,4 @@ chmod 0750 \
 	/opt/flowboard/auth-data \
 	/opt/flowboard/logs
 
-# Dior downstream kernel exposes GPS NMEA on fixed SMD tty index 27.
-# Configure Alpine gpsd to consume it without printing or storing coordinates here.
-if [ -f /etc/conf.d/gpsd ]; then
-	if grep -q '^DEVICES=' /etc/conf.d/gpsd; then
-		sed -i 's|^DEVICES=.*|DEVICES="/dev/smd27"|' /etc/conf.d/gpsd
-	else
-		printf '%s\n' 'DEVICES="/dev/smd27"' >> /etc/conf.d/gpsd
-	fi
-fi
-
 exit 0
