@@ -277,6 +277,7 @@ cp "$APORT_TEMPLATE/dior-firmware.initd" "$LOCAL_APORT/dior-firmware.initd"
 cp "$APORT_TEMPLATE/dior-adsp.initd" "$LOCAL_APORT/dior-adsp.initd"
 cp "$APORT_TEMPLATE/dior-bluetooth.initd" "$LOCAL_APORT/dior-bluetooth.initd"
 cp "$APORT_TEMPLATE/dior-gps.initd" "$LOCAL_APORT/dior-gps.initd"
+cp "$APORT_TEMPLATE/dior-hw-report.initd" "$LOCAL_APORT/dior-hw-report.initd"
 cp "$REPO_ROOT/tools/dior-hw/dior-hw-probe" "$LOCAL_APORT/dior-hw-probe"
 cp "$REPO_ROOT/tools/dior-hw/dior-touch-test" "$LOCAL_APORT/dior-touch-test"
 cp "$REPO_ROOT/tools/dior-hw/dior-hw-verify" "$LOCAL_APORT/dior-hw-verify"
@@ -349,6 +350,7 @@ pmbootstrap chroot -r -- sh -ec '
 		test -x /etc/init.d/dior-adsp
 		test -x /etc/init.d/dior-bluetooth
 		test -x /etc/init.d/dior-gps
+		test -x /etc/init.d/dior-hw-report
 		test -x /usr/local/sbin/dior-hw-verify
 		test -x /usr/local/sbin/dior-hw-smoke
 		rc-update show default | grep -Eq "(^|[[:space:]])flowboard([[:space:]]|$)"
@@ -358,6 +360,7 @@ pmbootstrap chroot -r -- sh -ec '
 		rc-update show default | grep -Eq "(^|[[:space:]])dior-adsp([[:space:]]|$)"
 		rc-update show default | grep -Eq "(^|[[:space:]])dior-bluetooth([[:space:]]|$)"
 		rc-update show default | grep -Eq "(^|[[:space:]])dior-gps([[:space:]]|$)"
+		rc-update show default | grep -Eq "(^|[[:space:]])dior-hw-report([[:space:]]|$)"
 		test -x /etc/init.d/bluetooth
 		rc-update show default | grep -Eq "(^|[[:space:]])bluetooth([[:space:]]|$)"
 	elif command -v systemctl >/dev/null 2>&1; then
