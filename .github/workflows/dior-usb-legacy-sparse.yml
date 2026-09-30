@@ -1,4 +1,5 @@
 name: Dior USB legacy sparse delivery
+# Re-run after restoring the complete branch tree.
 on:
   push:
     branches: [linux-server-armhf]
