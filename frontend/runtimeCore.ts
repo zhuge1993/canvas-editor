@@ -2202,9 +2202,11 @@ async function handleProjects(req: IncomingMessage, res: ServerResponse, paths: 
           replacementPasswordHash = await passwordDigest(password)
         }
 
-        const updated = await withShareMutation(token, () => withProjectMutation(projectId, async () => {
+        const updateResult = await withShareMutation(token, () => withProjectMutation(projectId, async () => {
           const latest = await readProject(paths, projectId)
-          if (!latest || latest.deletedAt) return null
+          if (!latest) return { ok: false as const, status: 404, error: '项目不存在' }
+          if (latest.deletedAt) return { ok: false as const, status: 410, error: '项目已进入回收站' }
+
           const access = await withCurrentProjectAccess(paths, user, latest, async () => {
             const shares = await loadShares(paths)
             const share = shares.find(item => item.token === token && item.projectId === projectId)
@@ -2226,12 +2228,14 @@ async function handleProjects(req: IncomingMessage, res: ServerResponse, paths: 
             return next
           })
           if (!access.ok) return access
-          return access.value
+          if (!access.value) return { ok: false as const, status: 404, error: '分享链接不存在' }
+          return { ok: true as const, share: access.value }
         }))
-        if (!updated) {
-          sendError(res, 404, '分享链接不存在')
+        if (!updateResult.ok) {
+          sendError(res, updateResult.status, updateResult.error)
           return true
         }
+        const updated = updateResult.share
         sendJson(res, 200, {
           ...updated,
           passwordHash: undefined,
@@ -2242,9 +2246,11 @@ async function handleProjects(req: IncomingMessage, res: ServerResponse, paths: 
         return true
       }
       if (req.method === 'DELETE') {
-        const deleted = await withShareMutation(token, () => withProjectMutation(projectId, async () => {
+        const deleteResult = await withShareMutation(token, () => withProjectMutation(projectId, async () => {
           const latest = await readProject(paths, projectId)
-          if (!latest || latest.deletedAt) return false
+          if (!latest) return { ok: false as const, status: 404, error: '项目不存在' }
+          if (latest.deletedAt) return { ok: false as const, status: 410, error: '项目已进入回收站' }
+
           const access = await withCurrentProjectAccess(paths, user, latest, async () => {
             const shares = await loadShares(paths)
             if (!shares.some(item => item.token === token && item.projectId === projectId)) return false
@@ -2252,10 +2258,11 @@ async function handleProjects(req: IncomingMessage, res: ServerResponse, paths: 
             return true
           })
           if (!access.ok) return access
-          return access.value
+          if (!access.value) return { ok: false as const, status: 404, error: '分享链接不存在' }
+          return { ok: true as const }
         }))
-        if (!deleted) {
-          sendError(res, 404, '分享链接不存在')
+        if (!deleteResult.ok) {
+          sendError(res, deleteResult.status, deleteResult.error)
           return true
         }
         sendJson(res, 200, { ok: true })
