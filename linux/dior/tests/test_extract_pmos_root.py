@@ -9,7 +9,7 @@ import unittest
 import uuid
 import zlib
 
-SCRIPT = Path(__file__).resolve().parents[2] / "tools/dior-usb-repair/extract-pmos-root.py"
+SCRIPT = Path(__file__).resolve().parents[3] / "tools/dior-usb-repair/extract-pmos-root.py"
 SPEC = importlib.util.spec_from_file_location("extract_pmos_root", SCRIPT)
 assert SPEC and SPEC.loader
 MOD = importlib.util.module_from_spec(SPEC)
