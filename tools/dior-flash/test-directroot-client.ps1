@@ -12,8 +12,19 @@ function Write-Sums {
     $hash = (Get-FileHash -LiteralPath $img -Algorithm SHA256).Hash.ToLower()
     [IO.File]::WriteAllText((Join-Path $script:Images "SHA256SUMS"), "$hash  xiaomi-dior-pmOS-root-direct.img`n")
 }
-function Write-Receipt([bool]$BootChange = $false) {
-    $obj = @{ flash_partition="userdata"; uuid_matches_boot=$true; fits_fastboot_max_download=$true; boot_image_change_required=$BootChange }
+function Write-Receipt([bool]$BootChange = $false,[string]$Digest = "") {
+    $img = Join-Path $script:Images "xiaomi-dior-pmOS-root-direct.img"
+    if ([string]::IsNullOrWhiteSpace($Digest)) { $Digest = (Get-FileHash -LiteralPath $img -Algorithm SHA256).Hash.ToLowerInvariant() }
+    $obj = @{
+        flash_partition="userdata"
+        uuid_matches_boot=$true
+        fits_fastboot_max_download=$true
+        boot_image_change_required=$BootChange
+        output_sha256=$Digest
+        filesystem_uuid="2b3bcea5-5043-47de-a4f3-4959104f4762"
+        boot_pmos_root_uuid="2b3bcea5-5043-47de-a4f3-4959104f4762"
+        filesystem_label="pmOS_root"
+    }
     [IO.File]::WriteAllText((Join-Path $script:Images "VERIFICATION.json"),($obj | ConvertTo-Json))
 }
 function New-Fixture {
@@ -85,6 +96,11 @@ try {
     Run-Test "receipt requesting boot change is rejected" {
         Write-Receipt $true; Assert-Fails { Start-DiorDirectRootFlash $script:Images $script:Executable $true $false }; Assert-True ($script:Calls.Count -eq 0) "unsafe receipt reached fastboot"
     }
+    Run-Test "receipt digest mismatch is rejected" {
+        Write-Receipt $false ("0" * 64)
+        Assert-Fails { Start-DiorDirectRootFlash $script:Images $script:Executable $true $false }
+        Assert-True ($script:Calls.Count -eq 0) "mismatched receipt reached fastboot"
+    }
     Run-Test "device change after confirmation prevents write" {
         $script:ChangeDeviceAfterFirst=$true; Assert-Fails { Start-DiorDirectRootFlash $script:Images $script:Executable $true $false }; Assert-True ((Get-Writes).Count -eq 0) "changed device was written"
     }
@@ -102,5 +118,5 @@ try {
             $env:PATH = $oldPath
         }
     }
-    Write-Host "$script:Passed/11 DirectRoot offline tests passed. No real phone was used."
+    Write-Host "$script:Passed/12 DirectRoot offline tests passed. No real phone was used."
 } finally { Remove-Item -LiteralPath $script:Root -Recurse -Force }
