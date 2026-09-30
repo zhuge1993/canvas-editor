@@ -138,7 +138,7 @@ for line in lines:
     if len(fields) >= 2 and fields[1] == "/boot":
         continue
     if len(fields) >= 2 and fields[1] == "/":
-        fields[0] = root_uuid
+        fields[0] = "UUID=" + root_uuid
         root_seen = True
         out.append("\t".join(fields))
     else:
