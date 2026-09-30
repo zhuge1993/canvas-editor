@@ -36,9 +36,30 @@ pmbootstrap init
 
 如果当前 pmaports 已经移除了 dior，先不要硬编译仓库里的不完整 snapshot。见 `pmaports-snapshot/README.md`。
 
-## 一键构建
+## V1 第一版：先刷起来
+
+第一版不走复杂的 split/netcat 路线。对无桌面的 FlowBoard 服务器先使用 dior 历史设备文档的标准方式：Android boot 镜像刷 `boot`，rootfs 用 `pmbootstrap flasher flash_rootfs`。
 
 在仓库根目录：
+
+```sh
+chmod +x linux/dior/build-v1-first-flash.sh linux/dior/flash-v1-first.sh
+./linux/dior/build-v1-first-flash.sh
+```
+
+构建成功后把手机关机，按 **音量减 + 电源** 进入 fastboot，连接同一台 Linux 构建机，再执行：
+
+```sh
+./linux/dior/flash-v1-first.sh
+```
+
+刷机脚本会先检查 pmbootstrap 当前设备、Fastboot product、V1 manifest 和 SHA256；任何一项不是 `dior` 就拒绝继续。
+
+详细步骤见 [FIRST-FLASH-V1.md](./FIRST-FLASH-V1.md)。
+
+## 通用/后续构建
+
+原来的完整构建入口仍保留：
 
 ```sh
 chmod +x linux/dior/build-image.sh
@@ -78,6 +99,8 @@ OUTPUT_DIR=/tmp/dior-image ./linux/dior/build-image.sh
 
 ## 旧 pmaports snapshot
 
-`pmaports-snapshot/` 是为了锁住旧设备定义和内核配置，方便我们后续继续补齐、审计和复现。
+`pmaports-snapshot/` 锁住旧设备定义、内核配置、WCNSS helper 和历史 downstream kernel 所需的 6 个 patch。
 
-当前它仍缺少 `linux-xiaomi-dior/APKBUILD` 引用的 6 个 patch，所以脚本故意不会拿它静默替换一个完整 pmaports。等 6 个 patch 都按原始版本/哈希找齐后，再把 snapshot 升级为可独立构建的 fallback。
+6 个 patch 已从固定历史来源找回，并且逐个按原 `linux-xiaomi-dior/APKBUILD` 的 SHA-512 校验；hydration 下载后还会再次校验，任何一个 hash 不一致都会停止构建。
+
+当前 pmaports 如果已经有完整 dior aport，脚本优先使用当前版本；只有缺失时才注入经过严格校验的快照，而且不会覆盖用户已有的同名目录。

@@ -9,6 +9,15 @@ SNAPSHOT_ROOT="$SCRIPT_DIR/pmaports-snapshot"
 PMB_APORTS="${PMB_APORTS:-$HOME/.local/var/pmbootstrap/cache_git/pmaports}"
 OUTPUT_DIR="${OUTPUT_DIR:-$REPO_ROOT/out/dior}"
 FLOWBOARD_RELEASE="${FLOWBOARD_RELEASE:-$FRONTEND_DIR/FlowBoard-linux.tar.gz}"
+DIOR_INSTALL_MODE="${DIOR_INSTALL_MODE:-split}"
+
+case "$DIOR_INSTALL_MODE" in
+	standard|split) ;;
+	*)
+		echo "DIOR_INSTALL_MODE 只能是 standard 或 split。" >&2
+		exit 1
+		;;
+esac
 
 need() {
 	command -v "$1" >/dev/null 2>&1 || {
@@ -275,8 +284,13 @@ pmbootstrap build firmware-xiaomi-dior
 echo "预构建 dior device package，提前验证设备包依赖闭包..."
 pmbootstrap build device-xiaomi-dior
 
-echo "生成 xiaomi-dior 分离式 boot/rootfs 镜像，并把 FlowBoard 直接装进 rootfs..."
-pmbootstrap install --split --add=flowboard-server
+if [ "$DIOR_INSTALL_MODE" = "standard" ]; then
+	echo "生成 xiaomi-dior V1 标准 rootfs，并把 FlowBoard 直接装进系统分区镜像..."
+	pmbootstrap install --add=flowboard-server
+else
+	echo "生成 xiaomi-dior 分离式 boot/rootfs 镜像，并把 FlowBoard 直接装进 rootfs..."
+	pmbootstrap install --split --add=flowboard-server
+fi
 
 mkdir -p "$OUTPUT_DIR"
 pmbootstrap export "$OUTPUT_DIR"
@@ -318,6 +332,7 @@ target_vendor=xiaomi
 target_device=dior
 target_name=Redmi Note 4G single-SIM
 target_arch=armv7
+install_mode=$DIOR_INSTALL_MODE
 repository_revision=$REPO_REVISION
 pmaports_revision=$PMAPORTS_REVISION
 pmbootstrap_version=$PMBOOTSTRAP_VERSION
@@ -346,6 +361,8 @@ DiorLinux / FlowBoard 刷机前检查
 6. 具体刷写步骤以当前 pmbootstrap/postmarketOS 对 xiaomi-dior 的导出结果为准。
 7. FlowBoard 首次启动后应监听 127.0.0.1:3000，由同机反代/内网穿透对外提供 HTTPS。
 8. QQ SMTP 授权码不要写入镜像或 Git；系统启动后单独执行 set stp 配置。
+9. install_mode=standard 是第一版首刷路线：boot 用 fastboot flash:raw boot，rootfs 用 pmbootstrap flasher flash_rootfs。
+10. install_mode=split 只留给以后 system 分区装不下时继续研究，不作为 V1 首刷默认路线。
 EOF
 
 (
