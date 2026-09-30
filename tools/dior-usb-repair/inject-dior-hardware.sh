@@ -29,9 +29,11 @@ install -Dm755 "$REPO_ROOT/tools/dior-hw/dior-touch-test" "$ROOT/usr/local/sbin/
 install -Dm755 "$REPO_ROOT/tools/dior-hw/dior-hw-verify" "$ROOT/usr/local/sbin/dior-hw-verify"
 install -Dm755 "$REPO_ROOT/linux/dior/flowboard-apk/dior-firmware.initd" "$ROOT/etc/init.d/dior-firmware"
 install -Dm755 "$REPO_ROOT/linux/dior/flowboard-apk/dior-adsp.initd" "$ROOT/etc/init.d/dior-adsp"
+install -Dm755 "$REPO_ROOT/linux/dior/flowboard-apk/dior-bluetooth.initd" "$ROOT/etc/init.d/dior-bluetooth"
 mkdir -p "$ROOT/etc/runlevels/default"
 ln -sf /etc/init.d/dior-firmware "$ROOT/etc/runlevels/default/dior-firmware"
 ln -sf /etc/init.d/dior-adsp "$ROOT/etc/runlevels/default/dior-adsp"
+ln -sf /etc/init.d/dior-bluetooth "$ROOT/etc/runlevels/default/dior-bluetooth"
 
 # Mirror WCNSS/Prima already present in the verified historical rootfs.
 test -s "$ROOT/lib/firmware/postmarketos/wcnss.mdt"
@@ -86,6 +88,7 @@ test -s "$ROOT/lib/firmware/a330_pm4.fw"
 test -s "$ROOT/etc/acdbdata/MTP/MTP_Speaker_cal.acdb"
 test -x "$ROOT/etc/init.d/dior-firmware"
 test -x "$ROOT/etc/init.d/dior-adsp"
+test -x "$ROOT/etc/init.d/dior-bluetooth"
 test -x "$ROOT/usr/local/sbin/dior-hw-verify"
 
 echo "Dior hardware userspace/firmware injection complete."
