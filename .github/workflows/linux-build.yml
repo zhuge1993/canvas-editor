@@ -43,7 +43,21 @@ jobs:
           sh -n tools/dior-hw/dior-touch-test
           sh -n tools/dior-hw/dior-hw-verify
           sh -n tools/dior-usb-repair/inject-dior-hardware.sh
-          grep -q '^CONFIG_MSM_KGSL=y$' linux/dior/pmaports-snapshot/device/archived/linux-xiaomi-dior/config-xiaomi-dior.armv7
+          python3 -m py_compile tools/dior-boot/trim-qcdt.py
+          pwsh -NoProfile -Command "[void][scriptblock]::Create((Get-Content -Raw 'tools/dior-flash/flash-directroot.ps1'))"
+          grep -q '^CONFIG_MSM_KGSL=y linux/dior/pmaports-snapshot/device/archived/linux-xiaomi-dior/config-xiaomi-dior.armv7
+          grep -q '^CONFIG_IMMERSION_HAPTIC=y$' linux/dior/pmaports-snapshot/device/archived/linux-xiaomi-dior/config-xiaomi-dior.armv7
+          grep -q '^CONFIG_RFKILL=y$' linux/dior/pmaports-snapshot/device/archived/linux-xiaomi-dior/config-xiaomi-dior.armv7
+          grep -q 'a330_pm4.fw' linux/dior/pmaports-snapshot/device/archived/firmware-xiaomi-dior/APKBUILD
+          grep -q 'venus.mdt' linux/dior/pmaports-snapshot/device/archived/firmware-xiaomi-dior/APKBUILD
+          grep -q 'MTP_Speaker_cal.acdb' linux/dior/pmaports-snapshot/device/archived/firmware-xiaomi-dior/APKBUILD
+      - name: Upload Linux release
+        uses: actions/upload-artifact@v4
+        with:
+          name: FlowBoard-linux
+          path: frontend/FlowBoard-linux.tar.gz
+          if-no-files-found: error
+ linux/dior/pmaports-snapshot/device/archived/linux-xiaomi-dior/config-xiaomi-dior.armv7
           grep -q '^CONFIG_IMMERSION_HAPTIC=y$' linux/dior/pmaports-snapshot/device/archived/linux-xiaomi-dior/config-xiaomi-dior.armv7
           grep -q '^CONFIG_RFKILL=y$' linux/dior/pmaports-snapshot/device/archived/linux-xiaomi-dior/config-xiaomi-dior.armv7
           grep -q 'a330_pm4.fw' linux/dior/pmaports-snapshot/device/archived/firmware-xiaomi-dior/APKBUILD
