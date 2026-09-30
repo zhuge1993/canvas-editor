@@ -30,15 +30,47 @@ find /lib/firmware/postmarketos -maxdepth 3 -type f 2>/dev/null | grep -Ei "wcns
 ip -details link show 2>/dev/null || ip link 2>/dev/null || true
 command -v nmcli >/dev/null 2>&1 && nmcli device status || true
 
+section "POWER / BATTERY / THERMAL"
+for p in /sys/class/power_supply/*; do
+  [ -d "$p" ] || continue
+  echo "--- $p ---"
+  for a in type status online present capacity voltage_now current_now temp health; do
+    [ -r "$p/$a" ] && printf "%s=%s\n" "$a" "$(cat "$p/$a")"
+  done
+done
+for t in /sys/class/thermal/thermal_zone*; do
+  [ -d "$t" ] || continue
+  printf "%s type=%s temp=%s\n" "$(basename "$t")" "$(cat "$t/type" 2>/dev/null || true)" "$(cat "$t/temp" 2>/dev/null || true)"
+done
+
+section "LEDS / BACKLIGHT"
+for p in /sys/class/backlight/* /sys/class/leds/*; do
+  [ -d "$p" ] || continue
+  printf "%s" "$p"
+  [ -r "$p/brightness" ] && printf " brightness=%s" "$(cat "$p/brightness")"
+  [ -r "$p/max_brightness" ] && printf "/%s" "$(cat "$p/max_brightness")"
+  printf "\n"
+done
+
 section "AUDIO / MICROPHONE"
 safe_cat /proc/asound/cards
 safe_cat /proc/asound/pcm
 ls -l /dev/snd 2>/dev/null || true
 for c in /sys/class/sound/card*/id; do [ -r "$c" ] && printf "%s: %s\n" "$c" "$(cat "$c")"; done
 
+section "AUDIO FIRMWARE / DSP"
+find /lib/firmware /etc/firmware -maxdepth 4 -type f 2>/dev/null | grep -Ei "adsp|lpass|audio|wcd|dsp" | sort || true
+
 section "CAMERA / V4L2"
 ls -l /dev/video* /dev/media* /dev/v4l-subdev* 2>/dev/null || true
 for v in /sys/class/video4linux/*/name; do [ -r "$v" ] && printf "%s: %s\n" "$v" "$(cat "$v")"; done
+
+section "CAMERA / VIDEO FIRMWARE"
+find /lib/firmware /etc/firmware -maxdepth 4 -type f 2>/dev/null | grep -Ei "venus|vidc|camera|cpp|vfe" | sort || true
+
+section "CPU / MEMORY"
+cat /proc/cpuinfo 2>/dev/null || true
+cat /proc/meminfo 2>/dev/null | head -n 20 || true
 
 section "RELEVANT KERNEL LOG"
 dmesg 2>/dev/null | grep -Ei "touch|synapt|ft5|goodix|ist30|atmel|mxt|wcnss|pronto|wlan|wifi|firmware|wcd|audio|alsa|snd|camera|msm_cam|msmb|v4l|video[0-9]|cci|csid|csiphy" | tail -n 500 || true
