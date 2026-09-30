@@ -18,4 +18,6 @@ jobs:
           persist-credentials: false
       - name: Test client with Windows PowerShell 5.1 and mocked Fastboot only
         shell: powershell
-        run: ./tools/dior-flash/test-flash-client.ps1
+        run: |
+          ./tools/dior-flash/test-flash-client.ps1
+          ./tools/dior-flash/test-directroot-client.ps1
