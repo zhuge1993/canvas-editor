@@ -12,17 +12,22 @@ depends="wcnss-wlan"
 options="!check !strip !archcheck !spdx !tracedeps pmb:cross-native"
 
 # Source
-_files="wcnss.b00 wcnss.b01 wcnss.b02 wcnss.b04 wcnss.b06 wcnss.b07 wcnss.b08 wcnss.b09 wcnss.mdt"
+_files="wcnss.b00 wcnss.b01 wcnss.b02 wcnss.b04 wcnss.b06 wcnss.b07 wcnss.b08 wcnss.b09 wcnss.mdt venus.b00 venus.b01 venus.b02 venus.b03 venus.b04 venus.mbn venus.mdt cpp_firmware_v1_1_1.fw cpp_firmware_v1_1_6.fw cpp_firmware_v1_2_0.fw"
 _files_prima="WCNSS_cfg.dat WCNSS_qcom_cfg.ini WCNSS_qcom_wlan_nv.bin WCNSS_qcom_wlan_nv_h3gbl.bin WCNSS_qcom_wlan_nv_h3td.bin WCNSS_qcom_wlan_nv_h3w.bin"
+_files_acdb="MTP_Bluetooth_cal.acdb MTP_General_cal.acdb MTP_Global_cal.acdb MTP_Handset_cal.acdb MTP_Hdmi_cal.acdb MTP_Headset_cal.acdb MTP_Speaker_cal.acdb"
 _commit="421527f4e54d645adaf762b4f14cc5fd4d19a5b5"
 _commit_prima="b7a15a3640ac61c35ebe7cfdc6ae4007279dee55"
 _url="https://github.com/msfkonsole/proprietary_vendor_xiaomi/raw/$_commit/dior/proprietary/etc/firmware"
 _url_prima="https://github.com/edwin0cheng/android_device_xiaomi_dior/raw/$_commit_prima/wifi"
+_url_acdb="https://github.com/msfkonsole/proprietary_vendor_xiaomi/raw/$_commit/dior/proprietary/etc/acdbdata/MTP"
 for _i in $_files; do
 	source="$source $pkgname-$_commit-$_i::$_url/$_i"
 done
 for _i in $_files_prima; do
 	source="$source $pkgname-$_commit-$_i::$_url_prima/$_i"
+done
+for _i in $_files_acdb; do
+	source="$source $pkgname-$_commit-$_i::$_url_acdb/$_i"
 done
 
 package() {
@@ -33,6 +38,16 @@ package() {
 		src="$srcdir/$pkgname-$_commit-$_i"
 		install -Dm644 "$src" "$pkgdir"/lib/firmware/postmarketos/"$_i"
 		install -Dm644 "$src" "$pkgdir"/lib/firmware/"$_i"
+	done
+	# Camera CPP and Venus firmware are part of _files above; mirror all of them
+	# into /etc/firmware too because Qualcomm Android-era drivers use that path.
+	for _i in venus.b00 venus.b01 venus.b02 venus.b03 venus.b04 venus.mbn venus.mdt cpp_firmware_v1_1_1.fw cpp_firmware_v1_1_6.fw cpp_firmware_v1_2_0.fw; do
+		src="$srcdir/$pkgname-$_commit-$_i"
+		install -Dm644 "$src" "$pkgdir"/etc/firmware/"$_i"
+	done
+	for _i in $_files_acdb; do
+		src="$srcdir/$pkgname-$_commit-$_i"
+		install -Dm644 "$src" "$pkgdir"/etc/acdbdata/MTP/"$_i"
 	done
 	for _i in $_files_prima; do
 		src="$srcdir/$pkgname-$_commit-$_i"
