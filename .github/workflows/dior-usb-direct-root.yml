@@ -61,16 +61,7 @@ jobs:
           test "$(blkid -s UUID -o value "$out")" = 2b3bcea5-5043-47de-a4f3-4959104f4762
           test "$(blkid -s LABEL -o value "$out")" = pmOS_root
           final_sha="$(sha256sum "$out" | cut -d' ' -f1)"
-          python3 - "$RUNNER_TEMP/release/VERIFICATION.json" "$final_sha" <<'PY'
-import json,sys
-p=sys.argv[1]
-d=json.load(open(p))
-d['output_sha256']=sys.argv[2]
-d['separate_boot_fstab_entry_removed']=True
-d['boot_image_change_required']=False
-d['merged_init_2nd_verified_in_current_boot']=True
-open(p,'w').write(json.dumps(d,indent=2)+'\n')
-PY
+          python3 -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); d.update(output_sha256=sys.argv[2], separate_boot_fstab_entry_removed=True, boot_image_change_required=False, merged_init_2nd_verified_in_current_boot=True); open(p,"w").write(json.dumps(d,indent=2)+"\\n")' "$RUNNER_TEMP/release/VERIFICATION.json" "$final_sha"
           (cd "$RUNNER_TEMP/release" && sha256sum xiaomi-dior-pmOS-root-direct.img > SHA256SUMS)
           cat > "$RUNNER_TEMP/release/README.txt" <<'EOF'
           Direct pmOS_root userdata candidate for the verified dior boot.
