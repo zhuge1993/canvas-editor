@@ -63,7 +63,13 @@ jobs:
           }
           trap cleanup EXIT
           sudo cp "$RUNNER_TEMP/mnt-root/etc/fstab" "$RUNNER_TEMP/work/fstab.before"
-          sudo rsync -aHAX --numeric-ids "$RUNNER_TEMP/mnt-boot/" "$RUNNER_TEMP/mnt-root/boot/"
+          echo "=== pmOS_boot contents ==="
+          sudo find "$RUNNER_TEMP/mnt-boot" -maxdepth 2 -printf '%y %P %s -> %l\n' | LC_ALL=C sort
+          echo "=== root /boot before copy ==="
+          sudo find "$RUNNER_TEMP/mnt-root/boot" -maxdepth 2 -printf '%y %P %s -> %l\n' | LC_ALL=C sort
+          sudo cp -a "$RUNNER_TEMP/mnt-boot/." "$RUNNER_TEMP/mnt-root/boot/"
+          echo "=== root /boot after copy ==="
+          sudo find "$RUNNER_TEMP/mnt-root/boot" -maxdepth 2 -printf '%y %P %s -> %l\n' | LC_ALL=C sort
           test -e "$RUNNER_TEMP/mnt-root/boot/initramfs-extra"
           sudo sed -i '\|[[:space:]]/boot[[:space:]]|d' "$RUNNER_TEMP/mnt-root/etc/fstab"
           grep -q '2b3bcea5-5043-47de-a4f3-4959104f4762[[:space:]]\+/[[:space:]]' "$RUNNER_TEMP/mnt-root/etc/fstab"
