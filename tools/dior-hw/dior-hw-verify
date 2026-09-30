@@ -75,6 +75,35 @@ if [ -e /sys/class/timed_output/vibrator ] || ls /sys/class/leds/*vib* >/dev/nul
 
 if [ -d /sys/class/bluetooth/hci0 ]; then ok "Bluetooth HCI controller hci0"; else note "Bluetooth HCI controller not registered"; fi
 
+if [ -d /sys/class/bluetooth/hci0 ]; then
+	ok "Bluetooth HCI controller hci0"
+else
+	note "Bluetooth HCI controller not registered"
+fi
+
+if ls /dev/radio* >/dev/null 2>&1; then
+	ok "FM radio V4L2 device present"
+else
+	note "FM radio device not exposed"
+fi
+
+nmea_found=0
+for p in /dev/smd* /dev/ttyHS*; do
+	[ -e "$p" ] || continue
+	case "$(basename "$p")" in
+		*smd*|*ttyHS*) nmea_found=1 ;;
+	esac
+done
+[ "$nmea_found" -eq 1 ] && note "SMD/UART channels available for GPS/NMEA validation" || note "No obvious GPS/NMEA channel exposed"
+
+rmnet_found=0
+for n in /sys/class/net/rmnet*; do
+	[ -e "$n" ] || continue
+	rmnet_found=1
+	note "mobile-data interface: $(basename "$n")"
+done
+[ "$rmnet_found" -eq 1 ] && ok "rmnet modem data interfaces present" || note "rmnet modem data interfaces absent"
+
 sensor_hits=0
 for p in /sys/class/input/event*/device/name /sys/class/sensors/*/name; do
 	[ -r "$p" ] || continue
