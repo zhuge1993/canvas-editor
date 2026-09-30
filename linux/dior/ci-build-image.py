@@ -218,10 +218,15 @@ def build() -> None:
         # for the existing download-only client; include it in new checksums below.
         if not (output / "boot.img-xiaomi-dior").is_file():
             shutil.copy2(output / "boot.img", output / "boot.img-xiaomi-dior")
-        # Read-only build evidence, not credentials. Resolve partition choices
-        # from the installed profile and this exact pmbootstrap, not an old wiki.
-        rootfs_tree = state / "work/chroot_rootfs_xiaomi-dior"
-        shutil.copyfile(rootfs_tree / "etc/deviceinfo", output / "deviceinfo")
+        # pmbootstrap's parser/flasher reads the selected aport's deviceinfo.
+        # Do not assume that modern rootfs still installs /etc/deviceinfo.
+        manifest_values = dict(line.split("=", 1) for line in
+                               (output / "BUILD-MANIFEST.txt").read_text().splitlines()
+                               if "=" in line)
+        device_aport = Path(manifest_values["device_aport"]).resolve()
+        if not device_aport.is_relative_to((state / "pmaports/device").resolve()):
+            raise ValueError("Device aport is outside this build's pmaports tree")
+        shutil.copyfile(device_aport / "deviceinfo", output / "deviceinfo")
         shutil.copyfile(state / "pmbootstrap/pmb/flasher/variables.py",
                         output / "PMBOOTSTRAP-FLASHER-VARIABLES.py.txt")
         shutil.copy2(state / "UPSTREAM-REVISIONS.txt", output / "UPSTREAM-REVISIONS.txt")
