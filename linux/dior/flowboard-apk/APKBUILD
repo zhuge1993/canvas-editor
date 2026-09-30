@@ -49,6 +49,7 @@ package() {
 	ln -sf /etc/init.d/dior-bluetooth "$pkgdir"/etc/runlevels/default/dior-bluetooth
 	ln -sf /etc/init.d/dior-gps "$pkgdir"/etc/runlevels/default/dior-gps
 	ln -sf /etc/init.d/bluetooth "$pkgdir"/etc/runlevels/default/bluetooth
+	ln -sf /etc/init.d/gpsd "$pkgdir"/etc/runlevels/default/gpsd
 	ln -sf /etc/init.d/bluetooth "$pkgdir"/etc/runlevels/default/bluetooth
 
 	install -d "$pkgdir"/etc/systemd/system/multi-user.target.wants
