@@ -89,18 +89,21 @@ download() {
 # every downloaded file locally before moving it into the snapshot directory.
 MIRROR_COMMIT="5f47afd56cf72059b913fd1df94d469940e14f1f"
 MIRROR_BASE="https://raw.githubusercontent.com/pipa-project/pmaports-pipa/$MIRROR_COMMIT/device/downstream/linux-xiaomi-dior"
+# These four device-directory entries are Git symlinks. Raw HTTP downloads
+# return their relative target text, unlike GitHub's dereferenced Contents API.
+SHARED_BASE="https://raw.githubusercontent.com/pipa-project/pmaports-pipa/$MIRROR_COMMIT/device/.shared-patches/linux"
 
 download "gcc10-extern_YYLOC_global_declaration.patch" \
-	"$MIRROR_BASE/gcc10-extern_YYLOC_global_declaration.patch"
+	"$SHARED_BASE/gcc10-extern_YYLOC_global_declaration.patch"
 
 download "linux3.4-vfs-Fix-proc-tid-fdinfo-fd-file-handling.patch" \
-	"$MIRROR_BASE/linux3.4-vfs-Fix-proc-tid-fdinfo-fd-file-handling.patch"
+	"$SHARED_BASE/linux3.4-vfs-Fix-proc-tid-fdinfo-fd-file-handling.patch"
 
 download "kernel-use-the-gnu89-standard-explicitly.patch" \
-	"$MIRROR_BASE/kernel-use-the-gnu89-standard-explicitly.patch"
+	"$SHARED_BASE/kernel-use-the-gnu89-standard-explicitly.patch"
 
 download "linux3.4-ARM-8933-1-replace-Sun-Solaris-style-flag-on-section.patch" \
-	"$MIRROR_BASE/linux3.4-ARM-8933-1-replace-Sun-Solaris-style-flag-on-section.patch"
+	"$SHARED_BASE/linux3.4-ARM-8933-1-replace-Sun-Solaris-style-flag-on-section.patch"
 
 download "0001-fix-refresh-rate.patch" \
 	"$MIRROR_BASE/0001-fix-refresh-rate.patch"
