@@ -210,14 +210,38 @@ def build() -> None:
     try:
         run(["sh", str(REPO / "linux/dior/build-v1-first-flash.sh")])
         validate_images(state / "images")
+
+        # Dior's physical Android boot partition is exactly 16 MiB. The generic
+        # pmbootstrap dtbTool master QCDT carries dozens of unrelated boards and
+        # made the previously compiled boot ~20 MiB. Apply the exact H3-LTE-only
+        # QCDT transformation that reproduced the known-good 13,113,344-byte boot,
+        # while keeping this build's newly compiled kernel/ramdisk byte-identical.
+        output = state / "images"
+        historical_boot = output / "boot.img-xiaomi-dior"
+        current_boot = output / "boot.img"
+        source_boot = historical_boot if historical_boot.is_file() else current_boot
+        if not source_boot.is_file():
+            raise ValueError("Missing dior boot image before QCDT trim")
+        trimmed_boot = output / "boot.img.dior-trimmed"
+        trim_receipt = output / "BOOT-TRIM-VERIFICATION.json"
+        run([sys.executable, str(REPO / "tools/dior-boot/trim-qcdt.py"),
+             str(source_boot), str(trimmed_boot), "--verification", str(trim_receipt)])
+        if trimmed_boot.stat().st_size > 16 * 1024 * 1024:
+            raise ValueError("Dior QCDT-trimmed boot exceeds physical 16 MiB partition")
+        shutil.copy2(trimmed_boot, current_boot)
+        shutil.copy2(trimmed_boot, historical_boot)
+        trimmed_boot.unlink()
+        if sha256(current_boot) != sha256(historical_boot):
+            raise ValueError("Trimmed boot aliases differ")
+
         # Check the Qualcomm device tree too; do not package only a frontend tar.
         run(["pmbootstrap", "chroot", "-r", "--", "sh", "-ec",
              'test -s /boot/dt.img; test "$(head -c 4 /boot/dt.img)" = QCDT'])
         output = state / "images"
-        # Original export hashes have passed above. Keep a byte-identical alias
-        # for the existing download-only client; include it in new checksums below.
+        # Both boot export names now intentionally point to the same validated
+        # H3-LTE-only image and are included in the regenerated checksums below.
         if not (output / "boot.img-xiaomi-dior").is_file():
-            shutil.copy2(output / "boot.img", output / "boot.img-xiaomi-dior")
+            raise ValueError("Trimmed dior boot alias is missing")
         # pmbootstrap's parser/flasher reads the selected aport's deviceinfo.
         # Do not assume that modern rootfs still installs /etc/deviceinfo.
         manifest_values = dict(line.split("=", 1) for line in
