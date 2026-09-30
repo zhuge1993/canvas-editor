@@ -11,6 +11,13 @@ depend() {
 start() {
 	ebegin "Enabling dior Bluetooth HCI over SMD"
 
+	# Clear a userspace soft block before asking the downstream hci_smd driver
+	# to register hci0. Ignore missing rfkill utility; the kernel path below is
+	# still authoritative for this device.
+	if command -v rfkill >/dev/null 2>&1; then
+		rfkill unblock bluetooth 2>/dev/null || true
+	fi
+
 	if [ -d /sys/class/bluetooth/hci0 ]; then
 		eend 0
 		return 0
