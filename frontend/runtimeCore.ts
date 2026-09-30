@@ -2202,25 +2202,31 @@ async function handleProjects(req: IncomingMessage, res: ServerResponse, paths: 
           replacementPasswordHash = await passwordDigest(password)
         }
 
-        const updated = await withShareMutation(token, () => withAuthMutation(async () => {
-          const shares = await loadShares(paths)
-          const share = shares.find(item => item.token === token && item.projectId === projectId)
-          if (!share) return null
+        const updated = await withShareMutation(token, () => withProjectMutation(projectId, async () => {
+          const latest = await readProject(paths, projectId)
+          if (!latest || latest.deletedAt) return null
+          const access = await withCurrentProjectAccess(paths, user, latest, async () => {
+            const shares = await loadShares(paths)
+            const share = shares.find(item => item.token === token && item.projectId === projectId)
+            if (!share) return null
 
-          const next: StoredShare = { ...share, permission, updatedAt: Date.now() }
-          if (Number.isFinite(expiresInHours) && expiresInHours > 0) {
-            next.expiresAt = Date.now() + Math.min(expiresInHours, 24 * 365) * 3600 * 1000
-          } else if (body.clearExpires === true) {
-            next.expiresAt = undefined
-          }
-          if (replacementPasswordHash) {
-            next.passwordHash = replacementPasswordHash
-          } else if (body.clearPassword === true) {
-            next.passwordHash = undefined
-          }
+            const next: StoredShare = { ...share, permission, updatedAt: Date.now() }
+            if (Number.isFinite(expiresInHours) && expiresInHours > 0) {
+              next.expiresAt = Date.now() + Math.min(expiresInHours, 24 * 365) * 3600 * 1000
+            } else if (body.clearExpires === true) {
+              next.expiresAt = undefined
+            }
+            if (replacementPasswordHash) {
+              next.passwordHash = replacementPasswordHash
+            } else if (body.clearPassword === true) {
+              next.passwordHash = undefined
+            }
 
-          await saveShares(paths, shares.map(item => item.token === token ? next : item))
-          return next
+            await saveShares(paths, shares.map(item => item.token === token ? next : item))
+            return next
+          })
+          if (!access.ok) return access
+          return access.value
         }))
         if (!updated) {
           sendError(res, 404, '分享链接不存在')
@@ -2236,11 +2242,17 @@ async function handleProjects(req: IncomingMessage, res: ServerResponse, paths: 
         return true
       }
       if (req.method === 'DELETE') {
-        const deleted = await withShareMutation(token, () => withAuthMutation(async () => {
-          const shares = await loadShares(paths)
-          if (!shares.some(item => item.token === token && item.projectId === projectId)) return false
-          await saveShares(paths, shares.filter(item => item.token !== token))
-          return true
+        const deleted = await withShareMutation(token, () => withProjectMutation(projectId, async () => {
+          const latest = await readProject(paths, projectId)
+          if (!latest || latest.deletedAt) return false
+          const access = await withCurrentProjectAccess(paths, user, latest, async () => {
+            const shares = await loadShares(paths)
+            if (!shares.some(item => item.token === token && item.projectId === projectId)) return false
+            await saveShares(paths, shares.filter(item => item.token !== token))
+            return true
+          })
+          if (!access.ok) return access
+          return access.value
         }))
         if (!deleted) {
           sendError(res, 404, '分享链接不存在')
@@ -2322,10 +2334,12 @@ async function handleProjects(req: IncomingMessage, res: ServerResponse, paths: 
     const result = await withProjectMutation(id, async () => {
       const latest = await readProject(paths, id)
       if (!latest) return { ok: false as const, status: 404, error: '项目不存在' }
-      if (!canManageProject(user, latest)) return { ok: false as const, status: 403, error: '没有项目管理权限' }
-      const now = Date.now()
-      const updated: StoredDocument = { ...latest, deletedAt: now, updatedAt: now }
-      await writeJson(projectPath(paths, id), updated)
+      const access = await withCurrentProjectAccess(paths, user, latest, async () => {
+        const now = Date.now()
+        const updated: StoredDocument = { ...latest, deletedAt: now, updatedAt: now }
+        await writeJson(projectPath(paths, id), updated)
+      })
+      if (!access.ok) return access
       return { ok: true as const }
     })
     if (!result.ok) { sendError(res, result.status, result.error); return true }
