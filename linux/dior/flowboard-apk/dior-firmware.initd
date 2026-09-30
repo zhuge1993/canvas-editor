@@ -36,9 +36,33 @@ is_mounted() {
 	grep -qs " /run/dior-firmware " /proc/mounts
 }
 
+mirror_pmos_legacy_firmware() {
+	# postmarketOS keeps archived-device firmware under its own namespace, but
+	# dior's downstream 3.4 firmware loader cannot change firmware_class.path.
+	# Copy real bytes (cp -L) into the legacy locations before PIL/WCNSS starts.
+	for src in /lib/firmware/postmarketos/wcnss.*; do
+		[ -f "$src" ] || continue
+		dst="/lib/firmware/$(basename "$src")"
+		cp -Lf "$src" "$dst"
+		chmod 0644 "$dst" 2>/dev/null || true
+	done
+
+	if [ -d /lib/firmware/postmarketos/wlan/prima ]; then
+		mkdir -p /lib/firmware/wlan/prima /etc/firmware/wlan/prima
+		for src in /lib/firmware/postmarketos/wlan/prima/*; do
+			[ -f "$src" ] || continue
+			name="$(basename "$src")"
+			cp -Lf "$src" "/lib/firmware/wlan/prima/$name"
+			cp -Lf "$src" "/etc/firmware/wlan/prima/$name"
+			chmod 0644 "/lib/firmware/wlan/prima/$name" "/etc/firmware/wlan/prima/$name" 2>/dev/null || true
+		done
+	fi
+}
+
 start() {
 	ebegin "Preparing dior stock firmware bridge"
 	mkdir -p /run/dior-firmware /lib/firmware
+	mirror_pmos_legacy_firmware
 	if ! is_mounted; then
 		part="$(find_modem_partition 2>/dev/null || true)"
 		if [ -n "$part" ]; then
@@ -53,6 +77,12 @@ start() {
 	if is_mounted; then
 		link_firmware_family /run/dior-firmware
 		link_firmware_family /run/dior-firmware/image
+	fi
+
+	if [ -s /lib/firmware/wcnss.mdt ]; then
+		einfo "Legacy WCNSS firmware is available"
+	else
+		ewarn "Legacy WCNSS firmware is missing; Wi-Fi cannot start"
 	fi
 
 	if [ -s /lib/firmware/adsp.mdt ]; then
