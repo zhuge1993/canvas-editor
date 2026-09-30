@@ -43,11 +43,19 @@ jobs:
           It avoids nested-subpartition discovery in the old downstream 3.4 initramfs.
           Physical-device boot is not claimed until tested on the target phone.
           EOF
+          mkdir -p "$RUNNER_TEMP/package"
+          (
+            cd "$RUNNER_TEMP/release"
+            zip -9 "$RUNNER_TEMP/package/DiorLinux-V1-DirectRoot-Userdata.zip" \
+              xiaomi-dior-pmOS-root-direct.img VERIFICATION.json SHA256SUMS README.txt
+          )
+          unzip -t "$RUNNER_TEMP/package/DiorLinux-V1-DirectRoot-Userdata.zip"
+          sha256sum "$RUNNER_TEMP/package/DiorLinux-V1-DirectRoot-Userdata.zip" > "$RUNNER_TEMP/package/DiorLinux-V1-DirectRoot-Userdata.zip.sha256"
       - name: Upload direct-root candidate
         uses: actions/upload-artifact@v4
         with:
           name: DiorLinux-V1-DirectRoot-${{ github.sha }}
-          path: ${{ runner.temp }}/release/
+          path: ${{ runner.temp }}/package/
           if-no-files-found: error
           compression-level: 0
           retention-days: 7
