@@ -989,6 +989,32 @@ function canManageProject(user: StoredUser, project: StoredDocument): boolean {
   return user.isAdmin === true || project.ownerId === user.id
 }
 
+type ProjectAccessFailure = { ok: false; status: number; error: string }
+type ProjectAccessSuccess<T> = { ok: true; value: T }
+
+async function withCurrentProjectAccess<T>(
+  paths: RuntimePaths,
+  requestUser: StoredUser,
+  project: StoredDocument,
+  operation: (activeUser: StoredUser) => Promise<T>,
+): Promise<ProjectAccessFailure | ProjectAccessSuccess<T>> {
+  if (requestUser.id === 'guest') {
+    if (!canManageProject(requestUser, project)) {
+      return { ok: false, status: 403, error: '没有项目管理权限' }
+    }
+    return { ok: true, value: await operation(requestUser) }
+  }
+
+  return withAuthMutation(async () => {
+    const activeUser = (await loadUsers(paths)).find(item => item.id === requestUser.id)
+    if (!activeUser) return { ok: false as const, status: 401, error: '账号已不存在，请重新登录' }
+    if (!canManageProject(activeUser, project)) {
+      return { ok: false as const, status: 403, error: '当前账号已没有项目管理权限' }
+    }
+    return { ok: true as const, value: await operation(activeUser) }
+  })
+}
+
 async function createSession(userId: string, paths: RuntimePaths, res: ServerResponse): Promise<void> {
   const token = randomBytes(32).toString('base64url')
   await withAuthMutation(async () => {
@@ -1978,19 +2004,16 @@ async function handleProjects(req: IncomingMessage, res: ServerResponse, paths: 
         const latest = await readProject(paths, projectId)
         if (!latest) return { ok: false as const, status: 404, error: '文档不存在' }
         if (latest.deletedAt) return { ok: false as const, status: 410, error: '项目已进入回收站' }
-        if (!canManageProject(user, latest)) return { ok: false as const, status: 403, error: '没有文档管理权限' }
-
-        if (user.id !== 'guest') {
-          const activeUser = (await loadUsers(paths)).find(item => item.id === user.id)
-          if (!activeUser) return { ok: false as const, status: 401, error: '账号已不存在，请重新登录' }
-        }
-
-        const content = requestedContent ?? JSON.stringify(projectCanvas(latest))
-        const versionIdNew = newId('v')
-        const version = { id: versionIdNew, name, content, createdAt: Date.now() }
-        await fsp.mkdir(versionsDir, { recursive: true })
-        await writeJson(path.join(versionsDir, `${versionIdNew}.json`), version)
-        return { ok: true as const, version }
+        const access = await withCurrentProjectAccess(paths, user, latest, async () => {
+          const content = requestedContent ?? JSON.stringify(projectCanvas(latest))
+          const versionIdNew = newId('v')
+          const version = { id: versionIdNew, name, content, createdAt: Date.now() }
+          await fsp.mkdir(versionsDir, { recursive: true })
+          await writeJson(path.join(versionsDir, `${versionIdNew}.json`), version)
+          return version
+        })
+        if (!access.ok) return access
+        return { ok: true as const, version: access.value }
       })
       if (!created.ok) { sendError(res, created.status, created.error); return true }
       sendJson(res, 201, { id: created.version.id, name: created.version.name, createdAt: created.version.createdAt })
@@ -2016,9 +2039,11 @@ async function handleProjects(req: IncomingMessage, res: ServerResponse, paths: 
         const latest = await readProject(paths, projectId)
         if (!latest) return { ok: false as const, status: 404, error: '文档不存在' }
         if (latest.deletedAt) return { ok: false as const, status: 410, error: '项目已进入回收站，请先恢复项目' }
-        if (!canManageProject(user, latest)) return { ok: false as const, status: 403, error: '没有文档管理权限' }
-        const restored: StoredDocument = { ...latest, canvas, updatedAt: Date.now() }
-        await writeJson(projectPath(paths, projectId), restored)
+        const access = await withCurrentProjectAccess(paths, user, latest, async () => {
+          const restored: StoredDocument = { ...latest, canvas, updatedAt: Date.now() }
+          await writeJson(projectPath(paths, projectId), restored)
+        })
+        if (!access.ok) return access
         return { ok: true as const }
       })
       if (!result.ok) {
@@ -2051,10 +2076,12 @@ async function handleProjects(req: IncomingMessage, res: ServerResponse, paths: 
       const result = await withProjectMutation(id, async () => {
         const latest = await readProject(paths, id)
         if (!latest) return { ok: false as const, status: 404, error: '文档不存在' }
-        if (!canManageProject(user, latest)) return { ok: false as const, status: 403, error: '没有项目管理权限' }
         if (!latest.deletedAt) return { ok: false as const, status: 400, error: '文档不在回收站中' }
-        const restored: StoredDocument = { ...latest, deletedAt: undefined, updatedAt: Date.now() }
-        await writeJson(projectPath(paths, id), restored)
+        const access = await withCurrentProjectAccess(paths, user, latest, async () => {
+          const restored: StoredDocument = { ...latest, deletedAt: undefined, updatedAt: Date.now() }
+          await writeJson(projectPath(paths, id), restored)
+        })
+        if (!access.ok) return access
         return { ok: true as const }
       })
       if (!result.ok) { sendError(res, result.status, result.error); return true }
@@ -2065,10 +2092,12 @@ async function handleProjects(req: IncomingMessage, res: ServerResponse, paths: 
       const result = await withProjectMutation(id, async () => {
         const latest = await readProject(paths, id)
         if (!latest) return { ok: false as const, status: 404, error: '文档不存在' }
-        if (!canManageProject(user, latest)) return { ok: false as const, status: 403, error: '没有项目管理权限' }
         if (!latest.deletedAt) return { ok: false as const, status: 400, error: '文档不在回收站中' }
-        await fsp.unlink(projectPath(paths, id))
-        await fsp.rm(path.join(paths.dataDirectory, 'versions', id), { recursive: true, force: true })
+        const access = await withCurrentProjectAccess(paths, user, latest, async () => {
+          await fsp.unlink(projectPath(paths, id))
+          await fsp.rm(path.join(paths.dataDirectory, 'versions', id), { recursive: true, force: true })
+        })
+        if (!access.ok) return access
         return { ok: true as const }
       })
       if (!result.ok) { sendError(res, result.status, result.error); return true }
@@ -2136,17 +2165,11 @@ async function handleProjects(req: IncomingMessage, res: ServerResponse, paths: 
         const latest = await readProject(paths, projectId)
         if (!latest) return { ok: false as const, status: 404, error: '项目不存在' }
         if (latest.deletedAt) return { ok: false as const, status: 410, error: '项目已进入回收站' }
-        if (!canManageProject(user, latest)) return { ok: false as const, status: 403, error: '没有项目管理权限' }
-
-        if (user.id !== 'guest') {
-          const activeUser = (await loadUsers(paths)).find(item => item.id === user.id)
-          if (!activeUser) return { ok: false as const, status: 401, error: '账号已不存在，请重新登录' }
-        }
-
-        await withAuthMutation(async () => {
+        const access = await withCurrentProjectAccess(paths, user, latest, async () => {
           const shares = await loadShares(paths)
           await saveShares(paths, [...shares, share])
         })
+        if (!access.ok) return access
         return { ok: true as const }
       })
       if (!created.ok) { sendError(res, created.status, created.error); return true }
@@ -2247,8 +2270,12 @@ async function handleProjects(req: IncomingMessage, res: ServerResponse, paths: 
       if (latest?.deletedAt) {
         return { ok: false as const, status: 410, error: '项目已进入回收站，请先恢复' }
       }
-      if (latest && !canManageProject(user, latest)) {
-        return { ok: false as const, status: 403, error: '没有项目编辑权限' }
+      if (latest) {
+        const access = await withCurrentProjectAccess(paths, user, latest, async (activeUser) => {
+          await writeProject(paths, body, activeUser.id, latest)
+        })
+        if (!access.ok) return access
+        return { ok: true as const }
       }
 
       if (!latest && user.id !== 'guest') {
@@ -2262,7 +2289,7 @@ async function handleProjects(req: IncomingMessage, res: ServerResponse, paths: 
         })
       }
 
-      await writeProject(paths, body, user.id, latest ?? undefined)
+      await writeProject(paths, body, user.id)
       return { ok: true as const }
     })
     if (!result.ok) { sendError(res, result.status, result.error); return true }
