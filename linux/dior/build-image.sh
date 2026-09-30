@@ -312,65 +312,64 @@ fi
 
 echo "验收最终 rootfs：FlowBoard / Node / Wi-Fi 固件 / 开机服务..."
 pmbootstrap chroot -r -- sh -ec '
-	apk info -e flowboard-server >/dev/null
-	apk info -e nodejs >/dev/null
-	apk info -e firmware-xiaomi-dior >/dev/null
-	apk info -e wcnss-wlan >/dev/null
-	apk info -e bluez >/dev/null
-	apk info -e gpsd >/dev/null
+	pass() { echo "ROOTFS PASS: $1"; }
+	fail() { echo "ROOTFS FAIL: $1" >&2; exit 1; }
+	check_apk() { apk info -e "$1" >/dev/null 2>&1 && pass "apk $1" || fail "apk $1"; }
+	check_file() { [ -s "$2" ] && pass "$1 ($2)" || fail "$1 missing/empty ($2)"; }
+	check_exec() { [ -x "$2" ] && pass "$1 ($2)" || fail "$1 missing/not executable ($2)"; }
+	check_service() {
+		name="$1"
+		if rc-update show default | grep -Eq "(^|[[:space:]])${name}([[:space:]]|$)"; then
+			pass "OpenRC default service $name"
+		else
+			echo "OpenRC default runlevel:" >&2
+			rc-update show default >&2 || true
+			fail "OpenRC service $name not enabled"
+		fi
+	}
 
-	test -s /opt/flowboard/server-bundle.cjs
-	test -s /opt/flowboard/dist/index.html
-	test -x /opt/flowboard/start-server.sh
-	test -f /opt/flowboard/flowboard.env
-	id flowboard >/dev/null 2>&1
+	for pkg in flowboard-server nodejs firmware-xiaomi-dior wcnss-wlan bluez gpsd; do check_apk "$pkg"; done
 
-	# Hardware contract established from the physical dior probe.
-	# The downstream 3.4 kernel needs WCNSS firmware in the legacy root path.
-	test -s /lib/firmware/wcnss.mdt
-	test -s /lib/firmware/wlan/prima/WCNSS_qcom_wlan_nv.bin
-	test -s /lib/firmware/wlan/prima/WCNSS_qcom_cfg.ini
-	# Physical dior probe showed VIDC firmware download failures and no ALSA card.
-	# Require the device own Qualcomm multimedia firmware/calibration payloads.
-	test -s /lib/firmware/venus.mdt
-	test -s /lib/firmware/venus.mbn
-	test -s /etc/firmware/cpp_firmware_v1_2_0.fw
-	test -s /lib/firmware/a300_pfp.fw
-	test -s /lib/firmware/a330_pm4.fw
-	test -s /etc/acdbdata/MTP/MTP_Handset_cal.acdb
-	test -s /etc/acdbdata/MTP/MTP_Speaker_cal.acdb
+	check_file "FlowBoard server bundle" /opt/flowboard/server-bundle.cjs
+	check_file "FlowBoard frontend" /opt/flowboard/dist/index.html
+	check_exec "FlowBoard launcher" /opt/flowboard/start-server.sh
+	[ -f /opt/flowboard/flowboard.env ] && pass "FlowBoard environment" || fail "FlowBoard environment missing"
+	id flowboard >/dev/null 2>&1 && pass "flowboard service account" || fail "flowboard service account missing"
 
-	node -e '\''const [a,b]=process.versions.node.split(".").map(Number); if (!(a>20 || (a===20 && b>=19))) process.exit(1)'\''
+	check_file "WCNSS PIL firmware" /lib/firmware/wcnss.mdt
+	check_file "Prima WLAN NV" /lib/firmware/wlan/prima/WCNSS_qcom_wlan_nv.bin
+	check_file "Prima WLAN config" /lib/firmware/wlan/prima/WCNSS_qcom_cfg.ini
+	check_file "Venus MDT" /lib/firmware/venus.mdt
+	check_file "Venus MBN" /lib/firmware/venus.mbn
+	check_file "Camera CPP firmware" /etc/firmware/cpp_firmware_v1_2_0.fw
+	check_file "Adreno A300 firmware" /lib/firmware/a300_pfp.fw
+	check_file "Adreno A330 firmware" /lib/firmware/a330_pm4.fw
+	check_file "Handset ACDB" /etc/acdbdata/MTP/MTP_Handset_cal.acdb
+	check_file "Speaker ACDB" /etc/acdbdata/MTP/MTP_Speaker_cal.acdb
+
+	if node -e '\''const [a,b]=process.versions.node.split(".").map(Number); if (!(a>20 || (a===20 && b>=19))) process.exit(1)'\''; then
+		pass "Node.js >= 20.19"
+	else
+		node --version >&2 || true
+		fail "Node.js version too old"
+	fi
 
 	if command -v rc-update >/dev/null 2>&1; then
-		test -x /etc/init.d/flowboard
-		test -x /etc/init.d/wcnss-wlan
-		test -x /etc/init.d/dior-dropbear
-		test -x /etc/init.d/dior-firmware
-		test -x /etc/init.d/dior-adsp
-		test -x /etc/init.d/dior-bluetooth
-		test -x /etc/init.d/dior-gps
-		test -x /etc/init.d/dior-hw-report
-		test -x /usr/local/sbin/dior-hw-verify
-		test -x /usr/local/sbin/dior-hw-smoke
-		rc-update show default | grep -Eq "(^|[[:space:]])flowboard([[:space:]]|$)"
-		rc-update show default | grep -Eq "(^|[[:space:]])wcnss-wlan([[:space:]]|$)"
-		rc-update show default | grep -Eq "(^|[[:space:]])dior-dropbear([[:space:]]|$)"
-		rc-update show default | grep -Eq "(^|[[:space:]])dior-firmware([[:space:]]|$)"
-		rc-update show default | grep -Eq "(^|[[:space:]])dior-adsp([[:space:]]|$)"
-		rc-update show default | grep -Eq "(^|[[:space:]])dior-bluetooth([[:space:]]|$)"
-		rc-update show default | grep -Eq "(^|[[:space:]])dior-gps([[:space:]]|$)"
-		rc-update show default | grep -Eq "(^|[[:space:]])dior-hw-report([[:space:]]|$)"
-		test -x /etc/init.d/bluetooth
-		rc-update show default | grep -Eq "(^|[[:space:]])bluetooth([[:space:]]|$)"
+		for init in flowboard wcnss-wlan dior-dropbear dior-firmware dior-adsp dior-bluetooth dior-gps dior-hw-report bluetooth; do
+			check_exec "OpenRC init $init" "/etc/init.d/$init"
+		done
+		check_exec "hardware verifier" /usr/local/sbin/dior-hw-verify
+		check_exec "hardware smoke test" /usr/local/sbin/dior-hw-smoke
+		for svc in flowboard wcnss-wlan dior-dropbear dior-firmware dior-adsp dior-bluetooth dior-gps dior-hw-report bluetooth; do
+			check_service "$svc"
+		done
 	elif command -v systemctl >/dev/null 2>&1; then
-		test -f /usr/lib/systemd/system/flowboard.service
-		test -f /usr/lib/systemd/system/wcnss-wlan.service
-		test -L /etc/systemd/system/multi-user.target.wants/flowboard.service
-		test -L /etc/systemd/system/multi-user.target.wants/wcnss-wlan.service
+		[ -f /usr/lib/systemd/system/flowboard.service ] && pass "systemd flowboard unit" || fail "systemd flowboard unit missing"
+		[ -f /usr/lib/systemd/system/wcnss-wlan.service ] && pass "systemd WCNSS unit" || fail "systemd WCNSS unit missing"
+		[ -L /etc/systemd/system/multi-user.target.wants/flowboard.service ] && pass "systemd flowboard enabled" || fail "systemd flowboard not enabled"
+		[ -L /etc/systemd/system/multi-user.target.wants/wcnss-wlan.service ] && pass "systemd WCNSS enabled" || fail "systemd WCNSS not enabled"
 	else
-		echo "rootfs 内没有可识别的 OpenRC/systemd，拒绝导出。" >&2
-		exit 1
+		fail "rootfs has no recognized OpenRC/systemd"
 	fi
 '
 
