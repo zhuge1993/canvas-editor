@@ -1864,6 +1864,7 @@ async function handleAssets(req: IncomingMessage, res: ServerResponse, paths: Ru
     // edit token 本身已经允许修改对应项目，因此授予图片资源写入不会扩大其项目权限，
     // 同时避免完全匿名上传把低容量 eMMC 打满。
     const user = await currentUser(req, paths)
+    let authorizedShare: StoredShare | undefined
     if (!user) {
       const shareTokenHeader = req.headers['x-flowboard-share-token']
       const shareToken = Array.isArray(shareTokenHeader) ? shareTokenHeader[0] : shareTokenHeader
@@ -1887,6 +1888,7 @@ async function handleAssets(req: IncomingMessage, res: ServerResponse, paths: Ru
           return true
         }
       }
+      authorizedShare = share
     }
     const body = await readBody(req, MAX_ASSET_REQUEST_BYTES)
     const dataUrl = typeof body.dataUrl === 'string' ? body.dataUrl : ''
@@ -1899,7 +1901,41 @@ async function handleAssets(req: IncomingMessage, res: ServerResponse, paths: Ru
       sendError(res, 413, '图片不能超过 8 MiB')
       return true
     }
-    const stored = await storeAssetBuffer(paths, decoded.buffer, decoded.extension)
+    let stored: { url: string; deduped: boolean }
+    if (authorizedShare) {
+      // 读取/解码图片可能持续一段时间。真正落盘前在 share 锁内重新确认 capability，
+      // 让撤销、降为 view、过期或换密码与资源写入形成明确的提交顺序。
+      const uploadResult = await withShareMutation(authorizedShare.token, async () => {
+        const currentShare = (await loadShares(paths)).find(item => item.token === authorizedShare!.token)
+        if (!currentShare) {
+          return { ok: false as const, status: 401, error: '分享链接不存在或已撤销' }
+        }
+        if (currentShare.expiresAt !== undefined && currentShare.expiresAt <= Date.now()) {
+          return { ok: false as const, status: 410, error: '分享链接已过期' }
+        }
+        if (currentShare.permission !== 'edit') {
+          return { ok: false as const, status: 403, error: '此分享链接仅允许查看' }
+        }
+        if (
+          currentShare.projectId !== authorizedShare!.projectId
+          || currentShare.updatedAt !== authorizedShare!.updatedAt
+          || currentShare.passwordHash !== authorizedShare!.passwordHash
+        ) {
+          return { ok: false as const, status: 409, error: '分享链接已更新，请重新加载后再上传图片' }
+        }
+        return {
+          ok: true as const,
+          stored: await storeAssetBuffer(paths, decoded.buffer, decoded.extension),
+        }
+      })
+      if (!uploadResult.ok) {
+        sendError(res, uploadResult.status, uploadResult.error)
+        return true
+      }
+      stored = uploadResult.stored
+    } else {
+      stored = await storeAssetBuffer(paths, decoded.buffer, decoded.extension)
+    }
     sendJson(res, 200, { url: stored.url, bytes: decoded.buffer.length, deduped: stored.deduped })
     return true
   }
