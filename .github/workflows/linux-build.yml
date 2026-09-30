@@ -52,6 +52,7 @@ jobs:
           sh -n linux/dior/flowboard-apk/dior-firmware.initd
           sh -n linux/dior/flowboard-apk/dior-adsp.initd
           sh -n linux/dior/flowboard-apk/dior-bluetooth.initd
+          sh -n linux/dior/flowboard-apk/dior-gps.initd
           sh -n tools/dior-hw/dior-hw-probe
           sh -n tools/dior-hw/dior-touch-test
           sh -n tools/dior-hw/dior-hw-verify
