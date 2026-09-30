@@ -101,7 +101,14 @@ def validate_images(output: Path) -> None:
     for setting in ("target_device=dior", "target_arch=armv7", "install_mode=standard"):
         if setting not in manifest:
             raise ValueError("Unexpected or incomplete image manifest: " + setting)
+    # Current pmbootstrap exports boot.img; older versions appended the device.
+    # These are explicit supported names, not a glob that can select another device.
     boot = output / "boot.img-xiaomi-dior"
+    current_boot = output / "boot.img"
+    if boot.is_file() and current_boot.is_file() and sha256(boot) != sha256(current_boot):
+        raise ValueError("Conflicting current and historical dior boot exports")
+    if not boot.is_file():
+        boot = current_boot
     rootfs = output / "xiaomi-dior.img"
     if not boot.is_file() or boot.stat().st_size < 1024:
         raise ValueError("Missing or empty dior Android boot image")
@@ -207,6 +214,16 @@ def build() -> None:
         run(["pmbootstrap", "chroot", "-r", "--", "sh", "-ec",
              'test -s /boot/dt.img; test "$(head -c 4 /boot/dt.img)" = QCDT'])
         output = state / "images"
+        # Original export hashes have passed above. Keep a byte-identical alias
+        # for the existing download-only client; include it in new checksums below.
+        if not (output / "boot.img-xiaomi-dior").is_file():
+            shutil.copy2(output / "boot.img", output / "boot.img-xiaomi-dior")
+        # Read-only build evidence, not credentials. Resolve partition choices
+        # from the installed profile and this exact pmbootstrap, not an old wiki.
+        rootfs_tree = state / "work/chroot_rootfs_xiaomi-dior"
+        shutil.copyfile(rootfs_tree / "etc/deviceinfo", output / "deviceinfo")
+        shutil.copyfile(state / "pmbootstrap/pmb/flasher/variables.py",
+                        output / "PMBOOTSTRAP-FLASHER-VARIABLES.py.txt")
         shutil.copy2(state / "UPSTREAM-REVISIONS.txt", output / "UPSTREAM-REVISIONS.txt")
         (output / "FIRST-LOGIN.txt").write_text(
             "PRIVATE: do not publish this artifact. Device OS login (not FlowBoard web login):\n"
