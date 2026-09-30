@@ -275,6 +275,7 @@ cp "$APORT_TEMPLATE/flowboard-server.post-install" "$LOCAL_APORT/flowboard-serve
 cp "$APORT_TEMPLATE/dior-dropbear.initd" "$LOCAL_APORT/dior-dropbear.initd"
 cp "$APORT_TEMPLATE/dior-firmware.initd" "$LOCAL_APORT/dior-firmware.initd"
 cp "$APORT_TEMPLATE/dior-adsp.initd" "$LOCAL_APORT/dior-adsp.initd"
+cp "$APORT_TEMPLATE/dior-bluetooth.initd" "$LOCAL_APORT/dior-bluetooth.initd"
 cp "$REPO_ROOT/tools/dior-hw/dior-hw-probe" "$LOCAL_APORT/dior-hw-probe"
 cp "$REPO_ROOT/tools/dior-hw/dior-touch-test" "$LOCAL_APORT/dior-touch-test"
 cp "$REPO_ROOT/tools/dior-hw/dior-hw-verify" "$LOCAL_APORT/dior-hw-verify"
@@ -342,12 +343,14 @@ pmbootstrap chroot -r -- sh -ec '
 		test -x /etc/init.d/dior-dropbear
 		test -x /etc/init.d/dior-firmware
 		test -x /etc/init.d/dior-adsp
+		test -x /etc/init.d/dior-bluetooth
 		test -x /usr/local/sbin/dior-hw-verify
 		rc-update show default | grep -Eq "(^|[[:space:]])flowboard([[:space:]]|$)"
 		rc-update show default | grep -Eq "(^|[[:space:]])wcnss-wlan([[:space:]]|$)"
 		rc-update show default | grep -Eq "(^|[[:space:]])dior-dropbear([[:space:]]|$)"
 		rc-update show default | grep -Eq "(^|[[:space:]])dior-firmware([[:space:]]|$)"
 		rc-update show default | grep -Eq "(^|[[:space:]])dior-adsp([[:space:]]|$)"
+		rc-update show default | grep -Eq "(^|[[:space:]])dior-bluetooth([[:space:]]|$)"
 	elif command -v systemctl >/dev/null 2>&1; then
 		test -f /usr/lib/systemd/system/flowboard.service
 		test -f /usr/lib/systemd/system/wcnss-wlan.service
