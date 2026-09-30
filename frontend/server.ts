@@ -1059,11 +1059,72 @@ async function writeJsonFileSafe(file: string, value: unknown): Promise<void> {
   }
 }
 
+const MUTATING_ADMIN_COMMANDS = new Set([
+  'set-admin',
+  'remove-admin',
+  'copy-doc',
+  'delete-doc',
+  'delete-user',
+  'migrate-assets',
+  'gc-assets',
+])
+
+async function localFlowBoardServerRunning(): Promise<boolean> {
+  const portText = argumentValue('--port') ?? process.env.FLOWBOARD_PORT ?? '3000'
+  const port = Number(portText)
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return false
+
+  return new Promise(resolve => {
+    let settled = false
+    const finish = (value: boolean) => {
+      if (settled) return
+      settled = true
+      resolve(value)
+    }
+
+    const request = http.get({
+      host: '127.0.0.1',
+      port,
+      path: '/api/health',
+      timeout: 1000,
+    }, response => {
+      const chunks: Buffer[] = []
+      let size = 0
+      response.on('data', chunk => {
+        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+        size += buffer.length
+        if (size <= 16 * 1024) chunks.push(buffer)
+      })
+      response.on('end', () => {
+        if (response.statusCode !== 200 || size > 16 * 1024) {
+          finish(false)
+          return
+        }
+        try {
+          const payload = JSON.parse(Buffer.concat(chunks).toString('utf8')) as { app?: string }
+          finish(payload.app === 'FlowBoard')
+        } catch {
+          finish(false)
+        }
+      })
+    })
+    request.on('timeout', () => { request.destroy(); finish(false) })
+    request.on('error', () => finish(false))
+  })
+}
+
 async function runAdminCommand(): Promise<void> {
   ensureConsoleUtf8()
   const command = process.argv[3] ?? 'help'
   const arg1 = process.argv[4]
   const arg2 = process.argv[5]
+
+  if (MUTATING_ADMIN_COMMANDS.has(command) && await localFlowBoardServerRunning()) {
+    console.error('检测到本机 FlowBoard 服务正在运行，拒绝离线管理命令直接修改数据。')
+    console.error('请优先使用 Web 管理后台；如必须使用该命令，请先停止 FlowBoard 服务。')
+    process.exit(1)
+    return
+  }
 
   const userFile = path.join(authDirectory, 'users.json')
   const shareFile = path.join(authDirectory, 'shares.json')
