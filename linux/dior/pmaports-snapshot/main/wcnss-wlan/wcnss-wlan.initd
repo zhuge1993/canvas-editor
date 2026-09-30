@@ -1,19 +1,61 @@
 #!/sbin/openrc-run
 
-description="Initialize wcnss wlan driver"
+description="Initialize WCNSS/Pronto WLAN driver on dior"
 
 depend()
 {
 	need udev
-	before wlan
+	before wlan networkmanager
 }
 
 start()
 {
-	ebegin "Enabling wlan driver"
-	echo 1 > /dev/wcnss_wlan 2>/dev/null
-	[ x$wcnssdelay != x ] && sleep $wcnssdelay
-	if [ -e /sys/module/wlan/parameters/fwpath ]; then
-		echo sta > /sys/module/wlan/parameters/fwpath
+	ebegin "Waiting for /dev/wcnss_wlan and enabling WLAN"
+
+	tries=0
+	while [ ! -e /dev/wcnss_wlan ] && [ "$tries" -lt 60 ]; do
+		sleep 0.5
+		tries=$((tries + 1))
+	done
+	if [ ! -e /dev/wcnss_wlan ]; then
+		eerror "/dev/wcnss_wlan did not appear within 30 seconds"
+		eend 1
+		return 1
 	fi
+
+	if ! echo 1 > /dev/wcnss_wlan; then
+		eerror "Failed to enable /dev/wcnss_wlan"
+		eend 1
+		return 1
+	fi
+
+	[ -n "${wcnssdelay:-}" ] && sleep "$wcnssdelay"
+
+	# For this built-in Prima driver the fwpath write is the userspace
+	# signal that calls hdd_driver_init(); the string itself is Android-compatible.
+	if [ -e /sys/module/wlan/parameters/fwpath ]; then
+		if ! echo sta > /sys/module/wlan/parameters/fwpath; then
+			eerror "Failed to trigger built-in Prima WLAN driver"
+			eend 1
+			return 1
+		fi
+	else
+		eerror "Built-in wlan fwpath trigger is missing"
+		eend 1
+		return 1
+	fi
+
+	tries=0
+	while [ ! -e /sys/class/net/wlan0 ] && [ "$tries" -lt 30 ]; do
+		sleep 0.5
+		tries=$((tries + 1))
+	done
+	if [ ! -e /sys/class/net/wlan0 ]; then
+		ewarn "WLAN trigger completed but wlan0 did not appear within 15 seconds"
+		dmesg | tail -n 120 | grep -Ei 'wcnss|pronto|wlan|firmware' || true
+		eend 1
+		return 1
+	fi
+
+	eend 0
 }
