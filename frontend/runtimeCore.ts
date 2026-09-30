@@ -2001,25 +2001,31 @@ async function handleProjects(req: IncomingMessage, res: ServerResponse, paths: 
     if (req.method === 'POST' && versionRestoreMatch) {
       const versionId = versionRestoreMatch[2]!
       const versionPath = path.join(versionsDir, `${versionId}.json`)
+      let version: { content: string; name?: string }
+      let canvas: unknown
       try {
-        const version = JSON.parse(await fsp.readFile(versionPath, 'utf8')) as { content: string; name?: string }
-        const canvas = JSON.parse(version.content)
-        const result = await withProjectMutation(projectId, async () => {
-          const latest = await readProject(paths, projectId)
-          if (!latest) return { ok: false as const, status: 404, error: '文档不存在' }
-          if (!canManageProject(user, latest)) return { ok: false as const, status: 403, error: '没有文档管理权限' }
-          const restored: StoredDocument = { ...latest, canvas, updatedAt: Date.now() }
-          await writeJson(projectPath(paths, projectId), restored)
-          return { ok: true as const }
-        })
-        if (!result.ok) {
-          sendError(res, result.status, result.error)
-          return true
-        }
-        sendJson(res, 200, { ok: true, name: version.name })
+        version = JSON.parse(await fsp.readFile(versionPath, 'utf8')) as { content: string; name?: string }
+        if (typeof version.content !== 'string') throw new Error('invalid version content')
+        canvas = JSON.parse(version.content)
       } catch {
         sendError(res, 404, '版本不存在或已损坏')
+        return true
       }
+
+      const result = await withProjectMutation(projectId, async () => {
+        const latest = await readProject(paths, projectId)
+        if (!latest) return { ok: false as const, status: 404, error: '文档不存在' }
+        if (latest.deletedAt) return { ok: false as const, status: 410, error: '项目已进入回收站，请先恢复项目' }
+        if (!canManageProject(user, latest)) return { ok: false as const, status: 403, error: '没有文档管理权限' }
+        const restored: StoredDocument = { ...latest, canvas, updatedAt: Date.now() }
+        await writeJson(projectPath(paths, projectId), restored)
+        return { ok: true as const }
+      })
+      if (!result.ok) {
+        sendError(res, result.status, result.error)
+        return true
+      }
+      sendJson(res, 200, { ok: true, name: version.name })
       return true
     }
     return true
