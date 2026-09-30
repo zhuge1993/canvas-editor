@@ -272,6 +272,9 @@ mkdir -p "$LOCAL_APORT"
 cp "$APORT_TEMPLATE/APKBUILD" "$LOCAL_APORT/APKBUILD"
 cp "$APORT_TEMPLATE/flowboard-server.pre-install" "$LOCAL_APORT/flowboard-server.pre-install"
 cp "$APORT_TEMPLATE/flowboard-server.post-install" "$LOCAL_APORT/flowboard-server.post-install"
+cp "$APORT_TEMPLATE/dior-dropbear.initd" "$LOCAL_APORT/dior-dropbear.initd"
+cp "$REPO_ROOT/tools/dior-hw/dior-hw-probe" "$LOCAL_APORT/dior-hw-probe"
+cp "$REPO_ROOT/tools/dior-hw/dior-touch-test" "$LOCAL_APORT/dior-touch-test"
 cp "$FLOWBOARD_RELEASE" "$LOCAL_APORT/flowboard-release.tar.gz"
 
 echo "更新本地 flowboard-server 源文件校验..."
@@ -318,8 +321,10 @@ pmbootstrap chroot -r -- sh -ec '
 	if command -v rc-update >/dev/null 2>&1; then
 		test -x /etc/init.d/flowboard
 		test -x /etc/init.d/wcnss-wlan
+		test -x /etc/init.d/dior-dropbear
 		rc-update show default | grep -Eq "(^|[[:space:]])flowboard([[:space:]]|$)"
 		rc-update show default | grep -Eq "(^|[[:space:]])wcnss-wlan([[:space:]]|$)"
+		rc-update show default | grep -Eq "(^|[[:space:]])dior-dropbear([[:space:]]|$)"
 	elif command -v systemctl >/dev/null 2>&1; then
 		test -f /usr/lib/systemd/system/flowboard.service
 		test -f /usr/lib/systemd/system/wcnss-wlan.service
