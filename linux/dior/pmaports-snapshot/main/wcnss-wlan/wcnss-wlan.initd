@@ -8,6 +8,30 @@ depend()
 	before wlan networkmanager
 }
 
+prepare_firmware()
+{
+	# The downstream 3.4 PIL firmware loader cannot change its firmware search
+	# path. postmarketOS stores the blobs below /lib/firmware/postmarketos, while
+	# this kernel requests wcnss.mdt directly from /lib/firmware.
+	fwroot=/lib/firmware
+	pmfw="$fwroot/postmarketos"
+
+	if [ ! -f "$pmfw/wcnss.mdt" ]; then
+		eerror "Missing $pmfw/wcnss.mdt"
+		return 1
+	fi
+
+	for src in "$pmfw"/wcnss.mdt "$pmfw"/wcnss.b*; do
+		[ -e "$src" ] || continue
+		ln -sf "postmarketos/${src##*/}" "$fwroot/${src##*/}" || return 1
+	done
+
+	if [ -d "$pmfw/wlan/prima" ]; then
+		mkdir -p "$fwroot/wlan"
+		ln -sfn ../postmarketos/wlan/prima "$fwroot/wlan/prima" || return 1
+	fi
+}
+
 start()
 {
 	ebegin "Waiting for /dev/wcnss_wlan and enabling WLAN"
@@ -19,6 +43,12 @@ start()
 	done
 	if [ ! -e /dev/wcnss_wlan ]; then
 		eerror "/dev/wcnss_wlan did not appear within 30 seconds"
+		eend 1
+		return 1
+	fi
+
+	if ! prepare_firmware; then
+		eerror "Failed to prepare legacy WCNSS firmware paths"
 		eend 1
 		return 1
 	fi
