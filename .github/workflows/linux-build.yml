@@ -30,6 +30,7 @@ jobs:
           sh -n tools/dior-usb-repair/inject-dior-hardware.sh
           sh -n tools/dior-hw/dior-hw-probe
           sh -n tools/dior-hw/dior-hw-verify
+          sh -n tools/dior-hw/dior-hw-smoke
           sh -n linux/dior/flowboard-apk/dior-firmware.initd
           sh -n linux/dior/flowboard-apk/dior-adsp.initd
           test ! -f linux/dior/flowboard-apk/dior-bluetooth.initd || sh -n linux/dior/flowboard-apk/dior-bluetooth.initd
@@ -54,6 +55,7 @@ jobs:
           sh -n tools/dior-hw/dior-hw-probe
           sh -n tools/dior-hw/dior-touch-test
           sh -n tools/dior-hw/dior-hw-verify
+          sh -n tools/dior-hw/dior-hw-smoke
           sh -n tools/dior-usb-repair/inject-dior-hardware.sh
           python3 -m py_compile tools/dior-boot/trim-qcdt.py
           grep -q '^CONFIG_MSM_KGSL=y$' linux/dior/pmaports-snapshot/device/archived/linux-xiaomi-dior/config-xiaomi-dior.armv7
