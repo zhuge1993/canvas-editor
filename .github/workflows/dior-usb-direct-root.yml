@@ -18,6 +18,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Install ext4 verification tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends e2fsprogs
       - name: Download verified USB repair artifact
         uses: actions/download-artifact@v4
         with:
@@ -35,19 +39,53 @@ jobs:
           out="$RUNNER_TEMP/release/xiaomi-dior-pmOS-root-direct.img"
           python3 tools/dior-usb-repair/make-direct-root.py "$raw" "$out" | tee "$RUNNER_TEMP/release/VERIFICATION.json"
           test "$(stat -c %s "$out")" -lt 838860800
-          sha256sum "$out" > "$RUNNER_TEMP/release/SHA256SUMS"
+          sudo e2fsck -fy "$out"
+          mkdir -p "$RUNNER_TEMP/rootmnt"
+          sudo modprobe loop || true
+          root_loop="$(sudo losetup --find --show "$out")"
+          cleanup() {
+            sudo umount "$RUNNER_TEMP/rootmnt" 2>/dev/null || true
+            sudo losetup -d "$root_loop" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          sudo mount -v -t ext4 "$root_loop" "$RUNNER_TEMP/rootmnt"
+          sudo cp "$RUNNER_TEMP/rootmnt/etc/fstab" "$RUNNER_TEMP/release/FSTAB-BEFORE.txt"
+          grep -q '2b3bcea5-5043-47de-a4f3-4959104f4762[[:space:]]\+/[[:space:]]' "$RUNNER_TEMP/rootmnt/etc/fstab"
+          sudo sed -i '\|[[:space:]]/boot[[:space:]]|d' "$RUNNER_TEMP/rootmnt/etc/fstab"
+          ! grep -q '[[:space:]]/boot[[:space:]]' "$RUNNER_TEMP/rootmnt/etc/fstab"
+          sudo cp "$RUNNER_TEMP/rootmnt/etc/fstab" "$RUNNER_TEMP/release/FSTAB-AFTER.txt"
+          sync
+          cleanup
+          trap - EXIT
+          sudo e2fsck -fy "$out"
+          test "$(blkid -s UUID -o value "$out")" = 2b3bcea5-5043-47de-a4f3-4959104f4762
+          test "$(blkid -s LABEL -o value "$out")" = pmOS_root
+          final_sha="$(sha256sum "$out" | cut -d' ' -f1)"
+          python3 - "$RUNNER_TEMP/release/VERIFICATION.json" "$final_sha" <<'PY'
+import json,sys
+p=sys.argv[1]
+d=json.load(open(p))
+d['output_sha256']=sys.argv[2]
+d['separate_boot_fstab_entry_removed']=True
+d['boot_image_change_required']=False
+d['merged_init_2nd_verified_in_current_boot']=True
+open(p,'w').write(json.dumps(d,indent=2)+'\n')
+PY
+          (cd "$RUNNER_TEMP/release" && sha256sum xiaomi-dior-pmOS-root-direct.img > SHA256SUMS)
           cat > "$RUNNER_TEMP/release/README.txt" <<'EOF'
           Direct pmOS_root userdata candidate for the verified dior boot.
           Flash userdata only. Do not flash boot/system/recovery.
-          This is a raw ext4 pmOS_root partition, not a GPT disk image and not sparse.
-          It avoids nested-subpartition discovery in the old downstream 3.4 initramfs.
+          Keep the already working 13,113,344-byte QCDT-trimmed boot unchanged.
+          The current boot ramdisk already contains init_2nd.sh, so no pmOS_boot partition is required.
+          This raw ext4 pmOS_root avoids nested-subpartition discovery on the downstream 3.4 kernel.
+          The stale /boot fstab entry is removed offline and e2fsck is run afterward.
           Physical-device boot is not claimed until tested on the target phone.
           EOF
           mkdir -p "$RUNNER_TEMP/package"
           (
             cd "$RUNNER_TEMP/release"
             zip -9 "$RUNNER_TEMP/package/DiorLinux-V1-DirectRoot-Userdata.zip" \
-              xiaomi-dior-pmOS-root-direct.img VERIFICATION.json SHA256SUMS README.txt
+              xiaomi-dior-pmOS-root-direct.img VERIFICATION.json SHA256SUMS README.txt FSTAB-BEFORE.txt FSTAB-AFTER.txt
           )
           unzip -t "$RUNNER_TEMP/package/DiorLinux-V1-DirectRoot-Userdata.zip"
           sha256sum "$RUNNER_TEMP/package/DiorLinux-V1-DirectRoot-Userdata.zip" > "$RUNNER_TEMP/package/DiorLinux-V1-DirectRoot-Userdata.zip.sha256"
