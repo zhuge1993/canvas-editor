@@ -1,0 +1,103 @@
+name: Dior stowaway userdata delivery
+on:
+  push:
+    branches: [linux-server-armhf]
+    paths:
+      - '.github/workflows/dior-stowaway-root.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  build:
+    if: github.repository == 'zhuge1993/canvas-editor'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install filesystem tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends e2fsprogs rsync zip
+      - name: Download verified USB repair rootfs
+        uses: actions/download-artifact@v4
+        with:
+          name: DiorLinux-V1-USB-NCM-ACM-dda9441c592d27f4ec0e80b4b4f4e43daf10c16d
+          run-id: 36679534347
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/source
+      - name: Build single-partition stowaway userdata
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/unzip" "$RUNNER_TEMP/work" "$RUNNER_TEMP/release" "$RUNNER_TEMP/mnt-boot" "$RUNNER_TEMP/mnt-root"
+          unzip -q "$RUNNER_TEMP/source/DiorLinux-V1-USB-NCM-ACM.zip" -d "$RUNNER_TEMP/unzip"
+          raw="$RUNNER_TEMP/unzip/DiorLinux-V1-USB-NCM-ACM/xiaomi-dior-usb-ncm-acm.img"
+          test "$(stat -c %s "$raw")" = 1186988032
+          test "$(sha256sum "$raw" | cut -d' ' -f1)" = b03b8a94b73cac09dcbadbfbc372076fc356d500e2ef52c9fa83fce427f2be99
+          boot="$RUNNER_TEMP/work/pmOS_boot.img"
+          root="$RUNNER_TEMP/work/xiaomi-dior-stowaway-root.img"
+          dd if="$raw" of="$boot" bs=4096 skip=256 count=124672 status=none
+          dd if="$raw" of="$root" bs=4096 skip=124928 count=164608 status=none
+          test "$(blkid -s UUID -o value "$boot")" = 44bc4898-5ecf-4904-b95f-e0aefa3eecf5
+          test "$(blkid -s LABEL -o value "$boot")" = pmOS_boot
+          test "$(blkid -s UUID -o value "$root")" = 2b3bcea5-5043-47de-a4f3-4959104f4762
+          test "$(blkid -s LABEL -o value "$root")" = pmOS_root
+          sudo e2fsck -fy "$boot"
+          sudo e2fsck -fy "$root"
+          truncate -s 805306368 "$root"
+          sudo resize2fs "$root" 768M
+          sudo mount -o loop,ro "$boot" "$RUNNER_TEMP/mnt-boot"
+          sudo mount -o loop "$root" "$RUNNER_TEMP/mnt-root"
+          cleanup() { sudo umount "$RUNNER_TEMP/mnt-root" 2>/dev/null || true; sudo umount "$RUNNER_TEMP/mnt-boot" 2>/dev/null || true; }
+          trap cleanup EXIT
+          sudo cp "$RUNNER_TEMP/mnt-root/etc/fstab" "$RUNNER_TEMP/work/fstab.before"
+          sudo rsync -aHAX --numeric-ids "$RUNNER_TEMP/mnt-boot/" "$RUNNER_TEMP/mnt-root/boot/"
+          test -e "$RUNNER_TEMP/mnt-root/boot/initramfs-extra"
+          sudo sed -i '\|[[:space:]]/boot[[:space:]]|d' "$RUNNER_TEMP/mnt-root/etc/fstab"
+          grep -q '2b3bcea5-5043-47de-a4f3-4959104f4762[[:space:]]\+/[[:space:]]' "$RUNNER_TEMP/mnt-root/etc/fstab"
+          ! grep -q '[[:space:]]/boot[[:space:]]' "$RUNNER_TEMP/mnt-root/etc/fstab"
+          sudo cp "$RUNNER_TEMP/mnt-root/etc/fstab" "$RUNNER_TEMP/work/fstab.after"
+          find "$RUNNER_TEMP/mnt-root/boot" -maxdepth 2 -type f -printf '%P %s\n' | LC_ALL=C sort > "$RUNNER_TEMP/work/boot-files.txt"
+          sync
+          cleanup
+          trap - EXIT
+          sudo e2fsck -fy "$root"
+          test "$(stat -c %s "$root")" = 805306368
+          test "$(stat -c %s "$root")" -lt 838860800
+          test "$(blkid -s UUID -o value "$root")" = 2b3bcea5-5043-47de-a4f3-4959104f4762
+          test "$(blkid -s LABEL -o value "$root")" = pmOS_root
+          root_sha="$(sha256sum "$root" | cut -d' ' -f1)"
+          cp "$root" "$RUNNER_TEMP/release/"
+          cp "$RUNNER_TEMP/work/fstab.before" "$RUNNER_TEMP/release/FSTAB-BEFORE.txt"
+          cp "$RUNNER_TEMP/work/fstab.after" "$RUNNER_TEMP/release/FSTAB-AFTER.txt"
+          cp "$RUNNER_TEMP/work/boot-files.txt" "$RUNNER_TEMP/release/BOOT-FILES.txt"
+          cat > "$RUNNER_TEMP/release/VERIFICATION.txt" <<VERIFY
+          source_usb_rootfs_sha256=b03b8a94b73cac09dcbadbfbc372076fc356d500e2ef52c9fa83fce427f2be99
+          output_file=xiaomi-dior-stowaway-root.img
+          output_bytes=805306368
+          output_sha256=$root_sha
+          filesystem_uuid=2b3bcea5-5043-47de-a4f3-4959104f4762
+          filesystem_label=pmOS_root
+          boot_files_copied_into_root_boot=true
+          separate_boot_fstab_entry_removed=true
+          required_boot_cmdline=pmos.stowaway
+          fastboot_max_download_bytes=838860800
+          flash_partition=userdata
+          physical_device_tested=false
+          VERIFY
+          (cd "$RUNNER_TEMP/release" && sha256sum xiaomi-dior-stowaway-root.img > SHA256SUMS)
+          (cd "$RUNNER_TEMP/release" && zip -9 DiorLinux-V1-Stowaway-Userdata.zip xiaomi-dior-stowaway-root.img VERIFICATION.txt SHA256SUMS FSTAB-BEFORE.txt FSTAB-AFTER.txt BOOT-FILES.txt)
+          sha256sum "$RUNNER_TEMP/release/DiorLinux-V1-Stowaway-Userdata.zip" > "$RUNNER_TEMP/release/DiorLinux-V1-Stowaway-Userdata.zip.sha256"
+      - name: Upload stowaway userdata candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: DiorLinux-V1-Stowaway-Userdata-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/release/DiorLinux-V1-Stowaway-Userdata.zip
+            ${{ runner.temp }}/release/DiorLinux-V1-Stowaway-Userdata.zip.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
