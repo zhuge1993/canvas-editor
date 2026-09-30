@@ -34,6 +34,7 @@ jobs:
           sh -n linux/dior/flowboard-apk/dior-firmware.initd
           sh -n linux/dior/flowboard-apk/dior-adsp.initd
           test ! -f linux/dior/flowboard-apk/dior-bluetooth.initd || sh -n linux/dior/flowboard-apk/dior-bluetooth.initd
+          sh -n linux/dior/flowboard-apk/dior-hw-report.initd
           sh -n linux/dior/pmaports-snapshot/main/wcnss-wlan/wcnss-wlan.initd
       - name: Install dependencies
         working-directory: frontend
@@ -53,6 +54,7 @@ jobs:
           sh -n linux/dior/flowboard-apk/dior-adsp.initd
           sh -n linux/dior/flowboard-apk/dior-bluetooth.initd
           sh -n linux/dior/flowboard-apk/dior-gps.initd
+          sh -n linux/dior/flowboard-apk/dior-hw-report.initd
           sh -n tools/dior-hw/dior-hw-probe
           sh -n tools/dior-hw/dior-touch-test
           sh -n tools/dior-hw/dior-hw-verify
@@ -73,6 +75,7 @@ jobs:
           grep -q 'a330_pm4.fw' linux/dior/pmaports-snapshot/device/archived/firmware-xiaomi-dior/APKBUILD
           grep -q 'venus.mdt' linux/dior/pmaports-snapshot/device/archived/firmware-xiaomi-dior/APKBUILD
           grep -q 'MTP_Speaker_cal.acdb' linux/dior/pmaports-snapshot/device/archived/firmware-xiaomi-dior/APKBUILD
+          grep -q 'dior-hw-report.initd' linux/dior/flowboard-apk/APKBUILD
       - name: Upload Linux release
         uses: actions/upload-artifact@v4
         with:
