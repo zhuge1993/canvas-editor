@@ -22,6 +22,13 @@ for e in /sys/class/input/event*; do
 done
 [ -n "$touch_name" ] && ok "touchscreen: $touch_name" || bad "Atmel maXTouch input not registered"
 
+keys_found=0
+for e in /sys/class/input/event*; do
+	[ -r "$e/device/name" ] || continue
+	[ "$(cat "$e/device/name" 2>/dev/null)" = "gpio-keys" ] && keys_found=1
+done
+[ "$keys_found" -eq 1 ] && ok "physical gpio-keys registered" || bad "gpio-keys input missing"
+
 [ -d /sys/class/net/usb0 ] && ok "USB NCM network usb0" || bad "USB network usb0 missing"
 [ -c /dev/wcnss_wlan ] && ok "WCNSS control device" || bad "WCNSS control device missing"
 [ -d /sys/class/net/wlan0 ] && ok "Wi-Fi wlan0 registered" || bad "Wi-Fi wlan0 not registered"
@@ -71,6 +78,39 @@ done
 [ "$charger_found" -eq 1 ] && ok "charger power_supply present" || bad "charger power_supply missing"
 
 if ls /sys/class/backlight/*/brightness >/dev/null 2>&1; then ok "backlight control present"; else bad "backlight control missing"; fi
+for led in red green blue button-backlight; do
+	if [ -e "/sys/class/leds/$led/brightness" ]; then
+		ok "LED control: $led"
+	else
+		note "LED control not exposed: $led"
+	fi
+done
+
+thermal_count=0
+for t in /sys/class/thermal/thermal_zone*; do
+	[ -d "$t" ] || continue
+	thermal_count=$((thermal_count+1))
+done
+[ "$thermal_count" -gt 0 ] && ok "thermal zones present: $thermal_count" || bad "thermal zones missing"
+
+if [ -d /sys/class/mmc_host ]; then
+	ok "MMC host controllers present"
+	if ls /sys/class/block/mmcblk1* >/dev/null 2>&1; then
+		ok "external microSD block device present"
+	else
+		note "microSD controller present but no external card detected"
+	fi
+else
+	bad "MMC host controllers missing"
+fi
+
+usb_host=0
+for p in /sys/bus/usb/devices/usb*; do
+	[ -e "$p" ] || continue
+	usb_host=1
+done
+[ "$usb_host" -eq 1 ] && ok "USB host controller exposed" || note "USB host controller not exposed"
+
 if [ -c /dev/tspdrv ]; then
 	ok "Immersion haptic /dev/tspdrv present"
 elif [ -e /sys/class/timed_output/vibrator ] || ls /sys/class/leds/*vib* >/dev/null 2>&1; then
