@@ -2668,6 +2668,10 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
       await saveUsers(paths, currentUsers.filter(item => item.id !== target.id))
       const sessions = await loadSessions(paths)
       await saveSessions(paths, sessions.filter(item => item.userId !== target.id))
+      const verification = await loadVerificationCodes(paths)
+      await saveVerificationCodes(paths, verification.filter(item => item.email !== target.email))
+      const attempts = await loadLoginAttempts(paths)
+      await saveLoginAttempts(paths, attempts.filter(item => item.email !== target.email))
       return { ok: true as const, target }
     })
     if (!removal.ok) { sendError(res, removal.status, removal.error); return true }
@@ -2676,31 +2680,62 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
     try { files = (await fsp.readdir(paths.dataDirectory)).filter(file => file.endsWith('.json')) } catch { /* empty */ }
     let deletedDocs = 0
     const deletedDocIds = new Set<string>()
+    const failedDocIds: string[] = []
     for (const file of files) {
       const fullPath = path.join(paths.dataDirectory, file)
       const fileProjectId = file.slice(0, -5)
       if (!validProjectId(fileProjectId)) continue
+
+      let project: StoredDocument
+      try {
+        project = JSON.parse(await fsp.readFile(fullPath, 'utf8')) as StoredDocument
+      } catch {
+        // 无法解析归属的损坏文件不能安全判断是否属于目标用户，留给数据修复流程处理。
+        continue
+      }
+      if (project.ownerId !== removal.target.id) continue
+
       try {
         const deleted = await withProjectMutation(fileProjectId, async () => {
-          const project = JSON.parse(await fsp.readFile(fullPath, 'utf8')) as StoredDocument
-          if (project.ownerId !== removal.target.id) return null
+          const latest = JSON.parse(await fsp.readFile(fullPath, 'utf8')) as StoredDocument
+          if (latest.ownerId !== removal.target.id) return null
           await fsp.unlink(fullPath)
-          if (project.id === fileProjectId) {
+          if (latest.id === fileProjectId) {
             await fsp.rm(path.join(paths.dataDirectory, 'versions', fileProjectId), { recursive: true, force: true })
           }
-          return typeof project.id === 'string' ? project.id : fileProjectId
+          return typeof latest.id === 'string' ? latest.id : fileProjectId
         })
         if (deleted) {
           deletedDocIds.add(deleted)
           deletedDocs++
         }
-      } catch { /* 文件已被其他合法操作移除或损坏则跳过 */ }
+      } catch {
+        failedDocIds.push(fileProjectId)
+      }
     }
-    if (deletedDocIds.size > 0) {
-      await withAuthMutation(async () => {
+
+    await withAuthMutation(async () => {
+      if (deletedDocIds.size > 0) {
         const shares = await loadShares(paths)
         await saveShares(paths, shares.filter(share => !deletedDocIds.has(share.projectId)))
+      }
+
+      if (failedDocIds.length > 0) {
+        // 清理不完整时把账号恢复，避免留下“无账号但仍有画布”的孤儿所有权。
+        // Session 保持撤销，用户需重新登录；管理员可修复存储问题后再次删除。
+        const currentUsers = await loadUsers(paths)
+        if (!currentUsers.some(item => item.id === removal.target.id || item.email === removal.target.email)) {
+          await saveUsers(paths, [...currentUsers, removal.target])
+        }
+      }
+    })
+
+    if (failedDocIds.length > 0) {
+      sendError(res, 500, '部分用户画布删除失败，账号已保留以避免产生孤儿数据；请检查磁盘后重试', {
+        deletedDocs,
+        failedDocIds: failedDocIds.slice(0, 20),
       })
+      return true
     }
     sendJson(res, 200, { ok: true, deletedDocs })
     return true
