@@ -1,0 +1,59 @@
+#!/sbin/openrc-run
+
+description="Enable Qualcomm WCNSS Bluetooth HCI over SMD on Xiaomi dior"
+
+depend() {
+	need wcnss-wlan
+	after dior-firmware
+	before bluetooth
+}
+
+start() {
+	ebegin "Enabling dior Bluetooth HCI over SMD"
+
+	if [ -d /sys/class/bluetooth/hci0 ]; then
+		eend 0
+		return 0
+	fi
+
+	param=/sys/module/hci_smd/parameters/hcismd_set
+	tries=0
+	while [ ! -e "$param" ] && [ "$tries" -lt 40 ]; do
+		sleep 0.25
+		tries=$((tries + 1))
+	done
+	if [ ! -e "$param" ]; then
+		eerror "hci_smd enable parameter did not appear"
+		eend 1
+		return 1
+	fi
+
+	if ! echo 1 > "$param"; then
+		eerror "Failed to enable hci_smd"
+		eend 1
+		return 1
+	fi
+
+	tries=0
+	while [ ! -d /sys/class/bluetooth/hci0 ] && [ "$tries" -lt 60 ]; do
+		sleep 0.25
+		tries=$((tries + 1))
+	done
+	if [ ! -d /sys/class/bluetooth/hci0 ]; then
+		ewarn "hci_smd was enabled but hci0 did not register"
+		dmesg | tail -n 160 | grep -Ei 'hci|bluetooth|smd|wcnss|riva' || true
+		eend 1
+		return 1
+	fi
+
+	eend 0
+}
+
+stop() {
+	ebegin "Disabling dior Bluetooth HCI"
+	param=/sys/module/hci_smd/parameters/hcismd_set
+	if [ -w "$param" ]; then
+		echo 0 > "$param" 2>/dev/null || true
+	fi
+	eend 0
+}
