@@ -1,7 +1,7 @@
 #requires -Version 5.1
 [CmdletBinding()]
 param(
-    [string]$ImageDirectory = (Join-Path $PSScriptRoot "dior-directroot"),
+    [string]$ImageDirectory = $PSScriptRoot,
     [string]$FastbootPath = (Join-Path $PSScriptRoot "platform-tools\fastboot.exe"),
     [switch]$Flash,
     [switch]$NoReboot
