@@ -1,0 +1,53 @@
+name: Dior direct root userdata delivery
+on:
+  push:
+    branches: [linux-server-armhf]
+    paths:
+      - 'tools/dior-usb-repair/make-direct-root.py'
+      - '.github/workflows/dior-usb-direct-root.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  extract:
+    if: github.repository == 'zhuge1993/canvas-editor'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Download verified USB repair artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: DiorLinux-V1-USB-NCM-ACM-dda9441c592d27f4ec0e80b4b4f4e43daf10c16d
+          run-id: 36679534347
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/usb-repair
+      - name: Extract direct pmOS_root image and verify boot UUID contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/raw" "$RUNNER_TEMP/release"
+          unzip -q "$RUNNER_TEMP/usb-repair/DiorLinux-V1-USB-NCM-ACM.zip" -d "$RUNNER_TEMP/raw"
+          raw="$RUNNER_TEMP/raw/DiorLinux-V1-USB-NCM-ACM/xiaomi-dior-usb-ncm-acm.img"
+          out="$RUNNER_TEMP/release/xiaomi-dior-pmOS-root-direct.img"
+          python3 tools/dior-usb-repair/make-direct-root.py "$raw" "$out" | tee "$RUNNER_TEMP/release/VERIFICATION.json"
+          test "$(stat -c %s "$out")" -lt 838860800
+          sha256sum "$out" > "$RUNNER_TEMP/release/SHA256SUMS"
+          cat > "$RUNNER_TEMP/release/README.txt" <<'EOF'
+          Direct pmOS_root userdata candidate for the verified dior boot.
+          Flash userdata only. Do not flash boot/system/recovery.
+          This is a raw ext4 pmOS_root partition, not a GPT disk image and not sparse.
+          It avoids nested-subpartition discovery in the old downstream 3.4 initramfs.
+          Physical-device boot is not claimed until tested on the target phone.
+          EOF
+      - name: Upload direct-root candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: DiorLinux-V1-DirectRoot-${{ github.sha }}
+          path: ${{ runner.temp }}/release/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
