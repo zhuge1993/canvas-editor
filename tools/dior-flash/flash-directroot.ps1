@@ -9,10 +9,11 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-function Invoke-Fastboot([string]$Exe, [string[]]$Args) {
+function Invoke-DirectRootFastboot([string]$Exe, [string[]]$Arguments) {
+    foreach ($arg in $Arguments) { if ($arg -match "[`r`n`"]") { throw "Unsafe fastboot argument" } }
     $psi = New-Object Diagnostics.ProcessStartInfo
     $psi.FileName = $Exe
-    $psi.Arguments = (($Args | ForEach-Object { if ($_ -match "[`r`n`"]") { throw "Unsafe fastboot argument" }; "`"$($_)`"" }) -join " ")
+    $psi.Arguments = (($Arguments | ForEach-Object { "`"$($_)`"" }) -join " ")
     $psi.UseShellExecute = $false
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError = $true
@@ -23,7 +24,7 @@ function Invoke-Fastboot([string]$Exe, [string[]]$Args) {
         $null = $p.Start()
         $stdout = $p.StandardOutput.ReadToEndAsync()
         $stderr = $p.StandardError.ReadToEndAsync()
-        if ($Args -contains "flash") { $p.WaitForExit() }
+        if ($Arguments -contains "flash") { $p.WaitForExit() }
         elseif (-not $p.WaitForExit(20000)) { $p.Kill(); throw "Fastboot query timed out" }
         $text = $stdout.Result + [Environment]::NewLine + $stderr.Result
         if ($p.ExitCode -ne 0) { throw "Fastboot failed: $text" }
@@ -31,9 +32,9 @@ function Invoke-Fastboot([string]$Exe, [string[]]$Args) {
     } finally { $p.Dispose() }
 }
 
-function Get-OneSerial([string]$Exe) {
+function Get-DirectRootSerial([string]$Exe) {
     $serials = @()
-    foreach ($line in ((Invoke-Fastboot $Exe @("devices")) -split "\r?\n")) {
+    foreach ($line in ((Invoke-DirectRootFastboot $Exe @("devices")) -split "\r?\n")) {
         if ([string]::IsNullOrWhiteSpace($line)) { continue }
         if ($line -notmatch "^([A-Za-z0-9_.:-]+)\s+fastboot\s*$") { throw "Unexpected fastboot devices output: $line" }
         $serials += $Matches[1]
@@ -42,8 +43,8 @@ function Get-OneSerial([string]$Exe) {
     return $serials[0]
 }
 
-function Get-Var([string]$Exe, [string]$Serial, [string]$Name) {
-    $text = Invoke-Fastboot $Exe @("-s",$Serial,"getvar",$Name)
+function Get-DirectRootVar([string]$Exe, [string]$Serial, [string]$Name) {
+    $text = Invoke-DirectRootFastboot $Exe @("-s",$Serial,"getvar",$Name)
     $pat = "^\s*(?:\(bootloader\)\s*)?" + [regex]::Escape($Name) + ":\s*(.*?)\s*$"
     $values = @()
     foreach ($line in ($text -split "\r?\n")) { if ($line -match $pat) { $values += $Matches[1] } }
@@ -51,15 +52,20 @@ function Get-Var([string]$Exe, [string]$Serial, [string]$Name) {
     return $values[0]
 }
 
-function Verify-Bundle([string]$Dir) {
+function Test-DirectRootBundle([string]$Dir) {
     $root = (Get-Item -LiteralPath $Dir -Force).FullName
+    if (((Get-Item -LiteralPath $root -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw "Bundle directory must not be a link" }
     $image = Join-Path $root "xiaomi-dior-pmOS-root-direct.img"
     $sums = Join-Path $root "SHA256SUMS"
     $receipt = Join-Path $root "VERIFICATION.json"
-    foreach ($path in @($image,$sums,$receipt)) { if (-not [IO.File]::Exists($path)) { throw "Missing DirectRoot file: $path" } }
+    foreach ($path in @($image,$sums,$receipt)) {
+        if (-not [IO.File]::Exists($path)) { throw "Missing DirectRoot file: $path" }
+        if (((Get-Item -LiteralPath $path -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw "Links are not accepted in DirectRoot bundle" }
+    }
     $verified = $false
     foreach ($line in [IO.File]::ReadAllLines($sums)) {
-        if ($line -match "^([a-fA-F0-9]{64})\s+[ *](.+)$" -and $Matches[2].Trim() -eq "xiaomi-dior-pmOS-root-direct.img") {
+        if ($line -notmatch "^([a-fA-F0-9]{64})\s+[ *]([A-Za-z0-9_.-]+)$") { throw "Malformed SHA256SUMS" }
+        if ($Matches[2] -eq "xiaomi-dior-pmOS-root-direct.img") {
             $actual = (Get-FileHash -LiteralPath $image -Algorithm SHA256).Hash
             if ($actual -ine $Matches[1]) { throw "DirectRoot SHA256 mismatch" }
             $verified = $true
@@ -73,12 +79,14 @@ function Verify-Bundle([string]$Dir) {
     return [pscustomobject]@{ Root=$root; Image=$image; Receipt=$v }
 }
 
-try {
-    $bundle = Verify-Bundle $ImageDirectory
-    $exe = (Get-Item -LiteralPath $FastbootPath -Force).FullName
-    $serial = Get-OneSerial $exe
-    if ((Get-Var $exe $serial "product") -cne "dior") { throw "Connected phone is not product=dior" }
-    $capText = Get-Var $exe $serial "partition-size:userdata"
+function Read-DirectRootConfirmation { return (Read-Host "This erases userdata. Type DIOR to continue") }
+
+function Start-DiorDirectRootFlash([string]$Directory,[string]$Executable,[bool]$Write,[bool]$KeepFastboot) {
+    $bundle = Test-DirectRootBundle $Directory
+    $exe = (Get-Item -LiteralPath $Executable -Force).FullName
+    $serial = Get-DirectRootSerial $exe
+    if ((Get-DirectRootVar $exe $serial "product") -cne "dior") { throw "Connected phone is not product=dior" }
+    $capText = Get-DirectRootVar $exe $serial "partition-size:userdata"
     if ($capText -match "^0x[0-9a-fA-F]+$") { $capacity = [Convert]::ToInt64($capText.Substring(2),16) }
     elseif ($capText -match "^[0-9]+$") { $capacity = [Convert]::ToInt64($capText,10) }
     else { throw "Cannot parse userdata capacity: $capText" }
@@ -87,16 +95,21 @@ try {
     Write-Host "Verified Xiaomi dior: $serial"
     Write-Host "userdata <- $($bundle.Image)"
     Write-Host "boot/system/recovery will NOT be written"
-    if (-not $Flash) { Write-Host "CHECK ONLY: no partition was written"; exit 0 }
-    if ((Read-Host "This erases userdata. Type DIOR to continue") -cne "DIOR") { throw "Cancelled; nothing written" }
-    $bundle = Verify-Bundle $ImageDirectory
-    if ((Get-OneSerial $exe) -cne $serial) { throw "Connected phone changed" }
-    if ((Get-Var $exe $serial "product") -cne "dior") { throw "Product changed; stopped" }
+    if (-not $Write) { Write-Host "CHECK ONLY: no partition was written"; return }
+    if ((Read-DirectRootConfirmation) -cne "DIOR") { throw "Cancelled; nothing written" }
+    $bundle = Test-DirectRootBundle $Directory
+    if ((Get-DirectRootSerial $exe) -cne $serial) { throw "Connected phone changed" }
+    if ((Get-DirectRootVar $exe $serial "product") -cne "dior") { throw "Product changed; stopped" }
     Write-Host "Writing userdata. Do not unplug the phone."
-    Write-Host (Invoke-Fastboot $exe @("-s",$serial,"flash","userdata",$bundle.Image))
-    if (-not $NoReboot) { Write-Host (Invoke-Fastboot $exe @("-s",$serial,"reboot")) }
+    Write-Host (Invoke-DirectRootFastboot $exe @("-s",$serial,"flash","userdata",$bundle.Image))
+    if (-not $KeepFastboot) {
+        if ((Get-DirectRootSerial $exe) -cne $serial) { throw "Connected phone changed after write" }
+        Write-Host (Invoke-DirectRootFastboot $exe @("-s",$serial,"reboot"))
+    }
     Write-Host "DirectRoot flash completed; boot was preserved."
-} catch {
-    Write-Host ("STOPPED: " + $_.Exception.Message) -ForegroundColor Red
-    exit 1
+}
+
+if ($MyInvocation.InvocationName -ne ".") {
+    try { Start-DiorDirectRootFlash $ImageDirectory $FastbootPath ([bool]$Flash) ([bool]$NoReboot) }
+    catch { Write-Host ("STOPPED: " + $_.Exception.Message) -ForegroundColor Red; exit 1 }
 }
