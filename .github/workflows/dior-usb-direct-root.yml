@@ -71,15 +71,41 @@ jobs:
           python3 -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); d.update(output_sha256=sys.argv[2], separate_boot_fstab_entry_removed=True, boot_image_change_required=False, merged_init_2nd_verified_in_current_boot=True); open(p,"w").write(json.dumps(d,indent=2)+"\\n")' "$RUNNER_TEMP/release/VERIFICATION.json" "$final_sha"
           (cd "$RUNNER_TEMP/release" && sha256sum xiaomi-dior-pmOS-root-direct.img > SHA256SUMS)
           cat > "$RUNNER_TEMP/release/README.txt" <<'EOF'
-          Direct pmOS_root userdata candidate for the verified dior boot.
-          Flash userdata only. Do not flash boot/system/recovery.
-          Keep the already working 13,113,344-byte QCDT-trimmed boot unchanged.
-          The current boot ramdisk already contains init_2nd.sh, so no pmOS_boot partition is required.
-          This raw ext4 pmOS_root avoids nested-subpartition discovery on the downstream 3.4 kernel.
-          The stale /boot fstab entry is removed offline and e2fsck is run afterward.
-          Includes legacy WCNSS/Prima paths, Dior Venus/CPP firmware, MTP ACDB data,\n          the stock firmware-partition bridge, Q6/ADSP startup service, and hardware verifier.\n          Physical-device functionality is not claimed until tested on the target phone.
-          EOF
-          cp tools/dior-flash/flash-directroot.ps1 "$RUNNER_TEMP/release/flash-directroot.ps1"
+          DiorLinux / FlowBoard DirectRoot for Xiaomi Redmi Note 4G single-SIM (dior)
+
+          FLASH CONTRACT
+          - userdata only
+          - DO NOT flash boot, system or recovery
+          - keep the already proven 13,113,344-byte QCDT-trimmed boot unchanged
+          - this image is raw ext4 pmOS_root and avoids nested GPT discovery on the downstream Linux 3.4 kernel
+          - the stale /boot fstab entry has been removed offline and e2fsck is run afterward
+
+          INCLUDED HARDWARE INTEGRATION
+          - legacy WCNSS/Prima Wi-Fi firmware paths
+          - Dior Venus/CPP camera/video firmware
+          - Dior Adreno a300/a330 firmware
+          - Dior MTP ACDB audio calibration files
+          - stock firmware/modem partition bridge for ADSP/MBA/modem firmware
+          - Q6/ADSP startup service
+          - expanded hardware probe and one-shot verifier
+
+          WINDOWS FLASH
+          1. Extract this ZIP to a normal local folder.
+          2. Put Android platform-tools in a platform-tools subfolder, OR make fastboot.exe available in PATH.
+          3. Put the phone in Fastboot mode and connect exactly one Xiaomi dior.
+          4. Double-click flash-directroot.cmd.
+          5. The flasher verifies checksums, product=dior, userdata capacity and the verification receipt.
+          6. Type DIOR only when prompted. The script writes userdata only and preserves boot.
+
+          AFTER BOOT
+          - run: dior-hw-verify
+          - run: dior-hw-probe
+          - save the complete output for final real-device validation
+          - verify wlan0, ALSA card, VIDC/camera, battery/charger, backlight, vibrator,
+            Bluetooth HCI, FM radio, GPS/NMEA/SMD, rmnet modem interfaces and sensors
+
+          Physical-device functionality is not claimed until tested on the target phone.
+          EOF          cp tools/dior-flash/flash-directroot.ps1 "$RUNNER_TEMP/release/flash-directroot.ps1"
           cp tools/dior-flash/flash-directroot.cmd "$RUNNER_TEMP/release/flash-directroot.cmd"
           mkdir -p "$RUNNER_TEMP/package"
           (
