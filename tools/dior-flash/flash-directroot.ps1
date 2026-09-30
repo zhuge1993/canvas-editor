@@ -70,11 +70,13 @@ function Test-DirectRootBundle([string]$Dir) {
         if (((Get-Item -LiteralPath $path -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw "Links are not accepted in DirectRoot bundle" }
     }
     $verified = $false
+    $imageHash = $null
     foreach ($line in [IO.File]::ReadAllLines($sums)) {
         if ($line -notmatch "^([a-fA-F0-9]{64})\s+[ *]([A-Za-z0-9_.-]+)$") { throw "Malformed SHA256SUMS" }
         if ($Matches[2] -eq "xiaomi-dior-pmOS-root-direct.img") {
             $actual = (Get-FileHash -LiteralPath $image -Algorithm SHA256).Hash
             if ($actual -ine $Matches[1]) { throw "DirectRoot SHA256 mismatch" }
+            $imageHash = $actual.ToLowerInvariant()
             $verified = $true
         }
     }
@@ -82,6 +84,13 @@ function Test-DirectRootBundle([string]$Dir) {
     $v = Get-Content -LiteralPath $receipt -Raw | ConvertFrom-Json
     if ($v.flash_partition -cne "userdata" -or -not $v.uuid_matches_boot -or -not $v.fits_fastboot_max_download -or $v.boot_image_change_required) {
         throw "VERIFICATION.json does not authorize userdata-only DirectRoot flashing"
+    }
+    if ("$($v.output_sha256)" -notmatch "^[a-fA-F0-9]{64}$" -or "$($v.output_sha256)".ToLowerInvariant() -cne $imageHash) {
+        throw "VERIFICATION.json image digest does not match DirectRoot image"
+    }
+    if ($v.filesystem_uuid -cne "2b3bcea5-5043-47de-a4f3-4959104f4762" -or
+        $v.boot_pmos_root_uuid -cne $v.filesystem_uuid -or $v.filesystem_label -cne "pmOS_root") {
+        throw "VERIFICATION.json root filesystem identity does not match the proven dior boot contract"
     }
     return [pscustomobject]@{ Root=$root; Image=$image; Receipt=$v }
 }
