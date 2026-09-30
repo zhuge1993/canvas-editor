@@ -300,6 +300,37 @@ else
 	pmbootstrap install --split --add=flowboard-server
 fi
 
+echo "验收最终 rootfs：FlowBoard / Node / Wi-Fi 固件 / 开机服务..."
+pmbootstrap chroot -r -- sh -ec '
+	apk info -e flowboard-server >/dev/null
+	apk info -e nodejs >/dev/null
+	apk info -e firmware-xiaomi-dior >/dev/null
+	apk info -e wcnss-wlan >/dev/null
+
+	test -s /opt/flowboard/server-bundle.cjs
+	test -s /opt/flowboard/dist/index.html
+	test -x /opt/flowboard/start-server.sh
+	test -f /opt/flowboard/flowboard.env
+	id flowboard >/dev/null 2>&1
+
+	node -e '\''const [a,b]=process.versions.node.split(".").map(Number); if (!(a>20 || (a===20 && b>=19))) process.exit(1)'\''
+
+	if command -v rc-update >/dev/null 2>&1; then
+		test -x /etc/init.d/flowboard
+		test -x /etc/init.d/wcnss-wlan
+		rc-update show default | grep -Eq "(^|[[:space:]])flowboard([[:space:]]|$)"
+		rc-update show default | grep -Eq "(^|[[:space:]])wcnss-wlan([[:space:]]|$)"
+	elif command -v systemctl >/dev/null 2>&1; then
+		test -f /usr/lib/systemd/system/flowboard.service
+		test -f /usr/lib/systemd/system/wcnss-wlan.service
+		test -L /etc/systemd/system/multi-user.target.wants/flowboard.service
+		test -L /etc/systemd/system/multi-user.target.wants/wcnss-wlan.service
+	else
+		echo "rootfs 内没有可识别的 OpenRC/systemd，拒绝导出。" >&2
+		exit 1
+	fi
+'
+
 mkdir -p "$OUTPUT_DIR"
 pmbootstrap export "$OUTPUT_DIR"
 
