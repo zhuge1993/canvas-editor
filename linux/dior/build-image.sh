@@ -5,6 +5,7 @@ SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/../.." && pwd)"
 FRONTEND_DIR="$REPO_ROOT/frontend"
 APORT_TEMPLATE="$SCRIPT_DIR/flowboard-apk"
+HW_FIRMWARE_TEMPLATE="$SCRIPT_DIR/flowboard-dior-firmware-apk"
 SNAPSHOT_ROOT="$SCRIPT_DIR/pmaports-snapshot"
 PMB_APORTS="${PMB_APORTS:-$HOME/.local/var/pmbootstrap/cache_git/pmaports}"
 OUTPUT_DIR="${OUTPUT_DIR:-$REPO_ROOT/out/dior}"
@@ -267,6 +268,16 @@ if [ -d "$OUTPUT_DIR" ] && [ -n "$(find "$OUTPUT_DIR" -mindepth 1 -print -quit 2
 	exit 1
 fi
 
+LOCAL_HW_FIRMWARE_APORT="$PMB_APORTS/main/flowboard-dior-firmware"
+mkdir -p "$LOCAL_HW_FIRMWARE_APORT"
+cp "$HW_FIRMWARE_TEMPLATE/APKBUILD" "$LOCAL_HW_FIRMWARE_APORT/APKBUILD"
+
+echo "更新 dior 硬件固件 overlay 校验..."
+pmbootstrap checksum flowboard-dior-firmware
+
+echo "先构建 dior 硬件固件 overlay，确保 legacy WCNSS / multimedia 固件不会被当前 pmaports 绕过..."
+pmbootstrap build flowboard-dior-firmware
+
 LOCAL_APORT="$PMB_APORTS/main/flowboard-server"
 mkdir -p "$LOCAL_APORT"
 cp "$APORT_TEMPLATE/APKBUILD" "$LOCAL_APORT/APKBUILD"
@@ -328,7 +339,7 @@ pmbootstrap chroot -r -- sh -ec '
 		fi
 	}
 
-	for pkg in flowboard-server nodejs firmware-xiaomi-dior wcnss-wlan bluez gpsd; do check_apk "$pkg"; done
+	for pkg in flowboard-server flowboard-dior-firmware nodejs firmware-xiaomi-dior wcnss-wlan bluez gpsd; do check_apk "$pkg"; done
 
 	check_file "FlowBoard server bundle" /opt/flowboard/server-bundle.cjs
 	check_file "FlowBoard frontend" /opt/flowboard/dist/index.html
@@ -405,6 +416,7 @@ DEVICE_APKBUILD_SHA256="$(sha256sum "$DEVICE_APORT/APKBUILD" | sed 's/[[:space:]
 KERNEL_APKBUILD_SHA256="$(sha256sum "$KERNEL_APORT/APKBUILD" | sed 's/[[:space:]].*$//')"
 FIRMWARE_APKBUILD_SHA256="$(sha256sum "$FIRMWARE_APORT/APKBUILD" | sed 's/[[:space:]].*$//')"
 WCNSS_APKBUILD_SHA256="$(sha256sum "$WCNSS_APORT/APKBUILD" | sed 's/[[:space:]].*$//')"
+FLOWBOARD_HW_FIRMWARE_APKBUILD_SHA256="$(sha256sum "$LOCAL_HW_FIRMWARE_APORT/APKBUILD" | sed 's/[[:space:]].*$//')"
 
 cat > "$OUTPUT_DIR/BUILD-MANIFEST.txt" <<EOF
 DiorLinux / FlowBoard build manifest
@@ -426,6 +438,7 @@ firmware_aport=$FIRMWARE_APORT
 firmware_apkbuild_sha256=$FIRMWARE_APKBUILD_SHA256
 wcnss_aport=$WCNSS_APORT
 wcnss_apkbuild_sha256=$WCNSS_APKBUILD_SHA256
+flowboard_hw_firmware_apkbuild_sha256=$FLOWBOARD_HW_FIRMWARE_APKBUILD_SHA256
 flowboard_listen=127.0.0.1:3000
 flowboard_root_admin=804559340@qq.com
 auto_flash=false
