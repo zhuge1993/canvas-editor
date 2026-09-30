@@ -73,12 +73,16 @@ done
 if ls /sys/class/backlight/*/brightness >/dev/null 2>&1; then ok "backlight control present"; else bad "backlight control missing"; fi
 if [ -e /sys/class/timed_output/vibrator ] || ls /sys/class/leds/*vib* >/dev/null 2>&1; then ok "vibrator control present"; else note "vibrator control not exposed"; fi
 
-if [ -d /sys/class/bluetooth/hci0 ]; then ok "Bluetooth HCI controller hci0"; else note "Bluetooth HCI controller not registered"; fi
-
+if [ -r /sys/module/hci_smd/parameters/hcismd_set ]; then
+	bt_enable="$(cat /sys/module/hci_smd/parameters/hcismd_set 2>/dev/null || true)"
+	note "Bluetooth hci_smd enable=$bt_enable"
+else
+	bad "Bluetooth hci_smd control parameter missing"
+fi
 if [ -d /sys/class/bluetooth/hci0 ]; then
 	ok "Bluetooth HCI controller hci0"
 else
-	note "Bluetooth HCI controller not registered"
+	bad "Bluetooth HCI controller not registered"
 fi
 
 if ls /dev/radio* >/dev/null 2>&1; then
@@ -118,7 +122,7 @@ done
 [ "$sensor_hits" -gt 0 ] && ok "sensor interfaces discovered" || note "no named sensor interfaces discovered"
 
 if command -v rc-service >/dev/null 2>&1; then
-	for s in dior-firmware dior-adsp wcnss-wlan flowboard; do
+	for s in dior-firmware dior-adsp wcnss-wlan dior-bluetooth flowboard; do
 		rc-service "$s" status >/dev/null 2>&1 && ok "service $s running" || bad "service $s not running"
 	done
 fi
