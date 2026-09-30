@@ -15,17 +15,15 @@ need() {
 need sha512sum
 need awk
 
+# POSIX sh function assignments are shared: do not overwrite download's
+# target with its temporary path. Pass fetch arguments directly to the client.
 if command -v curl >/dev/null 2>&1; then
 	fetch() {
-		url="$1"
-		target="$2"
-		curl -fL --retry 3 --connect-timeout 20 --max-time 180 -o "$target" "$url"
+		curl -fL --retry 3 --connect-timeout 20 --max-time 180 -o "$2" "$1"
 	}
 elif command -v wget >/dev/null 2>&1; then
 	fetch() {
-		url="$1"
-		target="$2"
-		wget -O "$target" "$url"
+		wget -O "$2" "$1"
 	}
 else
 	echo "需要 curl 或 wget 下载历史补丁。" >&2
