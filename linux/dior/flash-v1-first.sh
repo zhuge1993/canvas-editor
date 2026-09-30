@@ -63,7 +63,8 @@ cleanup_verify_export() {
 }
 trap cleanup_verify_export EXIT INT TERM
 
-pmbootstrap export "$VERIFY_EXPORT_DIR" >/dev/null
+# 这里只验证已有产物；默认 export 会更新 kernel/initfs，不能在校验阶段改动镜像。
+pmbootstrap export --no-install "$VERIFY_EXPORT_DIR" >/dev/null
 
 verified_export_count=0
 while IFS= read -r current_file; do
@@ -150,7 +151,8 @@ fastboot -s "$FASTBOOT_SERIAL" flash:raw boot "$BOOT_IMAGE"
 echo
 echo "[2/2] 刷写 postmarketOS rootfs..."
 check_same_fastboot_device
-pmbootstrap flasher flash_rootfs
+# 重启由下方的 serial 检查和 REBOOT_AFTER_FLASH 统一控制。
+pmbootstrap flasher --no-reboot flash_rootfs
 
 echo
 echo "刷写命令均已成功完成。"
