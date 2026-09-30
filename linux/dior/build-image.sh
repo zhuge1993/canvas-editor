@@ -279,6 +279,7 @@ cp "$APORT_TEMPLATE/dior-bluetooth.initd" "$LOCAL_APORT/dior-bluetooth.initd"
 cp "$REPO_ROOT/tools/dior-hw/dior-hw-probe" "$LOCAL_APORT/dior-hw-probe"
 cp "$REPO_ROOT/tools/dior-hw/dior-touch-test" "$LOCAL_APORT/dior-touch-test"
 cp "$REPO_ROOT/tools/dior-hw/dior-hw-verify" "$LOCAL_APORT/dior-hw-verify"
+cp "$REPO_ROOT/tools/dior-hw/dior-hw-smoke" "$LOCAL_APORT/dior-hw-smoke"
 cp "$FLOWBOARD_RELEASE" "$LOCAL_APORT/flowboard-release.tar.gz"
 
 echo "更新本地 flowboard-server 源文件校验..."
@@ -345,6 +346,7 @@ pmbootstrap chroot -r -- sh -ec '
 		test -x /etc/init.d/dior-adsp
 		test -x /etc/init.d/dior-bluetooth
 		test -x /usr/local/sbin/dior-hw-verify
+		test -x /usr/local/sbin/dior-hw-smoke
 		rc-update show default | grep -Eq "(^|[[:space:]])flowboard([[:space:]]|$)"
 		rc-update show default | grep -Eq "(^|[[:space:]])wcnss-wlan([[:space:]]|$)"
 		rc-update show default | grep -Eq "(^|[[:space:]])dior-dropbear([[:space:]]|$)"
