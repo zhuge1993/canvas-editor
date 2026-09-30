@@ -63,6 +63,18 @@ jobs:
             | tee "$RUNNER_TEMP/flowboard-dior-v1/logs/build.log"
       - name: Encrypt OS login receipt before public publication
         run: python3 linux/dior/seal-public-image.py
+      - name: Verify public release contains safe userdata-only package
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/flowboard-dior-v1/public-release"
+          sha256sum -c SHA256SUMS
+          test "$(find . -maxdepth 1 -type f -name '*-SafeDirectRoot.zip' | wc -l)" -eq 1
+          safe_zip="$(find . -maxdepth 1 -type f -name '*-SafeDirectRoot.zip' -print -quit)"
+          unzip -t "$safe_zip"
+          unzip -l "$safe_zip" | grep -q 'xiaomi-dior-pmOS-root-direct.img'
+          unzip -l "$safe_zip" | grep -q 'flash-directroot.cmd'
+          unzip -p "$safe_zip" VERIFICATION.json | python3 -m json.tool >/dev/null
       - name: Upload complete image candidate (not real-device validated)
         uses: actions/upload-artifact@v4
         with:
