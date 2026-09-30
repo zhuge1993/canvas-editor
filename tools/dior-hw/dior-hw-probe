@@ -68,6 +68,37 @@ for v in /sys/class/video4linux/*/name; do [ -r "$v" ] && printf "%s: %s\n" "$v"
 section "CAMERA / VIDEO FIRMWARE"
 find /lib/firmware /etc/firmware -maxdepth 4 -type f 2>/dev/null | grep -Ei "venus|vidc|camera|cpp|vfe" | sort || true
 
+section "BLUETOOTH / RFKILL"
+for r in /sys/class/rfkill/rfkill*; do
+  [ -d "$r" ] || continue
+  printf "%s type=%s name=%s state=%s soft=%s hard=%s\n" \
+    "$(basename "$r")" "$(cat "$r/type" 2>/dev/null || true)" \
+    "$(cat "$r/name" 2>/dev/null || true)" "$(cat "$r/state" 2>/dev/null || true)" \
+    "$(cat "$r/soft" 2>/dev/null || true)" "$(cat "$r/hard" 2>/dev/null || true)"
+done
+ls -ld /sys/class/bluetooth/hci* 2>/dev/null || true
+command -v hciconfig >/dev/null 2>&1 && hciconfig -a 2>/dev/null || true
+
+section "GPS / MODEM / NMEA"
+ls -l /dev/smd* /dev/ttyHS* /dev/ttyUSB* /dev/qcqmi* /dev/diag 2>/dev/null || true
+for n in /sys/class/net/rmnet* /sys/class/net/rev_rmnet*; do
+  [ -e "$n" ] || continue
+  printf "%s carrier=%s operstate=%s\n" "$(basename "$n")" \
+    "$(cat "$n/carrier" 2>/dev/null || true)" "$(cat "$n/operstate" 2>/dev/null || true)"
+done
+
+section "FM RADIO"
+ls -l /dev/radio* 2>/dev/null || true
+for v in /sys/class/video4linux/radio*/name; do
+  [ -r "$v" ] && printf "%s: %s\n" "$v" "$(cat "$v")"
+done
+
+section "SENSORS / VIBRATOR"
+find /sys/class/sensors -maxdepth 2 -type f -name name -print -exec cat {} \; 2>/dev/null || true
+for p in /sys/class/timed_output/vibrator /sys/class/leds/*vib*; do
+  [ -e "$p" ] && ls -ld "$p"
+done
+
 section "CPU / MEMORY"
 cat /proc/cpuinfo 2>/dev/null || true
 cat /proc/meminfo 2>/dev/null | head -n 20 || true
