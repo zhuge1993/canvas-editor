@@ -32,11 +32,13 @@ install -Dm755 "$REPO_ROOT/linux/dior/flowboard-apk/dior-firmware.initd" "$ROOT/
 install -Dm755 "$REPO_ROOT/linux/dior/flowboard-apk/dior-adsp.initd" "$ROOT/etc/init.d/dior-adsp"
 install -Dm755 "$REPO_ROOT/linux/dior/pmaports-snapshot/main/wcnss-wlan/wcnss-wlan.initd" "$ROOT/etc/init.d/wcnss-wlan"
 install -Dm755 "$REPO_ROOT/linux/dior/flowboard-apk/dior-bluetooth.initd" "$ROOT/etc/init.d/dior-bluetooth"
+install -Dm755 "$REPO_ROOT/linux/dior/flowboard-apk/dior-hw-report.initd" "$ROOT/etc/init.d/dior-hw-report"
 mkdir -p "$ROOT/etc/runlevels/default"
 ln -sf /etc/init.d/dior-firmware "$ROOT/etc/runlevels/default/dior-firmware"
 ln -sf /etc/init.d/dior-adsp "$ROOT/etc/runlevels/default/dior-adsp"
 ln -sf /etc/init.d/wcnss-wlan "$ROOT/etc/runlevels/default/wcnss-wlan"
 ln -sf /etc/init.d/dior-bluetooth "$ROOT/etc/runlevels/default/dior-bluetooth"
+ln -sf /etc/init.d/dior-hw-report "$ROOT/etc/runlevels/default/dior-hw-report"
 
 # Mirror WCNSS/Prima already present in the verified historical rootfs.
 test -s "$ROOT/lib/firmware/postmarketos/wcnss.mdt"
@@ -92,6 +94,7 @@ test -s "$ROOT/etc/acdbdata/MTP/MTP_Speaker_cal.acdb"
 test -x "$ROOT/etc/init.d/dior-firmware"
 test -x "$ROOT/etc/init.d/dior-adsp"
 test -x "$ROOT/etc/init.d/dior-bluetooth"
+test -x "$ROOT/etc/init.d/dior-hw-report"
 test -x "$ROOT/usr/local/sbin/dior-hw-verify"
 test -x "$ROOT/usr/local/sbin/dior-hw-smoke"
 
