@@ -68,7 +68,8 @@ jobs:
           test "$(blkid -s UUID -o value "$out")" = 2b3bcea5-5043-47de-a4f3-4959104f4762
           test "$(blkid -s LABEL -o value "$out")" = pmOS_root
           final_sha="$(sha256sum "$out" | cut -d' ' -f1)"
-          python3 -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); d.update(output_sha256=sys.argv[2], separate_boot_fstab_entry_removed=True, boot_image_change_required=False, merged_init_2nd_verified_in_current_boot=True); open(p,"w").write(json.dumps(d,indent=2)+"\\n")' "$RUNNER_TEMP/release/VERIFICATION.json" "$final_sha"
+          python3 -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); d.update(output_sha256=sys.argv[2], separate_boot_fstab_entry_removed=True, boot_image_change_required=False, merged_init_2nd_verified_in_current_boot=True); open(p,"w").write(json.dumps(d,indent=2)+"\n")' "$RUNNER_TEMP/release/VERIFICATION.json" "$final_sha"
+          python3 -m json.tool "$RUNNER_TEMP/release/VERIFICATION.json" >/dev/null
           (cd "$RUNNER_TEMP/release" && sha256sum xiaomi-dior-pmOS-root-direct.img > SHA256SUMS)
           cat > "$RUNNER_TEMP/release/README.txt" <<'EOF'
           DiorLinux / FlowBoard DirectRoot for Xiaomi Redmi Note 4G single-SIM (dior)
@@ -116,7 +117,11 @@ jobs:
               flash-directroot.ps1 flash-directroot.cmd
           )
           unzip -t "$RUNNER_TEMP/package/DiorLinux-V1-DirectRoot-Userdata.zip"
-          sha256sum "$RUNNER_TEMP/package/DiorLinux-V1-DirectRoot-Userdata.zip" > "$RUNNER_TEMP/package/DiorLinux-V1-DirectRoot-Userdata.zip.sha256"
+          unzip -p "$RUNNER_TEMP/package/DiorLinux-V1-DirectRoot-Userdata.zip" VERIFICATION.json | python3 -m json.tool >/dev/null
+          (
+            cd "$RUNNER_TEMP/package"
+            sha256sum DiorLinux-V1-DirectRoot-Userdata.zip > DiorLinux-V1-DirectRoot-Userdata.zip.sha256
+          )
       - name: Upload direct-root candidate
         uses: actions/upload-artifact@v4
         with:
