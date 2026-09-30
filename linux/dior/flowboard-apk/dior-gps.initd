@@ -1,11 +1,7 @@
 #!/sbin/openrc-run
 
 description="Expose Xiaomi dior GPS NMEA SMD channel through gpsd"
-command="/usr/sbin/gpsd"
-command_args="-N -n /dev/smd27"
-command_background="yes"
 pidfile="/run/dior-gps.pid"
-start_stop_daemon_args="--make-pidfile"
 
 depend() {
 	need udev
@@ -13,19 +9,33 @@ depend() {
 	before flowboard
 }
 
-start_pre() {
+start() {
+	ebegin "Starting dior GPS NMEA bridge"
 	tries=0
 	while [ ! -c /dev/smd27 ] && [ "$tries" -lt 40 ]; do
 		sleep 0.25
 		tries=$((tries + 1))
 	done
 	if [ ! -c /dev/smd27 ]; then
-		ewarn "GPS NMEA SMD channel /dev/smd27 is not available; leaving gpsd stopped"
-		return 1
+		ewarn "GPS NMEA SMD channel /dev/smd27 is not available; gpsd skipped"
+		eend 0
+		return 0
 	fi
 	if [ ! -x /usr/sbin/gpsd ]; then
 		eerror "gpsd is not installed"
+		eend 1
 		return 1
 	fi
-	return 0
+	start-stop-daemon --start --background --make-pidfile --pidfile "$pidfile" \
+		--exec /usr/sbin/gpsd -- -N -n /dev/smd27
+	eend $?
+}
+
+stop() {
+	ebegin "Stopping dior GPS NMEA bridge"
+	if [ -f "$pidfile" ]; then
+		start-stop-daemon --stop --pidfile "$pidfile" --retry TERM/5/KILL/5 || true
+		rm -f "$pidfile"
+	fi
+	eend 0
 }
