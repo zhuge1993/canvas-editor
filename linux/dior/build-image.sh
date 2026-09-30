@@ -314,6 +314,7 @@ pmbootstrap chroot -r -- sh -ec '
 	apk info -e nodejs >/dev/null
 	apk info -e firmware-xiaomi-dior >/dev/null
 	apk info -e wcnss-wlan >/dev/null
+	apk info -e bluez >/dev/null
 
 	test -s /opt/flowboard/server-bundle.cjs
 	test -s /opt/flowboard/dist/index.html
@@ -353,6 +354,8 @@ pmbootstrap chroot -r -- sh -ec '
 		rc-update show default | grep -Eq "(^|[[:space:]])dior-firmware([[:space:]]|$)"
 		rc-update show default | grep -Eq "(^|[[:space:]])dior-adsp([[:space:]]|$)"
 		rc-update show default | grep -Eq "(^|[[:space:]])dior-bluetooth([[:space:]]|$)"
+		test -x /etc/init.d/bluetooth
+		rc-update show default | grep -Eq "(^|[[:space:]])bluetooth([[:space:]]|$)"
 	elif command -v systemctl >/dev/null 2>&1; then
 		test -f /usr/lib/systemd/system/flowboard.service
 		test -f /usr/lib/systemd/system/wcnss-wlan.service
