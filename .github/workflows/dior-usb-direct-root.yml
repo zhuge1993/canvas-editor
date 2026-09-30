@@ -68,6 +68,7 @@ jobs:
           sudo test -x "$RUNNER_TEMP/rootmnt/etc/init.d/dior-adsp"
           sudo test -x "$RUNNER_TEMP/rootmnt/usr/local/sbin/dior-hw-verify"
           sudo test -x "$RUNNER_TEMP/rootmnt/usr/local/sbin/dior-hw-probe"
+          sudo test -x "$RUNNER_TEMP/rootmnt/usr/local/sbin/dior-hw-smoke"
           sudo test -s "$RUNNER_TEMP/rootmnt/lib/firmware/wcnss.mdt"
           sudo test -s "$RUNNER_TEMP/rootmnt/lib/firmware/venus.mdt"
           sudo test -s "$RUNNER_TEMP/rootmnt/etc/firmware/cpp_firmware_v1_2_0.fw"
@@ -106,7 +107,7 @@ jobs:
           - stock firmware/modem partition bridge for ADSP/MBA/modem firmware
           - Q6/ADSP startup service
           - Qualcomm WCNSS HCI-SMD Bluetooth activation service
-          - expanded hardware probe and one-shot verifier
+          - expanded hardware probe, passive verifier and non-destructive active smoke test
 
           WINDOWS FLASH
           1. Extract this ZIP to a normal local folder.
@@ -118,6 +119,7 @@ jobs:
 
           AFTER BOOT
           - run: dior-hw-verify
+          - run: dior-hw-smoke
           - run: dior-hw-probe
           - save the complete output for final real-device validation
           - verify wlan0, ALSA card, VIDC/camera, battery/charger, backlight, vibrator,
