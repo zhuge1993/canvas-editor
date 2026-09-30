@@ -9,6 +9,7 @@ on:
       - 'tools/dior-usb-repair/inject-dior-hardware.sh'
       - 'linux/dior/flowboard-apk/dior-firmware.initd'
       - 'linux/dior/flowboard-apk/dior-adsp.initd'
+      - 'linux/dior/flowboard-apk/dior-bluetooth.initd'
       - 'tools/dior-flash/flash-directroot.ps1'
       - 'tools/dior-flash/flash-directroot.cmd'
   workflow_dispatch:
@@ -88,6 +89,7 @@ jobs:
           - Dior MTP ACDB audio calibration files
           - stock firmware/modem partition bridge for ADSP/MBA/modem firmware
           - Q6/ADSP startup service
+          - Qualcomm WCNSS HCI-SMD Bluetooth activation service
           - expanded hardware probe and one-shot verifier
 
           WINDOWS FLASH
