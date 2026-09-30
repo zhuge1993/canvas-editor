@@ -321,6 +321,13 @@ pmbootstrap chroot -r -- sh -ec '
 	test -s /lib/firmware/wcnss.mdt
 	test -s /lib/firmware/wlan/prima/WCNSS_qcom_wlan_nv.bin
 	test -s /lib/firmware/wlan/prima/WCNSS_qcom_cfg.ini
+	# Physical dior probe showed VIDC firmware download failures and no ALSA card.
+	# Require the device's own Qualcomm multimedia firmware/calibration payloads.
+	test -s /lib/firmware/venus.mdt
+	test -s /lib/firmware/venus.mbn
+	test -s /etc/firmware/cpp_firmware_v1_2_0.fw
+	test -s /etc/acdbdata/MTP/MTP_Handset_cal.acdb
+	test -s /etc/acdbdata/MTP/MTP_Speaker_cal.acdb
 
 	node -e '\''const [a,b]=process.versions.node.split(".").map(Number); if (!(a>20 || (a===20 && b>=19))) process.exit(1)'\''
 
