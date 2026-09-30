@@ -8,7 +8,7 @@ url="https://github.com/zhuge1993/canvas-editor"
 arch="noarch"
 # Owner's appliance deployment; repository visibility does not grant an OSS license.
 license="custom"
-depends="nodejs ca-certificates dropbear alsa-utils v4l-utils evtest bluez gpsd"
+depends="nodejs ca-certificates dropbear alsa-utils v4l-utils evtest bluez bluez-openrc gpsd"
 # Local appliance intentionally retains /opt/flowboard shared with its installers.
 # abuild's documented !fhs permits this layout; all other postchecks still run.
 # This is not a package intended for inclusion in Alpine's official repositories.
@@ -48,6 +48,7 @@ package() {
 	ln -sf /etc/init.d/dior-adsp "$pkgdir"/etc/runlevels/default/dior-adsp
 	ln -sf /etc/init.d/dior-bluetooth "$pkgdir"/etc/runlevels/default/dior-bluetooth
 	ln -sf /etc/init.d/dior-gps "$pkgdir"/etc/runlevels/default/dior-gps
+	ln -sf /etc/init.d/bluetooth "$pkgdir"/etc/runlevels/default/bluetooth
 	ln -sf /etc/init.d/bluetooth "$pkgdir"/etc/runlevels/default/bluetooth
 
 	install -d "$pkgdir"/etc/systemd/system/multi-user.target.wants
