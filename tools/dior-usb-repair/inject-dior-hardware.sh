@@ -43,12 +43,14 @@ ln -sf /etc/init.d/dior-hw-report "$ROOT/etc/runlevels/default/dior-hw-report"
 # Mirror WCNSS/Prima already present in the verified historical rootfs.
 test -s "$ROOT/lib/firmware/postmarketos/wcnss.mdt"
 for fw in "$ROOT"/lib/firmware/postmarketos/wcnss.*; do
-	cp -a "$fw" "$ROOT/lib/firmware/$(basename "$fw")"
+	cp -Lf "$fw" "$ROOT/lib/firmware/$(basename "$fw")"
+	chmod 0644 "$ROOT/lib/firmware/$(basename "$fw")"
 done
 test -s "$ROOT/lib/firmware/postmarketos/wlan/prima/WCNSS_qcom_wlan_nv.bin"
 mkdir -p "$ROOT/lib/firmware/wlan/prima" "$ROOT/etc/firmware/wlan/prima"
-cp -a "$ROOT"/lib/firmware/postmarketos/wlan/prima/* "$ROOT/lib/firmware/wlan/prima/"
-cp -a "$ROOT"/lib/firmware/postmarketos/wlan/prima/* "$ROOT/etc/firmware/wlan/prima/"
+cp -Lf "$ROOT"/lib/firmware/postmarketos/wlan/prima/* "$ROOT/lib/firmware/wlan/prima/"
+cp -Lf "$ROOT"/lib/firmware/postmarketos/wlan/prima/* "$ROOT/etc/firmware/wlan/prima/"
+chmod 0644 "$ROOT"/lib/firmware/wlan/prima/* "$ROOT"/etc/firmware/wlan/prima/*
 
 # Dior-specific Venus and camera CPP firmware, locked to the same proprietary commit.
 while read -r hash name; do
