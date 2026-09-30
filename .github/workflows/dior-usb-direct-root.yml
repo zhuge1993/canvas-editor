@@ -120,6 +120,7 @@ jobs:
           6. Type DIOR only when prompted. The script writes userdata only and preserves boot.
 
           AFTER BOOT
+          - automatic report: /var/log/dior-hardware-firstboot.log
           - run: dior-hw-verify
           - run: dior-hw-smoke
           - run: dior-hw-probe
