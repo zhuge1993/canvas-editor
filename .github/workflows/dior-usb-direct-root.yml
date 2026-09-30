@@ -105,7 +105,8 @@ jobs:
             Bluetooth HCI, FM radio, GPS/NMEA/SMD, rmnet modem interfaces and sensors
 
           Physical-device functionality is not claimed until tested on the target phone.
-          EOF          cp tools/dior-flash/flash-directroot.ps1 "$RUNNER_TEMP/release/flash-directroot.ps1"
+          EOF
+          cp tools/dior-flash/flash-directroot.ps1 "$RUNNER_TEMP/release/flash-directroot.ps1"
           cp tools/dior-flash/flash-directroot.cmd "$RUNNER_TEMP/release/flash-directroot.cmd"
           mkdir -p "$RUNNER_TEMP/package"
           (
