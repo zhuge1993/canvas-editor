@@ -1,0 +1,8 @@
+#!/bin/sh
+# Always use the existing /bin/login and password database. Never auto-login.
+while :; do
+    if [ -c /dev/ttyGS0 ]; then
+        /bin/busybox getty -L 115200 ttyGS0 vt100
+    fi
+    /bin/busybox sleep 3
+done
