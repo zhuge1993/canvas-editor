@@ -88,5 +88,19 @@ try {
     Run-Test "device change after confirmation prevents write" {
         $script:ChangeDeviceAfterFirst=$true; Assert-Fails { Start-DiorDirectRootFlash $script:Images $script:Executable $true $false }; Assert-True ((Get-Writes).Count -eq 0) "changed device was written"
     }
-    Write-Host "$script:Passed/10 DirectRoot offline tests passed. No real phone was used."
+    Run-Test "fastboot falls back to PATH" {
+        $pathDir = Join-Path $script:Root ("path-" + [guid]::NewGuid().ToString())
+        $null = New-Item -ItemType Directory -Path $pathDir
+        $fake = Join-Path $pathDir "fastboot.exe"
+        [IO.File]::WriteAllText($fake,"mock only")
+        $oldPath = $env:PATH
+        try {
+            $env:PATH = $pathDir + [IO.Path]::PathSeparator + $oldPath
+            $resolved = Resolve-DirectRootFastboot (Join-Path $script:Root "missing-platform-tools\fastboot.exe")
+            Assert-True ([IO.Path]::GetFullPath($resolved) -eq [IO.Path]::GetFullPath($fake)) "PATH fastboot was not selected"
+        } finally {
+            $env:PATH = $oldPath
+        }
+    }
+    Write-Host "$script:Passed/11 DirectRoot offline tests passed. No real phone was used."
 } finally { Remove-Item -LiteralPath $script:Root -Recurse -Force }
