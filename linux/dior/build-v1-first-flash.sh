@@ -9,6 +9,18 @@ if ! command -v pmbootstrap >/dev/null 2>&1; then
 	echo "缺少 pmbootstrap。请先在 Linux 构建机安装并运行 pmbootstrap init。" >&2
 	exit 1
 fi
+if ! command -v git >/dev/null 2>&1; then
+	echo "缺少 git，无法锁定 V1 构建源码版本。" >&2
+	exit 1
+fi
+
+DIRTY="$(git -C "$REPO_ROOT" status --porcelain --untracked-files=normal)"
+if [ -n "$DIRTY" ]; then
+	echo "V1 首刷要求仓库工作区干净，避免 manifest 的 Git HEAD 与实际构建源码不一致。" >&2
+	echo "$DIRTY" >&2
+	echo "请先提交/暂存到别处或清理这些改动，再重新构建。" >&2
+	exit 1
+fi
 
 DEVICE="$(pmbootstrap config device 2>/dev/null || true)"
 case "$DEVICE" in

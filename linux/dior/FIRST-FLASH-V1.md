@@ -44,15 +44,16 @@ chmod +x linux/dior/build-v1-first-flash.sh linux/dior/flash-v1-first.sh
 
 脚本会：
 
-1. 确认 pmbootstrap 当前设备是 dior；
-2. 验证/补齐锁定的 dior device/kernel/firmware/WCNSS aport；
-3. 对历史 kernel patch 做 SHA-512 校验；
-4. 构建 FlowBoard Linux 发布包；
-5. 构建 `flowboard-server` APK；
-6. 构建 dior 3.4 kernel、WCNSS、firmware、device package；
-7. 使用 **standard（非 split）** 安装 FlowBoard 到 rootfs；
-8. `pmbootstrap export`；
-9. 生成 `BUILD-MANIFEST.txt`、`FLASHING-NOTES.txt`、`SHA256SUMS`。
+1. 确认仓库工作区干净，保证 Git HEAD 与实际构建源码一致；
+2. 确认 pmbootstrap 当前设备是 dior；
+3. 验证/补齐锁定的 dior device/kernel/firmware/WCNSS aport；
+4. 对历史 kernel patch 做 SHA-512 校验；
+5. **强制重新构建** FlowBoard Linux 发布包，不复用旧 tar；
+6. 构建 `flowboard-server` APK；
+7. 构建 dior 3.4 kernel、WCNSS、firmware、device package；
+8. 使用 **standard（非 split）** 安装 FlowBoard 到 rootfs；
+9. `pmbootstrap export`；
+10. 生成 `BUILD-MANIFEST.txt`、`FLASHING-NOTES.txt`、`SHA256SUMS`。
 
 默认产物目录：
 
@@ -90,9 +91,11 @@ product 必须能识别为 `dior`。本仓库的首刷脚本也会再次检查�
 1. 校验 `SHA256SUMS`；
 2. 校验 manifest 的 `target_device=dior`；
 3. 校验 `install_mode=standard`；
-4. 校验 Fastboot product；
-5. 要求手工输入 `DIOR` 二次确认；
-6. 执行：
+4. 重新导出当前 pmbootstrap 工作区，并与已校验 V1 导出产物逐文件比对 SHA-256；
+5. 要求 Fastboot 只能连接一台设备，并锁定其序列号；
+6. 精确校验 Fastboot `product=dior`；
+7. 要求手工输入 `DIOR` 二次确认；
+8. 执行：
    ```sh
    fastboot flash:raw boot out/dior-v1-first/boot.img-xiaomi-dior
    pmbootstrap flasher flash_rootfs
