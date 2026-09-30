@@ -13,6 +13,7 @@ from pathlib import Path
 import re
 import subprocess
 import tarfile
+import zipfile
 
 
 def sha256(file: Path) -> str:
@@ -70,10 +71,27 @@ def seal_candidate(state: Path, recipient: Path) -> Path:
         encoding='utf-8')
     files = sorted(file for file in images.rglob('*')
                    if file.is_file() and file.name != 'SHA256SUMS')
+    safe = state / 'safe-directroot'
+    if safe.is_dir():
+        shutil_target_enc = safe / 'FIRST-LOGIN.enc'
+        shutil_target_txt = safe / 'FIRST-LOGIN.txt'
+        shutil_target_enc.write_bytes((images / 'FIRST-LOGIN.enc').read_bytes())
+        shutil_target_txt.write_text((images / 'FIRST-LOGIN.txt').read_text(encoding='utf-8'),
+                                     encoding='utf-8')
+        safe_files = sorted(file for file in safe.rglob('*')
+                            if file.is_file() and file.name != 'SHA256SUMS')
+        (safe / 'SHA256SUMS').write_text(''.join(
+            f'{sha256(file)}  {file.relative_to(safe).as_posix()}\n' for file in safe_files),
+            encoding='utf-8')
+        subprocess.run(['sha256sum', '-c', 'SHA256SUMS'], cwd=safe, check=True,
+                       stdout=subprocess.DEVNULL)
+    else:
+        safe_files = []
+
     # Fail closed if the generated password also leaked into another export,
-    # including the raw rootfs. Scan in bounded chunks, including boundaries.
+    # including either raw rootfs. Scan in bounded chunks, including boundaries.
     secret_bytes = password.encode()
-    for file in files:
+    for file in [*files, *safe_files]:
         tail = b''
         with file.open('rb') as stream:
             for chunk in iter(lambda: stream.read(1024 * 1024), b''):
@@ -88,8 +106,18 @@ def seal_candidate(state: Path, recipient: Path) -> Path:
     archive = release / f'DiorLinux-FlowBoard-V1-{match[1][:12]}-candidate.tar.gz'
     with tarfile.open(archive, 'w:gz') as tar:
         tar.add(images, arcname='dior-v1')
-    (release / 'SHA256SUMS').write_text(
-        f'{sha256(archive)}  {archive.name}\n', encoding='utf-8')
+
+    if safe.is_dir():
+        safe_zip = release / f'DiorLinux-FlowBoard-V1-{match[1][:12]}-SafeDirectRoot.zip'
+        with zipfile.ZipFile(safe_zip, 'w', compression=zipfile.ZIP_DEFLATED,
+                             compresslevel=6, allowZip64=True) as zf:
+            for file in sorted(x for x in safe.rglob('*') if x.is_file()):
+                zf.write(file, file.relative_to(safe).as_posix())
+
+    release_files = sorted(file for file in release.iterdir()
+                           if file.is_file() and file.name != 'SHA256SUMS')
+    (release / 'SHA256SUMS').write_text(''.join(
+        f'{sha256(file)}  {file.name}\n' for file in release_files), encoding='utf-8')
     return archive
 
 
