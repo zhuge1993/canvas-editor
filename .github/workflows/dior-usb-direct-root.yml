@@ -5,6 +5,7 @@ on:
     paths:
       - 'tools/dior-usb-repair/make-direct-root.py'
       - '.github/workflows/dior-usb-direct-root.yml'
+      - 'tools/dior-hw/**'
   workflow_dispatch:
 permissions:
   contents: read
@@ -50,6 +51,8 @@ jobs:
           trap cleanup EXIT
           sudo mount -v -t ext4 "$root_loop" "$RUNNER_TEMP/rootmnt"
           sudo cp "$RUNNER_TEMP/rootmnt/etc/fstab" "$RUNNER_TEMP/release/FSTAB-BEFORE.txt"
+          sudo install -Dm755 tools/dior-hw/dior-hw-probe "$RUNNER_TEMP/rootmnt/usr/local/sbin/dior-hw-probe"
+          sudo install -Dm755 tools/dior-hw/dior-touch-test "$RUNNER_TEMP/rootmnt/usr/local/sbin/dior-touch-test"
           grep -q '2b3bcea5-5043-47de-a4f3-4959104f4762[[:space:]]\+/[[:space:]]' "$RUNNER_TEMP/rootmnt/etc/fstab"
           sudo sed -i '\|[[:space:]]/boot[[:space:]]|d' "$RUNNER_TEMP/rootmnt/etc/fstab"
           ! grep -q '[[:space:]]/boot[[:space:]]' "$RUNNER_TEMP/rootmnt/etc/fstab"
