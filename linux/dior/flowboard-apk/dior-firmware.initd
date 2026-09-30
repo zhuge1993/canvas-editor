@@ -32,10 +32,14 @@ link_firmware_family() {
 	done
 }
 
+is_mounted() {
+	grep -qs " /run/dior-firmware " /proc/mounts
+}
+
 start() {
 	ebegin "Preparing dior stock firmware bridge"
 	mkdir -p /run/dior-firmware /lib/firmware
-	if ! mountpoint -q /run/dior-firmware 2>/dev/null; then
+	if ! is_mounted; then
 		part="$(find_modem_partition 2>/dev/null || true)"
 		if [ -n "$part" ]; then
 			if ! mount -o ro "$part" /run/dior-firmware 2>/dev/null; then
@@ -46,7 +50,7 @@ start() {
 		fi
 	fi
 
-	if mountpoint -q /run/dior-firmware 2>/dev/null; then
+	if is_mounted; then
 		link_firmware_family /run/dior-firmware
 		link_firmware_family /run/dior-firmware/image
 	fi
