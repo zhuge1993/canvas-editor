@@ -53,6 +53,20 @@ start()
 		return 1
 	fi
 
+	# Dior's downstream 3.4 PIL loader cannot use the postmarketOS firmware
+	# search-path override. Refuse to trigger Pronto until its legacy firmware
+	# location is actually populated; otherwise each failed attempt costs ~60s.
+	if [ ! -s /lib/firmware/wcnss.mdt ]; then
+		eerror "Missing /lib/firmware/wcnss.mdt required by downstream PIL/Pronto"
+		eend 1
+		return 1
+	fi
+	if [ ! -s /lib/firmware/wlan/prima/WCNSS_qcom_wlan_nv.bin ]; then
+		eerror "Missing legacy Prima WLAN firmware under /lib/firmware/wlan/prima"
+		eend 1
+		return 1
+	fi
+
 	if ! echo 1 > /dev/wcnss_wlan; then
 		eerror "Failed to enable /dev/wcnss_wlan"
 		eend 1
