@@ -19,9 +19,9 @@ permissions:
 
 jobs:
   dior-v1-image:
-    # The candidate contains a freshly generated, private first-login password.
-    # Never upload it from a public fork; no secrets or SMTP codes are required.
-    if: github.repository == 'zhuge1993/canvas-editor' && github.event.repository.private == true
+    # Public standard Linux runners are supported. Never run in an unrelated fork.
+    # Upload only the sealed candidate; the recipient private key is NOT in GitHub.
+    if: github.repository == 'zhuge1993/canvas-editor'
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     env:
@@ -59,11 +59,13 @@ jobs:
           mkdir -p "$RUNNER_TEMP/flowboard-dior-v1/logs"
           python3 linux/dior/ci-build-image.py 2>&1 \
             | tee "$RUNNER_TEMP/flowboard-dior-v1/logs/build.log"
+      - name: Encrypt OS login receipt before public publication
+        run: python3 linux/dior/seal-public-image.py
       - name: Upload complete image candidate (not real-device validated)
         uses: actions/upload-artifact@v4
         with:
           name: DiorLinux-FlowBoard-V1-${{ github.sha }}
-          path: ${{ runner.temp }}/flowboard-dior-v1/release/
+          path: ${{ runner.temp }}/flowboard-dior-v1/public-release/
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
