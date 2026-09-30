@@ -9,6 +9,8 @@ on:
       - 'tools/dior-usb-repair/inject-dior-hardware.sh'
       - 'linux/dior/flowboard-apk/dior-firmware.initd'
       - 'linux/dior/flowboard-apk/dior-adsp.initd'
+      - 'tools/dior-flash/flash-directroot.ps1'
+      - 'tools/dior-flash/flash-directroot.cmd'
   workflow_dispatch:
 permissions:
   contents: read
@@ -77,11 +79,14 @@ jobs:
           The stale /boot fstab entry is removed offline and e2fsck is run afterward.
           Includes legacy WCNSS/Prima paths, Dior Venus/CPP firmware, MTP ACDB data,\n          the stock firmware-partition bridge, Q6/ADSP startup service, and hardware verifier.\n          Physical-device functionality is not claimed until tested on the target phone.
           EOF
+          cp tools/dior-flash/flash-directroot.ps1 "$RUNNER_TEMP/release/flash-directroot.ps1"
+          cp tools/dior-flash/flash-directroot.cmd "$RUNNER_TEMP/release/flash-directroot.cmd"
           mkdir -p "$RUNNER_TEMP/package"
           (
             cd "$RUNNER_TEMP/release"
             zip -9 "$RUNNER_TEMP/package/DiorLinux-V1-DirectRoot-Userdata.zip" \
-              xiaomi-dior-pmOS-root-direct.img VERIFICATION.json SHA256SUMS README.txt FSTAB-BEFORE.txt FSTAB-AFTER.txt
+              xiaomi-dior-pmOS-root-direct.img VERIFICATION.json SHA256SUMS README.txt FSTAB-BEFORE.txt FSTAB-AFTER.txt \
+              flash-directroot.ps1 flash-directroot.cmd
           )
           unzip -t "$RUNNER_TEMP/package/DiorLinux-V1-DirectRoot-Userdata.zip"
           sha256sum "$RUNNER_TEMP/package/DiorLinux-V1-DirectRoot-Userdata.zip" > "$RUNNER_TEMP/package/DiorLinux-V1-DirectRoot-Userdata.zip.sha256"
