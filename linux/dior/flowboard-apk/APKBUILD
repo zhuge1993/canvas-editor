@@ -15,7 +15,7 @@ depends="nodejs ca-certificates dropbear alsa-utils v4l-utils evtest"
 options="!check !fhs"
 install="$pkgname.pre-install $pkgname.post-install"
 backup="opt/flowboard/flowboard.env"
-source="flowboard-release.tar.gz dior-dropbear.initd dior-firmware.initd dior-adsp.initd dior-hw-probe dior-touch-test dior-hw-verify"
+source="flowboard-release.tar.gz dior-dropbear.initd dior-firmware.initd dior-adsp.initd dior-bluetooth.initd dior-hw-probe dior-touch-test dior-hw-verify"
 
 package() {
 	install -d "$pkgdir"/opt/flowboard
@@ -34,6 +34,7 @@ package() {
 	install -Dm755 "$srcdir"/dior-dropbear.initd "$pkgdir"/etc/init.d/dior-dropbear
 	install -Dm755 "$srcdir"/dior-firmware.initd "$pkgdir"/etc/init.d/dior-firmware
 	install -Dm755 "$srcdir"/dior-adsp.initd "$pkgdir"/etc/init.d/dior-adsp
+	install -Dm755 "$srcdir"/dior-bluetooth.initd "$pkgdir"/etc/init.d/dior-bluetooth
 	install -Dm755 "$srcdir"/dior-hw-probe "$pkgdir"/usr/local/sbin/dior-hw-probe
 	install -Dm755 "$srcdir"/dior-touch-test "$pkgdir"/usr/local/sbin/dior-touch-test
 	install -Dm755 "$srcdir"/dior-hw-verify "$pkgdir"/usr/local/sbin/dior-hw-verify
@@ -43,6 +44,7 @@ package() {
 	ln -sf /etc/init.d/dior-dropbear "$pkgdir"/etc/runlevels/default/dior-dropbear
 	ln -sf /etc/init.d/dior-firmware "$pkgdir"/etc/runlevels/default/dior-firmware
 	ln -sf /etc/init.d/dior-adsp "$pkgdir"/etc/runlevels/default/dior-adsp
+	ln -sf /etc/init.d/dior-bluetooth "$pkgdir"/etc/runlevels/default/dior-bluetooth
 
 	install -d "$pkgdir"/etc/systemd/system/multi-user.target.wants
 	ln -sf /usr/lib/systemd/system/flowboard.service \
