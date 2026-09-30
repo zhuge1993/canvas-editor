@@ -43,30 +43,29 @@ jobs:
           sh -n tools/dior-hw/dior-touch-test
           sh -n tools/dior-hw/dior-hw-verify
           sh -n tools/dior-usb-repair/inject-dior-hardware.sh
-          grep -q '^CONFIG_MSM_KGSL=y      - name: Upload Linux release
-        uses: actions/upload-artifact@v4
-        with:
-          name: FlowBoard-linux
-          path: frontend/FlowBoard-linux.tar.gz
-          if-no-files-found: error
- linux/dior/pmaports-snapshot/device/archived/linux-xiaomi-dior/config-xiaomi-dior.armv7
-          grep -q '^CONFIG_IMMERSION_HAPTIC=y      - name: Upload Linux release
-        uses: actions/upload-artifact@v4
-        with:
-          name: FlowBoard-linux
-          path: frontend/FlowBoard-linux.tar.gz
-          if-no-files-found: error
- linux/dior/pmaports-snapshot/device/archived/linux-xiaomi-dior/config-xiaomi-dior.armv7
-          grep -q '^CONFIG_RFKILL=y      - name: Upload Linux release
-        uses: actions/upload-artifact@v4
-        with:
-          name: FlowBoard-linux
-          path: frontend/FlowBoard-linux.tar.gz
-          if-no-files-found: error
- linux/dior/pmaports-snapshot/device/archived/linux-xiaomi-dior/config-xiaomi-dior.armv7
+          grep -q '^CONFIG_MSM_KGSL=y$' linux/dior/pmaports-snapshot/device/archived/linux-xiaomi-dior/config-xiaomi-dior.armv7
+          grep -q '^CONFIG_IMMERSION_HAPTIC=y$' linux/dior/pmaports-snapshot/device/archived/linux-xiaomi-dior/config-xiaomi-dior.armv7
+          grep -q '^CONFIG_RFKILL=y$' linux/dior/pmaports-snapshot/device/archived/linux-xiaomi-dior/config-xiaomi-dior.armv7
           grep -q 'a330_pm4.fw' linux/dior/pmaports-snapshot/device/archived/firmware-xiaomi-dior/APKBUILD
           grep -q 'venus.mdt' linux/dior/pmaports-snapshot/device/archived/firmware-xiaomi-dior/APKBUILD
           grep -q 'MTP_Speaker_cal.acdb' linux/dior/pmaports-snapshot/device/archived/firmware-xiaomi-dior/APKBUILD
+      - name: Calculate locked Dior firmware hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+          commit=421527f4e54d645adaf762b4f14cc5fd4d19a5b5
+          fw_base="https://raw.githubusercontent.com/msfkonsole/proprietary_vendor_xiaomi/$commit/dior/proprietary/etc/firmware"
+          acdb_base="https://raw.githubusercontent.com/msfkonsole/proprietary_vendor_xiaomi/$commit/dior/proprietary/etc/acdbdata/MTP"
+          for name in             venus.b00 venus.b01 venus.b02 venus.b03 venus.b04 venus.mbn venus.mdt             cpp_firmware_v1_1_1.fw cpp_firmware_v1_1_6.fw cpp_firmware_v1_2_0.fw             a300_pfp.fw a300_pm4.fw a330_pfp.fw a330_pm4.fw
+          do
+            hash="$(curl -fsSL --retry 3 "$fw_base/$name" | sha512sum | awk '{print $1}')"
+            echo "DIOR_FW_HASH $name $hash"
+          done
+          for name in             MTP_Bluetooth_cal.acdb MTP_General_cal.acdb MTP_Global_cal.acdb             MTP_Handset_cal.acdb MTP_Hdmi_cal.acdb MTP_Headset_cal.acdb MTP_Speaker_cal.acdb
+          do
+            hash="$(curl -fsSL --retry 3 "$acdb_base/$name" | sha512sum | awk '{print $1}')"
+            echo "DIOR_FW_HASH $name $hash"
+          done
       - name: Upload Linux release
         uses: actions/upload-artifact@v4
         with:
