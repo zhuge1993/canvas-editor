@@ -73,7 +73,7 @@ cat /proc/cpuinfo 2>/dev/null || true
 cat /proc/meminfo 2>/dev/null | head -n 20 || true
 
 section "RELEVANT KERNEL LOG"
-dmesg 2>/dev/null | grep -Ei "touch|synapt|ft5|goodix|ist30|atmel|mxt|wcnss|pronto|wlan|wifi|firmware|wcd|audio|alsa|snd|camera|msm_cam|msmb|v4l|video[0-9]|cci|csid|csiphy" | tail -n 500 || true
+dmesg 2>/dev/null | grep -Ei "touch|synapt|ft5|goodix|ist30|atmel|mxt|wcnss|pronto|wlan|wifi|firmware|wcd|tapan|slim|adsp|lpass|q6|apr|audio|alsa|snd|camera|msm_cam|msmb|v4l|vidc|venus|cpp|video[0-9]|cci|csid|csiphy|battery|charger|bms|thermal|rfkill|bluetooth|hci|vibrator|sensor" | tail -n 500 || true
 
 section "SERVICES"
 command -v rc-status >/dev/null 2>&1 && rc-status -a || true
