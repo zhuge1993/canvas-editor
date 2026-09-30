@@ -59,6 +59,10 @@ cf17bd7293a25ae84153ee0686a70ec36272eceebb1796f63cd2fbffdc5fe40a412de3e006fdc54b
 e4caa5e980eaa3e1f33f233ec2dd0643f61c5984690539311e092dcb0165612dffe2b7d0876e80abc8b710aeff11dd4e557c4b958ecf2b44b155e0f8685b6638 cpp_firmware_v1_1_1.fw
 a024e20b0212392aa744245e675fe7ffd2e71b70e108f74684140fb9ffcf78b871af0d883ecc14daedc9146ef89bc997420ae80dab0c5db0fc919416cb03fd11 cpp_firmware_v1_1_6.fw
 b3ee274b8de7b4a371be4c54c7fb948a96b117dfc844612afa69c807a831922203c2611a84a1710db630f2986e256d656cc3c1f257b17794b7ee3e5a6542f267 cpp_firmware_v1_2_0.fw
+0622ce695b8021fd2bc1d94498b475dc2aac582b637dd4695968912b69ee61e190ce3848d233a514b37ece5a63d47878254ef220d573035b47b888e92e91d684 a300_pfp.fw
+c330767a1bfd200745c7dd8d80e293bbffe906d07f4c5f595af69c46bb6d6bb390f3e386ccf999f2a77ced8e969abb0743d723bd94f7cb8c96320ba72129d1d2 a300_pm4.fw
+a642584990333d62ba6a985eeaddc6898c37a8e80aabb61121f93a90d5076861eb698422101e7b00706b7d3dfc00f9f358ea5e44a70fda7369931eb58b455931 a330_pfp.fw
+999e3e0777b8dffc0e0d20b214c8217dab577a31753b6a29af2fae57293693196e992a905265e35a586a7978c04547aa8c88496dbe6f836b74ed39026eaa5f05 a330_pm4.fw
 EOF
 
 # Dior MTP audio calibration database.
@@ -78,6 +82,7 @@ EOF
 test -s "$ROOT/lib/firmware/wcnss.mdt"
 test -s "$ROOT/lib/firmware/venus.mdt"
 test -s "$ROOT/etc/firmware/cpp_firmware_v1_2_0.fw"
+test -s "$ROOT/lib/firmware/a330_pm4.fw"
 test -s "$ROOT/etc/acdbdata/MTP/MTP_Speaker_cal.acdb"
 test -x "$ROOT/etc/init.d/dior-firmware"
 test -x "$ROOT/etc/init.d/dior-adsp"
