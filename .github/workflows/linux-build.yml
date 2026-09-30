@@ -1,0 +1,42 @@
+name: Linux server build
+
+on:
+  push:
+    branches:
+      - linux-server-armhf
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  linux-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - name: Install dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+      - name: Build Linux release
+        working-directory: frontend
+        run: pnpm run build:linux
+      - name: Inspect release
+        working-directory: frontend
+        run: |
+          test -s FlowBoard-linux.tar.gz
+          tar -tzf FlowBoard-linux.tar.gz | sort
+      - name: Upload Linux release
+        uses: actions/upload-artifact@v4
+        with:
+          name: FlowBoard-linux
+          path: frontend/FlowBoard-linux.tar.gz
+          if-no-files-found: error

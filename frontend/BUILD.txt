@@ -1,0 +1,25 @@
+﻿FlowBoard 部署包说明
+================
+
+包内容：
+- FlowBoard.exe        服务端可执行文件
+- dist/                前端资源（仅作备份参考：exe 已在打包时内嵌前端）
+- start-server.cmd     双击启动服务
+- allow-firewall.cmd   管理员运行，放行 Windows 防火墙
+- configure-smtp.cmd   配置 SMTP 邮件服务
+- flowboard.env.cmd    自定义环境变量（参考 .example）
+
+启动：
+双击 start-server.cmd，或命令行：
+FlowBoard.exe --host 0.0.0.0 --port 3000
+
+默认端口 3000，可在 flowboard.env.cmd 中用 FLOWBOARD_PORT / FLOWBOARD_HOST 覆盖。
+
+服务器部署注意：
+- 替换新版前先停掉旧进程：netstat -ano | findstr :3000 查 PID，再结束该进程
+- 云服务器需在安全组放行 3000 端口入站规则
+- 数据目录：auth-data/、project-data/、logs/ 请备份
+
+前端更新注意：
+- FlowBoard.exe 用 pkg 打包时把 dist/ 内嵌进 exe（server.ts 优先读内嵌快照），
+  所以只替换服务器上的 dist/ 目录不会生效——前端有改动必须重新 build:exe 生成新 exe。

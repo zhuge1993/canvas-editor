@@ -1,0 +1,21 @@
+name: Dior Windows flash client tests
+on:
+  push:
+    branches: [linux-server-armhf]
+    paths:
+      - 'tools/dior-flash/**'
+      - '.github/workflows/dior-flash-client.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows-client:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Test client with Windows PowerShell 5.1 and mocked Fastboot only
+        shell: powershell
+        run: ./tools/dior-flash/test-flash-client.ps1

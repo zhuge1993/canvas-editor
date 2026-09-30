@@ -1,0 +1,13 @@
+# Local output and release packages
+frontend/*.exe
+frontend/*.zip
+frontend/*.tar.gz
+frontend/*.blob
+frontend/releases/*.exe
+frontend/FlowBoard-发布包/
+frontend/tmp-anchor/
+
+# Local scripts and notes outside the application
+/shot.ps1
+/max.ps1
+/开发规则.txt
