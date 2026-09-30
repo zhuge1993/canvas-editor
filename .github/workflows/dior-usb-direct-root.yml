@@ -10,6 +10,7 @@ on:
       - 'linux/dior/flowboard-apk/dior-firmware.initd'
       - 'linux/dior/flowboard-apk/dior-adsp.initd'
       - 'linux/dior/flowboard-apk/dior-bluetooth.initd'
+      - 'linux/dior/flowboard-apk/dior-hw-report.initd'
       - 'tools/dior-flash/flash-directroot.ps1'
       - 'tools/dior-flash/flash-directroot.cmd'
   workflow_dispatch:
@@ -66,6 +67,7 @@ jobs:
           sudo test -x "$RUNNER_TEMP/rootmnt/etc/init.d/wcnss-wlan"
           sudo test -x "$RUNNER_TEMP/rootmnt/etc/init.d/dior-firmware"
           sudo test -x "$RUNNER_TEMP/rootmnt/etc/init.d/dior-adsp"
+          sudo test -x "$RUNNER_TEMP/rootmnt/etc/init.d/dior-hw-report"
           sudo test -x "$RUNNER_TEMP/rootmnt/usr/local/sbin/dior-hw-verify"
           sudo test -x "$RUNNER_TEMP/rootmnt/usr/local/sbin/dior-hw-probe"
           sudo test -x "$RUNNER_TEMP/rootmnt/usr/local/sbin/dior-hw-smoke"
