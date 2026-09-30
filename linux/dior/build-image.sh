@@ -329,6 +329,8 @@ pmbootstrap chroot -r -- sh -ec '
 	test -s /lib/firmware/venus.mdt
 	test -s /lib/firmware/venus.mbn
 	test -s /etc/firmware/cpp_firmware_v1_2_0.fw
+	test -s /lib/firmware/a300_pfp.fw
+	test -s /lib/firmware/a330_pm4.fw
 	test -s /etc/acdbdata/MTP/MTP_Handset_cal.acdb
 	test -s /etc/acdbdata/MTP/MTP_Speaker_cal.acdb
 
