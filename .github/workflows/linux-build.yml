@@ -23,6 +23,17 @@ jobs:
           node-version: '22'
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
+      - name: Validate Dior shell scripts
+        run: |
+          sh -n linux/dior/build-image.sh
+          sh -n linux/dior/build-v1-first-flash.sh
+          sh -n tools/dior-usb-repair/inject-dior-hardware.sh
+          sh -n tools/dior-hw/dior-hw-probe
+          sh -n tools/dior-hw/dior-hw-verify
+          sh -n linux/dior/flowboard-apk/dior-firmware.initd
+          sh -n linux/dior/flowboard-apk/dior-adsp.initd
+          test ! -f linux/dior/flowboard-apk/dior-bluetooth.initd || sh -n linux/dior/flowboard-apk/dior-bluetooth.initd
+          sh -n linux/dior/pmaports-snapshot/main/wcnss-wlan/wcnss-wlan.initd
       - name: Install dependencies
         working-directory: frontend
         run: pnpm install --frozen-lockfile
