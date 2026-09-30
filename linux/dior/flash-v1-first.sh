@@ -60,17 +60,33 @@ if [ "$DEVICE_COUNT" -ne 1 ]; then
 	fastboot devices || true
 	exit 1
 fi
+FASTBOOT_SERIAL="$(printf '%s\n' "$DEVICES" | awk 'NF {print $1; exit}')"
 
-PRODUCT_OUTPUT="$(fastboot getvar product 2>&1 || true)"
-case "$PRODUCT_OUTPUT" in
-	*dior*|*DIOR*)
-		;;
-	*)
-		echo "Fastboot product 没有识别为 dior，拒绝刷机。" >&2
-		echo "$PRODUCT_OUTPUT" >&2
+check_same_fastboot_device() {
+	current="$(fastboot devices 2>/dev/null | awk 'NF {print $1}')"
+	count="$(printf '%s\n' "$current" | awk 'NF {count++} END {print count+0}')"
+	[ "$count" -eq 1 ] && [ "$current" = "$FASTBOOT_SERIAL" ] || {
+		echo "Fastboot 设备在刷写过程中发生变化，拒绝继续。" >&2
+		echo "期望序列号: $FASTBOOT_SERIAL" >&2
+		fastboot devices || true
 		exit 1
-		;;
-esac
+	}
+}
+
+PRODUCT_OUTPUT="$(fastboot -s "$FASTBOOT_SERIAL" getvar product 2>&1 || true)"
+PRODUCT="$(printf '%s\n' "$PRODUCT_OUTPUT" | awk -F: '
+	tolower($1) ~ /^[[:space:]]*product[[:space:]]*$/ {
+		value=$2
+		gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+		print tolower(value)
+		exit
+	}
+')"
+if [ "$PRODUCT" != "dior" ]; then
+	echo "Fastboot product 不是精确的 dior，拒绝刷机。" >&2
+	echo "$PRODUCT_OUTPUT" >&2
+	exit 1
+fi
 
 echo
 echo "即将刷写：Xiaomi Redmi Note 4G 单卡版 / dior"
@@ -79,28 +95,29 @@ echo "rootfs: 当前 pmbootstrap V1 standard 安装产物"
 echo
 echo "这会覆盖手机现有 Linux/Android 相关系统内容。重要数据必须已经备份。"
 
-if [ "${CONFIRM_DIOR_FLASH:-}" != "YES" ]; then
-	printf "确认手机确实是单卡 dior，并继续刷写请输入 DIOR: "
-	IFS= read -r answer
-	[ "$answer" = "DIOR" ] || {
-		echo "已取消。"
-		exit 1
-	}
-fi
+printf "确认手机确实是单卡 dior，并继续刷写请输入 DIOR: "
+IFS= read -r answer
+[ "$answer" = "DIOR" ] || {
+	echo "已取消。"
+	exit 1
+}
 
 echo
 echo "[1/2] 刷写 Android boot image..."
-fastboot flash:raw boot "$BOOT_IMAGE"
+check_same_fastboot_device
+fastboot -s "$FASTBOOT_SERIAL" flash:raw boot "$BOOT_IMAGE"
 
 echo
 echo "[2/2] 刷写 postmarketOS rootfs..."
+check_same_fastboot_device
 pmbootstrap flasher flash_rootfs
 
 echo
 echo "刷写命令均已成功完成。"
 if [ "${REBOOT_AFTER_FLASH:-1}" = "1" ]; then
 	echo "正在重启手机..."
-	fastboot reboot
+	check_same_fastboot_device
+	fastboot -s "$FASTBOOT_SERIAL" reboot
 else
 	echo "未自动重启。需要时执行: fastboot reboot"
 fi
