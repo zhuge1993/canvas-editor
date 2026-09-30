@@ -6,6 +6,8 @@ on:
     paths:
       - 'frontend/**'
       - 'linux/dior/**'
+      - 'tools/dior-hw/**'
+      - 'tools/dior-boot/**'
       - '.github/workflows/dior-v1-image.yml'
   workflow_dispatch:
 
