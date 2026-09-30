@@ -46,6 +46,12 @@ start() {
 		return 1
 	fi
 
+	# The verified DirectRoot base already carries hciconfig; full images also
+	# install BlueZ. Bring the controller UP even when bluetoothd is absent.
+	if command -v hciconfig >/dev/null 2>&1; then
+		hciconfig hci0 up 2>/dev/null || ewarn "hci0 registered but hciconfig could not bring it UP"
+	fi
+
 	eend 0
 }
 
