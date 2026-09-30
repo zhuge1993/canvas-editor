@@ -12,7 +12,7 @@ on:
 # A full kernel/rootfs build is deliberately NOT duplicated for pull_request.
 concurrency:
   group: dior-v1-image-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 permissions:
   contents: read
