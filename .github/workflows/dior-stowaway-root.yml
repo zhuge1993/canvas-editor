@@ -49,9 +49,18 @@ jobs:
           sudo e2fsck -fy "$root"
           truncate -s 805306368 "$root"
           sudo resize2fs "$root" 768M
-          sudo mount -o loop,ro "$boot" "$RUNNER_TEMP/mnt-boot"
-          sudo mount -o loop "$root" "$RUNNER_TEMP/mnt-root"
-          cleanup() { sudo umount "$RUNNER_TEMP/mnt-root" 2>/dev/null || true; sudo umount "$RUNNER_TEMP/mnt-boot" 2>/dev/null || true; }
+          sudo modprobe loop || true
+          boot_loop="$(sudo losetup --find --show "$boot")"
+          root_loop="$(sudo losetup --find --show "$root")"
+          echo "boot_loop=$boot_loop root_loop=$root_loop"
+          sudo mount -v -t ext2 -o ro "$boot_loop" "$RUNNER_TEMP/mnt-boot"
+          sudo mount -v -t ext4 "$root_loop" "$RUNNER_TEMP/mnt-root"
+          cleanup() {
+            sudo umount "$RUNNER_TEMP/mnt-root" 2>/dev/null || true
+            sudo umount "$RUNNER_TEMP/mnt-boot" 2>/dev/null || true
+            sudo losetup -d "$root_loop" 2>/dev/null || true
+            sudo losetup -d "$boot_loop" 2>/dev/null || true
+          }
           trap cleanup EXIT
           sudo cp "$RUNNER_TEMP/mnt-root/etc/fstab" "$RUNNER_TEMP/work/fstab.before"
           sudo rsync -aHAX --numeric-ids "$RUNNER_TEMP/mnt-boot/" "$RUNNER_TEMP/mnt-root/boot/"
