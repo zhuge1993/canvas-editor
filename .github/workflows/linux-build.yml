@@ -76,33 +76,7 @@ jobs:
           grep -q 'a330_pm4.fw' linux/dior/pmaports-snapshot/device/archived/firmware-xiaomi-dior/APKBUILD
           grep -q 'venus.mdt' linux/dior/pmaports-snapshot/device/archived/firmware-xiaomi-dior/APKBUILD
           grep -q 'MTP_Speaker_cal.acdb' linux/dior/pmaports-snapshot/device/archived/firmware-xiaomi-dior/APKBUILD
-          grep -q '^pkgname=flowboard-dior-firmware          grep -q 'dior-hw-report.initd' linux/dior/flowboard-apk/APKBUILD
-      - name: Validate FlowBoard appliance policy
-        run: |
-          set -eu
-          grep -Fq "FLOWBOARD_DEFAULT_ADMIN_EMAIL ?? '804559340@qq.com'" frontend/runtimeCore.ts
-          grep -Fq "FLOWBOARD_MAX_USERS ?? '20'" frontend/runtimeCore.ts
-          grep -Fq "pathname === '/api/admin/invites'" frontend/runtimeCore.ts
-          grep -Fq "pathname === '/api/admin/copy-group'" frontend/runtimeCore.ts
-          grep -Fq "cloneGroupIntoCanvas" frontend/runtimeCore.ts
-          grep -Fq "cloned.startBinding" frontend/runtimeCore.ts
-          grep -Fq "cloned.endBinding" frontend/runtimeCore.ts
-          grep -Fq "user.isAdmin === true || project.ownerId === user.id" frontend/runtimeCore.ts
-          grep -Fq "x-forwarded-host" frontend/runtimeCore.ts
-          grep -Fq "x-forwarded-proto" frontend/runtimeCore.ts
-          grep -Fq "FLOWBOARD_HOST=127.0.0.1" frontend/flowboard.env.example
-          grep -Fq "FLOWBOARD_MAX_USERS=20" frontend/flowboard.env.example
-          grep -Fq "FLOWBOARD_DEFAULT_ADMIN_EMAIL=804559340@qq.com" frontend/flowboard.env.example
-          grep -Fq "adminCopyGroup" frontend/src/pages/Admin/index.tsx
-          grep -Fq 'navigate(`/editor/${doc.id}`)' frontend/src/pages/Admin/index.tsx
-          grep -Fq "set stp <授权码>" frontend/server.ts
-      - name: Upload Linux release
-        uses: actions/upload-artifact@v4
-        with:
-          name: FlowBoard-linux
-          path: frontend/FlowBoard-linux.tar.gz
-          if-no-files-found: error
- linux/dior/flowboard-dior-firmware-apk/APKBUILD
+          grep -q '^pkgname=flowboard-dior-firmware$' linux/dior/flowboard-dior-firmware-apk/APKBUILD
           grep -q 'wcnss.mdt' linux/dior/flowboard-dior-firmware-apk/APKBUILD
           grep -q 'venus.mdt' linux/dior/flowboard-dior-firmware-apk/APKBUILD
           grep -q 'MTP_Speaker_cal.acdb' linux/dior/flowboard-dior-firmware-apk/APKBUILD
