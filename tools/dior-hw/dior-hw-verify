@@ -10,6 +10,7 @@ bad(){ printf 'FAIL  %s\n' "$*"; fail=$((fail+1)); }
 note(){ printf 'INFO  %s\n' "$*"; info=$((info+1)); }
 
 [ -c /dev/fb0 ] && ok "display framebuffer /dev/fb0" || bad "display framebuffer missing"
+[ -c /dev/kgsl-3d0 ] && ok "Adreno KGSL /dev/kgsl-3d0" || note "Adreno KGSL device not exposed"
 
 touch_name=""
 for e in /sys/class/input/event*; do
