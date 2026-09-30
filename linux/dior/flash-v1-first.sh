@@ -16,6 +16,7 @@ need pmbootstrap
 need fastboot
 need sha256sum
 need grep
+need awk
 
 DEVICE="$(pmbootstrap config device 2>/dev/null || true)"
 case "$DEVICE" in

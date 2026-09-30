@@ -61,6 +61,6 @@ echo "V1 构建已完成。下一步："
 echo "1. 关闭 Redmi Note 4G 单卡 dior。"
 echo "2. 按住 音量减 + 电源 进入 Fastboot。"
 echo "3. USB 连接当前这台 Linux 构建机。"
-echo "4. 执行: OUTPUT_DIR="$OUTPUT_DIR" sh "$SCRIPT_DIR/flash-v1-first.sh""
+echo "4. 执行: OUTPUT_DIR='$OUTPUT_DIR' sh '$SCRIPT_DIR/flash-v1-first.sh'"
 echo
 echo "不要把这些产物刷到双卡版/gucci 或其他 Redmi Note。"
