@@ -45,7 +45,7 @@ echo "output : $OUTPUT_DIR"
 echo "mode   : standard（不使用 split）"
 echo "============================================================"
 
-DIOR_INSTALL_MODE=standard OUTPUT_DIR="$OUTPUT_DIR" sh "$SCRIPT_DIR/build-image.sh"
+REBUILD_FLOWBOARD_RELEASE=1 DIOR_INSTALL_MODE=standard OUTPUT_DIR="$OUTPUT_DIR" sh "$SCRIPT_DIR/build-image.sh"
 
 if ! grep -q '^target_device=dior$' "$OUTPUT_DIR/BUILD-MANIFEST.txt"; then
 	echo "V1 manifest 的 target_device 不是 dior，拒绝继续。" >&2

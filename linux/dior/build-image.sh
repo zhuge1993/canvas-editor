@@ -9,6 +9,7 @@ SNAPSHOT_ROOT="$SCRIPT_DIR/pmaports-snapshot"
 PMB_APORTS="${PMB_APORTS:-$HOME/.local/var/pmbootstrap/cache_git/pmaports}"
 OUTPUT_DIR="${OUTPUT_DIR:-$REPO_ROOT/out/dior}"
 FLOWBOARD_RELEASE="${FLOWBOARD_RELEASE:-$FRONTEND_DIR/FlowBoard-linux.tar.gz}"
+REBUILD_FLOWBOARD_RELEASE="${REBUILD_FLOWBOARD_RELEASE:-0}"
 DIOR_INSTALL_MODE="${DIOR_INSTALL_MODE:-split}"
 
 case "$DIOR_INSTALL_MODE" in
@@ -238,14 +239,21 @@ echo "dior kernel aport  : $KERNEL_APORT"
 echo "dior firmware aport: $FIRMWARE_APORT"
 echo "WCNSS helper aport : $WCNSS_APORT"
 
-if [ ! -f "$FLOWBOARD_RELEASE" ]; then
+if [ "$REBUILD_FLOWBOARD_RELEASE" = "1" ] || [ ! -f "$FLOWBOARD_RELEASE" ]; then
 	need pnpm
-	echo "未找到 $FLOWBOARD_RELEASE，先构建 FlowBoard Linux 发布包..."
+	if [ "$REBUILD_FLOWBOARD_RELEASE" = "1" ]; then
+		echo "强制重建 FlowBoard Linux 发布包，避免把旧 tar 混入当前镜像..."
+	else
+		echo "未找到 $FLOWBOARD_RELEASE，先构建 FlowBoard Linux 发布包..."
+	fi
 	(
 		cd "$FRONTEND_DIR"
 		pnpm install --frozen-lockfile
 		pnpm run build:linux
 	)
+	if [ "$FLOWBOARD_RELEASE" != "$FRONTEND_DIR/FlowBoard-linux.tar.gz" ]; then
+		cp "$FRONTEND_DIR/FlowBoard-linux.tar.gz" "$FLOWBOARD_RELEASE"
+	fi
 fi
 
 if [ ! -s "$FLOWBOARD_RELEASE" ]; then
