@@ -1970,15 +1970,30 @@ async function handleProjects(req: IncomingMessage, res: ServerResponse, paths: 
     }
 
     if (req.method === 'POST' && versionListMatch) {
-      // 创建版本快照
+      // 创建版本快照。提交前重新读取最新项目，避免项目/用户删除后旧请求重建孤儿 versions 目录。
       const body = await readBody(req)
       const name = typeof body.name === 'string' && body.name.trim() ? body.name.trim().slice(0, 100) : `版本 ${new Date().toLocaleString('zh-CN')}`
-      const content = typeof body.content === 'string' ? body.content : JSON.stringify(projectCanvas(project))
-      const versionIdNew = `v_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-      const version = { id: versionIdNew, name, content, createdAt: Date.now() }
-      await fsp.mkdir(versionsDir, { recursive: true })
-      await writeJson(path.join(versionsDir, `${versionIdNew}.json`), version)
-      sendJson(res, 201, { id: versionIdNew, name, createdAt: version.createdAt })
+      const requestedContent = typeof body.content === 'string' ? body.content : undefined
+      const created = await withProjectMutation(projectId, async () => {
+        const latest = await readProject(paths, projectId)
+        if (!latest) return { ok: false as const, status: 404, error: '文档不存在' }
+        if (latest.deletedAt) return { ok: false as const, status: 410, error: '项目已进入回收站' }
+        if (!canManageProject(user, latest)) return { ok: false as const, status: 403, error: '没有文档管理权限' }
+
+        if (user.id !== 'guest') {
+          const activeUser = (await loadUsers(paths)).find(item => item.id === user.id)
+          if (!activeUser) return { ok: false as const, status: 401, error: '账号已不存在，请重新登录' }
+        }
+
+        const content = requestedContent ?? JSON.stringify(projectCanvas(latest))
+        const versionIdNew = newId('v')
+        const version = { id: versionIdNew, name, content, createdAt: Date.now() }
+        await fsp.mkdir(versionsDir, { recursive: true })
+        await writeJson(path.join(versionsDir, `${versionIdNew}.json`), version)
+        return { ok: true as const, version }
+      })
+      if (!created.ok) { sendError(res, created.status, created.error); return true }
+      sendJson(res, 201, { id: created.version.id, name: created.version.name, createdAt: created.version.createdAt })
       return true
     }
 
@@ -2111,10 +2126,24 @@ async function handleProjects(req: IncomingMessage, res: ServerResponse, paths: 
       }
       const now = Date.now()
       const share: StoredShare = { token: randomBytes(32).toString('base64url'), projectId, permission, createdAt: now, updatedAt: now, expiresAt, passwordHash }
-      await withAuthMutation(async () => {
-        const shares = await loadShares(paths)
-        await saveShares(paths, [...shares, share])
+      const created = await withProjectMutation(projectId, async () => {
+        const latest = await readProject(paths, projectId)
+        if (!latest) return { ok: false as const, status: 404, error: '项目不存在' }
+        if (latest.deletedAt) return { ok: false as const, status: 410, error: '项目已进入回收站' }
+        if (!canManageProject(user, latest)) return { ok: false as const, status: 403, error: '没有项目管理权限' }
+
+        if (user.id !== 'guest') {
+          const activeUser = (await loadUsers(paths)).find(item => item.id === user.id)
+          if (!activeUser) return { ok: false as const, status: 401, error: '账号已不存在，请重新登录' }
+        }
+
+        await withAuthMutation(async () => {
+          const shares = await loadShares(paths)
+          await saveShares(paths, [...shares, share])
+        })
+        return { ok: true as const }
       })
+      if (!created.ok) { sendError(res, created.status, created.error); return true }
       sendJson(res, 201, {
         ...share,
         passwordHash: undefined,
