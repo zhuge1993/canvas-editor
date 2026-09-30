@@ -317,7 +317,6 @@ pmbootstrap chroot -r -- sh -ec '
 	apk info -e wcnss-wlan >/dev/null
 	apk info -e bluez >/dev/null
 	apk info -e gpsd >/dev/null
-	apk info -e gpsd >/dev/null
 
 	test -s /opt/flowboard/server-bundle.cjs
 	test -s /opt/flowboard/dist/index.html
@@ -361,121 +360,6 @@ pmbootstrap chroot -r -- sh -ec '
 		rc-update show default | grep -Eq "(^|[[:space:]])dior-gps([[:space:]]|$)"
 		test -x /etc/init.d/bluetooth
 		rc-update show default | grep -Eq "(^|[[:space:]])bluetooth([[:space:]]|$)"
-		test -x /etc/init.d/gpsd
-		grep -q '^DEVICES="/dev/smd27"
-	elif command -v systemctl >/dev/null 2>&1; then
-		test -f /usr/lib/systemd/system/flowboard.service
-		test -f /usr/lib/systemd/system/wcnss-wlan.service
-		test -L /etc/systemd/system/multi-user.target.wants/flowboard.service
-		test -L /etc/systemd/system/multi-user.target.wants/wcnss-wlan.service
-	else
-		echo "rootfs 内没有可识别的 OpenRC/systemd，拒绝导出。" >&2
-		exit 1
-	fi
-'
-
-mkdir -p "$OUTPUT_DIR"
-pmbootstrap export "$OUTPUT_DIR"
-
-# pmbootstrap export intentionally emits symlinks for several artifacts.
-# Materialize file symlinks so out/dior can be copied/archive independently of the pmbootstrap workdir.
-while IFS= read -r exported_link; do
-	[ -n "$exported_link" ] || continue
-	if [ ! -f "$exported_link" ]; then
-		echo "导出目录包含非文件符号链接，拒绝生成不完整可移植产物: $exported_link" >&2
-		exit 1
-	fi
-	materialized="$exported_link.materialized.$"
-	cp -L "$exported_link" "$materialized"
-	rm "$exported_link"
-	mv "$materialized" "$exported_link"
-done <<EOF
-$(find "$OUTPUT_DIR" -type l -print)
-EOF
-
-BUILD_TIME="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-REPO_REVISION="unknown"
-PMAPORTS_REVISION="unknown"
-if command -v git >/dev/null 2>&1; then
-	REPO_REVISION="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || printf 'unknown')"
-	PMAPORTS_REVISION="$(git -C "$PMB_APORTS" rev-parse HEAD 2>/dev/null || printf 'unknown')"
-fi
-PMBOOTSTRAP_VERSION="$(pmbootstrap --version 2>/dev/null | sed -n '1p')"
-FLOWBOARD_RELEASE_SHA256="$(sha256sum "$FLOWBOARD_RELEASE" | sed 's/[[:space:]].*$//')"
-DEVICE_APKBUILD_SHA256="$(sha256sum "$DEVICE_APORT/APKBUILD" | sed 's/[[:space:]].*$//')"
-KERNEL_APKBUILD_SHA256="$(sha256sum "$KERNEL_APORT/APKBUILD" | sed 's/[[:space:]].*$//')"
-FIRMWARE_APKBUILD_SHA256="$(sha256sum "$FIRMWARE_APORT/APKBUILD" | sed 's/[[:space:]].*$//')"
-WCNSS_APKBUILD_SHA256="$(sha256sum "$WCNSS_APORT/APKBUILD" | sed 's/[[:space:]].*$//')"
-
-cat > "$OUTPUT_DIR/BUILD-MANIFEST.txt" <<EOF
-DiorLinux / FlowBoard build manifest
-built_utc=$BUILD_TIME
-target_vendor=xiaomi
-target_device=dior
-target_name=Redmi Note 4G single-SIM
-target_arch=armv7
-install_mode=$DIOR_INSTALL_MODE
-repository_revision=$REPO_REVISION
-pmaports_revision=$PMAPORTS_REVISION
-pmbootstrap_version=$PMBOOTSTRAP_VERSION
-flowboard_release_sha256=$FLOWBOARD_RELEASE_SHA256
-device_aport=$DEVICE_APORT
-device_apkbuild_sha256=$DEVICE_APKBUILD_SHA256
-kernel_aport=$KERNEL_APORT
-kernel_apkbuild_sha256=$KERNEL_APKBUILD_SHA256
-firmware_aport=$FIRMWARE_APORT
-firmware_apkbuild_sha256=$FIRMWARE_APKBUILD_SHA256
-wcnss_aport=$WCNSS_APORT
-wcnss_apkbuild_sha256=$WCNSS_APKBUILD_SHA256
-flowboard_listen=127.0.0.1:3000
-flowboard_root_admin=804559340@qq.com
-auto_flash=false
-EOF
-
-cat > "$OUTPUT_DIR/FLASHING-NOTES.txt" <<'EOF'
-DiorLinux / FlowBoard 刷机前检查
-
-1. 这些产物只允许用于 Xiaomi Redmi Note 4G 单卡版，codename: dior。
-2. 不要把这些 boot/rootfs 产物刷到其他 Redmi Note、双卡版或其他 MSM8226 设备。
-3. build-image.sh 从不自动执行 fastboot flash。
-4. 刷机前先在本目录执行: sha256sum -c SHA256SUMS
-5. 先备份手机现有重要数据，并确认 bootloader/fastboot 状态。
-6. 具体刷写步骤以当前 pmbootstrap/postmarketOS 对 xiaomi-dior 的导出结果为准。
-7. FlowBoard 首次启动后应监听 127.0.0.1:3000，由同机反代/内网穿透对外提供 HTTPS。
-8. QQ SMTP 授权码不要写入镜像或 Git；系统启动后单独执行 set stp 配置。
-9. install_mode=standard 是第一版首刷路线：boot 用 fastboot flash:raw boot，rootfs 用 pmbootstrap flasher flash_rootfs。
-10. install_mode=split 只留给以后 system 分区装不下时继续研究，不作为 V1 首刷默认路线。
-EOF
-
-(
-	cd "$OUTPUT_DIR"
-	find . -type f ! -name SHA256SUMS -print \
-		| LC_ALL=C sort \
-		| while IFS= read -r file; do sha256sum "$file"; done \
-		> SHA256SUMS
-)
-
-echo
-echo "============================================================"
-echo "DiorLinux / FlowBoard 镜像构建完成"
-echo "输出目录: $OUTPUT_DIR"
-echo "============================================================"
-find "$OUTPUT_DIR" -maxdepth 1 -type f -printf '  %f\n' 2>/dev/null || ls -lh "$OUTPUT_DIR"
-echo
-echo "已生成:"
-echo "  BUILD-MANIFEST.txt"
-echo "  FLASHING-NOTES.txt"
-echo "  SHA256SUMS"
-echo
-echo "本脚本不会自动刷机。先核对手机确实是 Redmi Note 4G 单卡 dior。"
-echo "刷机前先执行: (cd \"$OUTPUT_DIR\" && sha256sum -c SHA256SUMS)"
-echo
-echo "首次启动后 FlowBoard 应由镜像内的服务自动启动。"
-echo "默认监听: 127.0.0.1:3000"
-echo "默认根管理员: 804559340@qq.com"
-echo "SMTP: node /opt/flowboard/server-bundle.cjs set stp <QQ授权码>"
- /etc/conf.d/gpsd
-		rc-update show default | grep -Eq "(^|[[:space:]])gpsd([[:space:]]|$)"
 	elif command -v systemctl >/dev/null 2>&1; then
 		test -f /usr/lib/systemd/system/flowboard.service
 		test -f /usr/lib/systemd/system/wcnss-wlan.service
