@@ -192,6 +192,15 @@ async function withProjectMutation<T>(projectId: string, operation: () => Promis
   }
 }
 
+async function withProjectMutations<T>(projectIds: string[], operation: () => Promise<T>): Promise<T> {
+  const ids = [...new Set(projectIds)].sort()
+  const run = (index: number): Promise<T> => {
+    if (index >= ids.length) return operation()
+    return withProjectMutation(ids[index]!, () => run(index + 1))
+  }
+  return run(0)
+}
+
 async function withShareMutation<T>(token: string, operation: () => Promise<T>): Promise<T> {
   const previous = shareMutationTails.get(token) ?? Promise.resolve()
   let release!: () => void
@@ -2629,9 +2638,11 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
     const body = await readBody(req)
     const result = await withAuthMutation(async () => {
       const currentUsers = await loadUsers(paths)
+      const actor = currentUsers.find(item => item.id === user.id && item.isAdmin === true)
+      if (!actor) return { ok: false as const, status: 403, error: '管理员权限已失效' }
       const target = currentUsers.find(item => item.id === targetId)
       if (!target) return { ok: false as const, status: 404, error: '用户不存在' }
-      if (body.isAdmin === false && (target.email.toLowerCase() === DEFAULT_ADMIN_EMAIL || target.id === user.id)) {
+      if (body.isAdmin === false && (target.email.toLowerCase() === DEFAULT_ADMIN_EMAIL || target.id === actor.id)) {
         return { ok: false as const, status: 400, error: '不能取消默认根管理员或当前登录管理员自己的管理员权限' }
       }
       if (typeof body.isAdmin === 'boolean') target.isAdmin = body.isAdmin
@@ -2647,9 +2658,11 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
     const targetId = adminUserMatch[1]!
     const removal = await withAuthMutation(async () => {
       const currentUsers = await loadUsers(paths)
+      const actor = currentUsers.find(item => item.id === user.id && item.isAdmin === true)
+      if (!actor) return { ok: false as const, status: 403, error: '管理员权限已失效' }
       const target = currentUsers.find(item => item.id === targetId)
       if (!target) return { ok: false as const, status: 404, error: '用户不存在' }
-      if (target.email.toLowerCase() === DEFAULT_ADMIN_EMAIL || target.id === user.id) {
+      if (target.email.toLowerCase() === DEFAULT_ADMIN_EMAIL || target.id === actor.id) {
         return { ok: false as const, status: 400, error: '不能删除当前管理员或默认根管理员' }
       }
       await saveUsers(paths, currentUsers.filter(item => item.id !== target.id))
@@ -2703,27 +2716,34 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
     const body = await readBody(req)
     const requested = Number(body.maxUses ?? 1)
     const maxUses = Math.max(1, Math.min(100, Number.isFinite(requested) ? Math.floor(requested) : 1))
-    const invite = await withAuthMutation(async () => {
+    const result = await withAuthMutation(async () => {
+      const currentUsers = await loadUsers(paths)
+      const actor = currentUsers.find(item => item.id === user.id && item.isAdmin === true)
+      if (!actor) return { ok: false as const, status: 403, error: '管理员权限已失效' }
       const invites = await loadInvites(paths)
       let code = newInviteCode()
       while (invites.some(item => item.code === code)) code = newInviteCode()
-      const created: StoredInvite = { code, createdAt: Date.now(), createdBy: user.id, maxUses, usedCount: 0 }
+      const created: StoredInvite = { code, createdAt: Date.now(), createdBy: actor.id, maxUses, usedCount: 0 }
       await saveInvites(paths, [created, ...invites])
-      return created
+      return { ok: true as const, invite: created }
     })
-    sendJson(res, 201, invite)
+    if (!result.ok) { sendError(res, result.status, result.error); return true }
+    sendJson(res, 201, result.invite)
     return true
   }
   const inviteMatch = pathname.match(/^\/api\/admin\/invites\/([A-Z0-9]+)$/)
   if (inviteMatch && req.method === 'DELETE') {
     const code = inviteMatch[1]!
-    const disabled = await withAuthMutation(async () => {
+    const result = await withAuthMutation(async () => {
+      const currentUsers = await loadUsers(paths)
+      const actor = currentUsers.find(item => item.id === user.id && item.isAdmin === true)
+      if (!actor) return { ok: false as const, status: 403, error: '管理员权限已失效' }
       const invites = await loadInvites(paths)
-      if (!invites.some(item => item.code === code)) return false
+      if (!invites.some(item => item.code === code)) return { ok: false as const, status: 404, error: '邀请码不存在' }
       await saveInvites(paths, invites.map(item => item.code === code ? { ...item, disabled: true } : item))
-      return true
+      return { ok: true as const }
     })
-    if (!disabled) { sendError(res, 404, '邀请码不存在'); return true }
+    if (!result.ok) { sendError(res, result.status, result.error); return true }
     sendJson(res, 200, { ok: true })
     return true
   }
@@ -2781,21 +2801,30 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
       sendError(res, 400, 'sourceDocId、targetDocId、groupId 均为必填项')
       return true
     }
-    const source = await readProject(paths, sourceDocId)
-    if (!source) { sendError(res, 404, '源文档不存在'); return true }
-    if (source.deletedAt) { sendError(res, 410, '源画布已进入回收站'); return true }
-    const copied = await withProjectMutation(targetDocId, async () => {
-      const target = await readProject(paths, targetDocId)
+    const copied = await withProjectMutations([sourceDocId, targetDocId], async () => {
+      const [source, target] = await Promise.all([
+        readProject(paths, sourceDocId),
+        readProject(paths, targetDocId),
+      ])
+      if (!source) return { ok: false as const, status: 404, error: '源文档不存在' }
+      if (source.deletedAt) return { ok: false as const, status: 410, error: '源画布已进入回收站' }
       if (!target) return { ok: false as const, status: 404, error: '目标文档不存在' }
       if (target.deletedAt) return { ok: false as const, status: 410, error: '目标画布已进入回收站' }
-      if (target.ownerId !== user.id) {
-        return { ok: false as const, status: 403, error: '目标画布必须属于当前管理员账号' }
-      }
-      const targetCanvas = canvasGraph(target)
-      const result = cloneGroupIntoCanvas(canvasGraph(source), targetCanvas, groupId)
-      if (!result) return { ok: false as const, status: 404, error: '源分组不存在' }
-      await writeJson(projectPath(paths, target.id), { ...target, canvas: targetCanvas, updatedAt: Date.now() } satisfies StoredDocument)
-      return { ok: true as const, ...result, targetDocId: target.id }
+
+      return withAuthMutation(async () => {
+        const currentUsers = await loadUsers(paths)
+        const actor = currentUsers.find(item => item.id === user.id && item.isAdmin === true)
+        if (!actor) return { ok: false as const, status: 403, error: '管理员权限已失效' }
+        if (target.ownerId !== actor.id) {
+          return { ok: false as const, status: 403, error: '目标画布必须属于当前管理员账号' }
+        }
+
+        const targetCanvas = canvasGraph(target)
+        const result = cloneGroupIntoCanvas(canvasGraph(source), targetCanvas, groupId)
+        if (!result) return { ok: false as const, status: 404, error: '源分组不存在' }
+        await writeJson(projectPath(paths, target.id), { ...target, canvas: targetCanvas, updatedAt: Date.now() } satisfies StoredDocument)
+        return { ok: true as const, ...result, targetDocId: target.id }
+      })
     })
     if (!copied.ok) { sendError(res, copied.status, copied.error); return true }
     sendJson(res, 201, copied)
@@ -2806,27 +2835,31 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
   const copyMatch = pathname.match(/^\/api\/admin\/copy-doc\/([a-zA-Z0-9_-]+)$/)
   if (req.method === 'POST' && copyMatch) {
     const sourceId = copyMatch[1]!
-    const source = await readProject(paths, sourceId)
-    if (!source) {
-      sendError(res, 404, '文档不存在')
-      return true
-    }
-    if (source.deletedAt) {
-      sendError(res, 410, '源画布已进入回收站')
-      return true
-    }
-    const now = Date.now()
-    const copy: StoredDocument = {
-      ...source,
-      id: newId('doc'),
-      title: `${source.title}（副本）`,
-      ownerId: user.id,
-      createdAt: now,
-      updatedAt: now,
-      deletedAt: undefined,
-    }
-    await writeProject(paths, copy as unknown as Record<string, unknown>, user.id)
-    sendJson(res, 201, { ok: true, id: copy.id, title: copy.title })
+    const copied = await withProjectMutation(sourceId, async () => {
+      const source = await readProject(paths, sourceId)
+      if (!source) return { ok: false as const, status: 404, error: '文档不存在' }
+      if (source.deletedAt) return { ok: false as const, status: 410, error: '源画布已进入回收站' }
+
+      return withAuthMutation(async () => {
+        const currentUsers = await loadUsers(paths)
+        const actor = currentUsers.find(item => item.id === user.id && item.isAdmin === true)
+        if (!actor) return { ok: false as const, status: 403, error: '管理员权限已失效' }
+        const now = Date.now()
+        const copy: StoredDocument = {
+          ...source,
+          id: newId('doc'),
+          title: `${source.title}（副本）`,
+          ownerId: actor.id,
+          createdAt: now,
+          updatedAt: now,
+          deletedAt: undefined,
+        }
+        await writeProject(paths, copy as unknown as Record<string, unknown>, actor.id)
+        return { ok: true as const, id: copy.id, title: copy.title }
+      })
+    })
+    if (!copied.ok) { sendError(res, copied.status, copied.error); return true }
+    sendJson(res, 201, copied)
     return true
   }
 
