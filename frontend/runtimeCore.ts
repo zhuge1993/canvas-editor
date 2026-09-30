@@ -2690,7 +2690,8 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
       try {
         project = JSON.parse(await fsp.readFile(fullPath, 'utf8')) as StoredDocument
       } catch {
-        // 无法解析归属的损坏文件不能安全判断是否属于目标用户，留给数据修复流程处理。
+        // 无法解析归属时不能证明该文件不属于目标用户；保守阻止彻底删除账号。
+        failedDocIds.push(fileProjectId)
         continue
       }
       if (project.ownerId !== removal.target.id) continue
