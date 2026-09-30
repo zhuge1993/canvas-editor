@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import configparser
 import hashlib
+import json
 import os
 from pathlib import Path
 import secrets
@@ -21,6 +22,8 @@ import tarfile
 REPO = Path(__file__).resolve().parents[2]
 ALLOWED_PMB = {"--version", "config", "init", "checksum", "build", "install",
                "chroot", "export", "deviceinfo_parse", "shutdown"}
+PROVEN_DIRECTROOT_UUID = "2b3bcea5-5043-47de-a4f3-4959104f4762"
+MAX_FASTBOOT_DOWNLOAD = 838_860_800
 
 
 def state_dir() -> Path:
@@ -96,6 +99,99 @@ def sha256(file: Path) -> str:
     return digest.hexdigest()
 
 
+def prepare_safe_directroot(state: Path, output: Path, source_sha: str) -> Path:
+    """Retarget this build's rootfs to the already proven userdata-only boot contract."""
+    source = output / "xiaomi-dior.img"
+    safe = state / "safe-directroot"
+    safe.mkdir()
+    direct = safe / "xiaomi-dior-pmOS-root-direct.img"
+    receipt = safe / "VERIFICATION.json"
+    run([sys.executable, str(REPO / "tools/dior-usb-repair/extract-pmos-root.py"),
+         str(source), str(direct), "--verification", str(receipt)])
+    if direct.stat().st_size > MAX_FASTBOOT_DOWNLOAD:
+        raise ValueError("Latest pmOS_root exceeds proven dior fastboot max-download size")
+
+    # Match the UUID expected by the already real-device-proven QCDT-trimmed boot.
+    # This keeps the first flash userdata-only; the newly compiled boot remains an
+    # optional later hardware experiment instead of an unnecessary first-boot risk.
+    run(["sudo", "e2fsck", "-fy", str(direct)])
+    run(["sudo", "tune2fs", "-U", PROVEN_DIRECTROOT_UUID, str(direct)])
+    mountpoint = state / "safe-directroot-mnt"
+    mountpoint.mkdir()
+    run(["sudo", "mount", "-o", "loop", str(direct), str(mountpoint)])
+    try:
+        fstab = mountpoint / "etc/fstab"
+        edit = r'''
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+root_uuid = sys.argv[2]
+lines = path.read_text(encoding="utf-8").splitlines()
+out = []
+root_seen = False
+for line in lines:
+    stripped = line.strip()
+    if not stripped or stripped.startswith("#"):
+        out.append(line)
+        continue
+    fields = stripped.split()
+    if len(fields) >= 2 and fields[1] == "/boot":
+        continue
+    if len(fields) >= 2 and fields[1] == "/":
+        fields[0] = root_uuid
+        root_seen = True
+        out.append("\t".join(fields))
+    else:
+        out.append(line)
+if not root_seen:
+    raise SystemExit("root mount entry missing from extracted fstab")
+path.write_text("\n".join(out) + "\n", encoding="utf-8")
+'''
+        run(["sudo", "python3", "-c", edit, str(fstab), PROVEN_DIRECTROOT_UUID])
+    finally:
+        run(["sudo", "umount", str(mountpoint)])
+    run(["sudo", "e2fsck", "-fy", str(direct)])
+
+    actual_uuid = run(["blkid", "-s", "UUID", "-o", "value", str(direct)], capture=True)
+    actual_label = run(["blkid", "-s", "LABEL", "-o", "value", str(direct)], capture=True)
+    if actual_uuid != PROVEN_DIRECTROOT_UUID or actual_label != "pmOS_root":
+        raise ValueError("Safe DirectRoot filesystem identity mismatch after retargeting")
+
+    data = json.loads(receipt.read_text(encoding="utf-8"))
+    data.update({
+        "source_build_commit": source_sha,
+        "source_full_rootfs_sha256": sha256(source),
+        "output_sha256": sha256(direct),
+        "filesystem_uuid": actual_uuid,
+        "filesystem_label": actual_label,
+        "boot_pmos_root_uuid": PROVEN_DIRECTROOT_UUID,
+        "uuid_matches_boot": True,
+        "fits_fastboot_max_download": direct.stat().st_size <= MAX_FASTBOOT_DOWNLOAD,
+        "flash_partition": "userdata",
+        "flash_boot": False,
+        "boot_image_change_required": False,
+        "separate_boot_fstab_entry_removed": True,
+        "uses_real_device_proven_boot_contract": True,
+    })
+    receipt.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    shutil.copy2(REPO / "tools/dior-flash/flash-directroot.ps1", safe / "flash-directroot.ps1")
+    shutil.copy2(REPO / "tools/dior-flash/flash-directroot.cmd", safe / "flash-directroot.cmd")
+    (safe / "README.txt").write_text(
+        "DiorLinux / FlowBoard Safe DirectRoot\n\n"
+        "This package uses the latest full-build root filesystem but deliberately preserves "
+        "the already real-device-proven 13,113,344-byte boot.\n"
+        "Flash contract: userdata only; boot/system/recovery are not written.\n"
+        "The extracted pmOS_root UUID is retargeted to the proven boot contract and the "
+        "separate /boot fstab entry is removed.\n"
+        "After boot run: dior-hw-verify ; dior-hw-smoke ; dior-hw-probe\n",
+        encoding="utf-8")
+    files = sorted(x for x in safe.iterdir() if x.is_file() and x.name != "SHA256SUMS")
+    (safe / "SHA256SUMS").write_text("".join(
+        f"{sha256(x)}  {x.name}\n" for x in files), encoding="utf-8")
+    run(["sh", "-c", 'cd "$1" && sha256sum -c SHA256SUMS', "sh", str(safe)])
+    return safe
+
+
 def validate_images(output: Path) -> None:
     manifest = (output / "BUILD-MANIFEST.txt").read_text(encoding="utf-8").splitlines()
     for setting in ("target_device=dior", "target_arch=armv7", "install_mode=standard"):
@@ -149,7 +245,7 @@ def build() -> None:
     if state == REPO or REPO in state.parents:
         raise RuntimeError("CI state must be outside the clean source checkout")
     state.mkdir(parents=True, exist_ok=True)
-    for child in ("work", "pmaports", "pmbootstrap", "images", "release", "login-password"):
+    for child in ("work", "pmaports", "pmbootstrap", "images", "release", "safe-directroot", "login-password"):
         if (state / child).exists():
             raise RuntimeError("Refusing to reuse a previous CI build: " + child)
     if run(["git", "-C", str(REPO), "status", "--porcelain"], capture=True):
@@ -260,6 +356,8 @@ def build() -> None:
             "Change with passwd after first login. No QQ SMTP secret is included.\n",
             encoding="utf-8")
         (output / "FIRST-LOGIN.txt").chmod(0o600)
+        prepare_safe_directroot(state, output, source_sha)
+
         (output / "BUILD-STATUS.txt").write_text(
             "Complete build entry point and rootfs acceptance checks passed.\n"
             "Candidate only: no physical phone has been flashed or boot-tested by CI.\n"
