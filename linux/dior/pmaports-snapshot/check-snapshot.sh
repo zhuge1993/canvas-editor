@@ -61,7 +61,7 @@ verify_source "$DEVICE_DIR" "$DEVICE_APKBUILD" "deviceinfo"
 verify_source "$DEVICE_DIR" "$DEVICE_APKBUILD" "kernel-cmdline.conf"
 
 echo
-echo "校验 dior kernel config + 9 patches..."
+echo "校验 dior kernel config + 15 patches..."
 for name in \
 	config-xiaomi-dior.armv7 \
 	gcc10-extern_YYLOC_global_declaration.patch \
@@ -72,7 +72,13 @@ for name in \
 	0001-framebuffer-fixes.patch \
 	0001-prima-nv-v1-compatibility.patch \
 	0002-thermal-genl-group-name.patch \
-	0003-atmel-fb-irq-balance.patch
+	0003-atmel-fb-irq-balance.patch \
+	0004-camera-init-error-propagation.patch \
+	0005-wcnss-stable-local-mac.patch \
+	0006-ipc-irsc-bounded-wait.patch \
+	0007-kgsl-drm-initialization-safety.patch \
+	0008-qdsp6-pcm-complete-transfers.patch \
+	0009-ipc-socket-subsystem-reference.patch
 do
 	verify_source "$KERNEL_DIR" "$KERNEL_APKBUILD" "$name"
 done

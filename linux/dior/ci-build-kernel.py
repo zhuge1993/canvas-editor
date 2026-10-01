@@ -45,10 +45,12 @@ def verify_zimage(path: Path, destination: Path) -> dict:
     begin = image.index(b"IKCFG_ST") + 8
     finish = image.index(b"IKCFG_ED", begin)
     config = gzip.decompress(image[begin:finish]).decode("ascii")
-    for setting in ("CONFIG_PRONTO_WLAN=y", "CONFIG_MSM_KGSL=y", "CONFIG_RFKILL=y"):
+    for setting in ("CONFIG_PRONTO_WLAN=y", "CONFIG_MSM_KGSL=y", "CONFIG_RFKILL=y",
+                    "CONFIG_DRM=y", "CONFIG_GENLOCK=y", "CONFIG_MSM_KGSL_DRM=y",
+                    "# CONFIG_KGSL_PER_PROCESS_PAGE_TABLE is not set"):
         if setting not in config.splitlines():
             raise ValueError("effective compiled config missing " + setting)
-    (destination / "kernel.config").write_text(config, encoding="ascii")
+    (destination / "kernel.config").write_bytes(config.encode("ascii"))
     return {"linux_banner": banner.group().decode().strip(), "gcc4_verified": True,
             "nv_patch_marker_present": True, "thermal_netlink_fix_verified": True,
             "effective_config_verified": True}
