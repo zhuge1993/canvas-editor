@@ -6,7 +6,7 @@ pkgdesc="Isolated Dior Adreno 305 legacy GLES compatibility and rendering probe"
 url="https://docs.mesa3d.org/drivers/freedreno.html"
 arch="armv7"
 license="MIT AND LGPL-2.1-or-later"
-options="!strip !pmb:crossdirect"
+options="!strip"
 depends="musl libgcc libstdc++ zlib python3"
 makedepends="build-base pkgconf linux-headers zlib-dev bison flex libatomic_ops-dev"
 source="
@@ -32,7 +32,8 @@ prepare() {
 }
 
 build() {
-    # pmbootstrap QEMU_ONLY executes this build and checks inside armv7 musl.
+    # The armv7 chroot runs helpers/checks through QEMU. Default crossdirect
+    # accelerates -c compiler calls and leaves target linking in that chroot.
     # Python 2 is a source generator only; it is never installed on the phone.
     cd "$srcdir/Python-2.7.18"
     CFLAGS="$CFLAGS -std=gnu89 -Wno-error=implicit-function-declaration -Wno-error=incompatible-pointer-types" \
@@ -60,13 +61,14 @@ build() {
         ./configure --prefix="$_prefix" --libdir="$_prefix/lib" \
         --with-dri-driverdir="$_prefix/lib/dri" \
         --with-gallium-drivers=freedreno --with-dri-drivers= \
-        --with-egl-platforms=drm,surfaceless --enable-egl --enable-gbm \
+        --with-platforms=drm,surfaceless --enable-egl --enable-gbm \
         --enable-dri --disable-dri3 --enable-gles2 --disable-gles1 \
-        --disable-opengl --enable-shared-glapi --disable-glx --disable-glx-tls \
-        --disable-llvm --disable-gallium-llvm --disable-libunwind --disable-selinux \
+        --enable-opengl --enable-shared-glapi --disable-glx --disable-glx-tls \
+        --disable-llvm --disable-libunwind --disable-selinux \
         --disable-osmesa --disable-gallium-osmesa --disable-xa --disable-xvmc \
-        --disable-vdpau --disable-va --disable-omx --disable-opencl \
+        --disable-vdpau --disable-va --disable-omx-bellagio --disable-opencl \
         --disable-gallium-tests
+    ./config.status --config > "$srcdir/mesa-configure-flags.txt"
     make -j2
     make DESTDIR="$_stage" install
 }
@@ -92,6 +94,22 @@ check() {
     test -f "$_stage$_prefix/lib/libGLESv2.so.2"
     printf '%s\n' 'PASS target UAPI equality, ION mapping failure paths, context timestamps' \
         > "$srcdir/graphics-build-checks.txt"
+    python3 - "$srcdir" <<'PY'
+import json, os, struct, sys
+from pathlib import Path
+path = Path(sys.argv[1])
+assert struct.calcsize("P") == 4
+proof = {
+    "mesa_version": "17.3.9", "libdrm_version": "2.4.89",
+    "target_architecture": "armv7", "target_pointer_bytes": struct.calcsize("P"),
+    "pmbootstrap_cross_mode": os.environ.get("PMB_CROSS"),
+    "mesa_configure_flags": (path / "mesa-configure-flags.txt").read_text(),
+    "target_uapi_match": True, "ion_map_regressions": True,
+    "context_timestamp_regressions": True, "a305b_identity_regressions": True,
+    "physical_gpu_render_verified": False,
+}
+(path / "GRAPHICS-BUILD-CHECKS.json").write_text(json.dumps(proof, indent=2) + "\n")
+PY
 }
 
 package() {
@@ -100,6 +118,7 @@ package() {
     install -Dm755 "$srcdir/dior-gles-check" "$pkgdir$_prefix/bin/dior-gles-check"
     install -Dm644 "$srcdir/dior-gles-probe.py" "$pkgdir$_prefix/libexec/dior-gles-probe.py"
     install -Dm644 "$srcdir/graphics-build-checks.txt" "$pkgdir$_prefix/share/graphics-build-checks.txt"
+    install -Dm644 "$srcdir/GRAPHICS-BUILD-CHECKS.json" "$pkgdir$_prefix/share/GRAPHICS-BUILD-CHECKS.json"
     # The package's runtime stays entirely in its isolated prefix.
     rm -f "$pkgdir$_prefix"/lib/*.la
     rm -rf "$pkgdir$_prefix/include" "$pkgdir$_prefix/lib/pkgconfig"
