@@ -77,11 +77,11 @@ check() {
     _includes="-DHAVE_CONFIG_H -I. -Iinclude/drm -Ifreedreno -I$srcdir"
     _links="-L$_stage$_prefix/lib -ldrm_freedreno -ldrm -lpthread"
     for _test in test-kgsl-abi test-kgsl-map test-kgsl-timestamps; do
-        $CC $CFLAGS -std=gnu11 -ffunction-sections -fdata-sections $_includes \
+        $CC $CFLAGS -UNDEBUG -std=gnu11 -ffunction-sections -fdata-sections $_includes \
             "$srcdir/$_test.c" -Wl,--gc-sections $_links -o "$srcdir/$_test"
         "$srcdir/$_test"
     done
-    $CC $CFLAGS -std=gnu11 $_includes \
+    $CC $CFLAGS -UNDEBUG -std=gnu11 $_includes \
         '-DDIOR_DRM_HEADER="kernel-kgsl-drm-uapi.h"' \
         "$srcdir/test-kgsl-abi.c" -o "$srcdir/test-kernel-kgsl-abi"
     "$srcdir/test-kgsl-abi" > "$srcdir/userspace-abi.txt"

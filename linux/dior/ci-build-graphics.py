@@ -28,6 +28,9 @@ def build():
                        '39e9c17c1439b25f7aced54e03f19b0515cdb029',state/'pmbootstrap')
     aport_sha=CI.checkout('https://gitlab.postmarketos.org/postmarketOS/pmaports.git',
                          '07baef3332c46bd6c7cc3293b87ef5104fc56f5d',state/'pmaports')
+    # pmbootstrap reads channel metadata from origin/main even for a pinned
+    # detached checkout; point that local remote ref at this verified pin.
+    CI.run(['git','-C',str(state/'pmaports'),'update-ref','refs/remotes/origin/main',aport_sha])
     snapshot=state/'snapshot'
     shutil.copytree(HERE/'pmaports-snapshot',snapshot)
     CI.run(['sh',str(snapshot/'hydrate-snapshot.sh')])
