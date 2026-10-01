@@ -1,0 +1,179 @@
+diff --git a/drivers/staging/prima/CORE/VOSS/src/vos_nvitem.c b/drivers/staging/prima/CORE/VOSS/src/vos_nvitem.c
+index c867534e..dec8dee2 100644
+--- a/drivers/staging/prima/CORE/VOSS/src/vos_nvitem.c
++++ b/drivers/staging/prima/CORE/VOSS/src/vos_nvitem.c
+@@ -659,6 +659,9 @@ VOS_STATUS vos_nv_open(void)
+        vos_mem_free(pnvData);
+     }
+ 
++    VOS_TRACE(VOS_MODULE_ID_VOSS, VOS_TRACE_LEVEL_ERROR,
++           "Dior prima driver NV default version=%d", WLAN_NV_VERSION);
++
+     VOS_TRACE(VOS_MODULE_ID_VOSS, VOS_TRACE_LEVEL_ERROR,
+            "INFO: NV binary file version=%d Driver default NV version=%d, continue...\n",
+            gnvEFSTable->halnv.fields.nvVersion, WLAN_NV_VERSION);
+diff --git a/drivers/staging/prima/CORE/VOSS/src/wlan_nv_template_builtin.c b/drivers/staging/prima/CORE/VOSS/src/wlan_nv_template_builtin.c
+index 57adee31..84808cdd 100755
+--- a/drivers/staging/prima/CORE/VOSS/src/wlan_nv_template_builtin.c
++++ b/drivers/staging/prima/CORE/VOSS/src/wlan_nv_template_builtin.c
+@@ -358,7 +358,7 @@ _NV_TEMPLATE_ENUM NvEnumsBuiltIn[/*INDEX_ENUM_MAX*/][ENUM_ENTRIES_MAX] = {
+       {"gx",HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_NGI_58_5_MBPS,0,{nul}},
+       {"gy",HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_NGI_65_MBPS,0,{nul}},
+       {"gz",HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_NGI_78_MBPS,0,{nul}},
+-#ifdef WCN_PRONTO
++#if defined(WCN_PRONTO) && (WLAN_NV_VERSION == NV_VERSION_LPDC_FW_CONFIG)
+       {"j8",HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_NGI_86_5_MBPS,0,{nul}},
+ #endif
+       {"g0",HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_SGI_7_2_MBPS,0,{nul}},
+@@ -370,7 +370,7 @@ _NV_TEMPLATE_ENUM NvEnumsBuiltIn[/*INDEX_ENUM_MAX*/][ENUM_ENTRIES_MAX] = {
+       {"g6",HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_SGI_65_MBPS,0,{nul}},
+       {"g7",HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_SGI_72_2_MBPS,0,{nul}},
+       {"g8",HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_SGI_86_6_MBPS,0,{nul}},
+-#ifdef WCN_PRONTO
++#if defined(WCN_PRONTO) && (WLAN_NV_VERSION == NV_VERSION_LPDC_FW_CONFIG)
+       {"j9",HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_SGI_96_1_MBPS,0,{nul}},
+ #endif
+       {"g9",HAL_PHY_RATE_VHT_40MHZ_MCS_1NSS_CB_NGI_13_5_MBPS,0,{nul}},
+@@ -426,11 +426,11 @@ _NV_TEMPLATE_ENUM NvEnumsBuiltIn[/*INDEX_ENUM_MAX*/][ENUM_ENTRIES_MAX] = {
+ int getEnumNoOfFields(int enumIdx){
+ #ifdef WLAN_FEATURE_11AC
+    enumNoOfFieldArray[7] = enumNoOfFieldArray[7] + 17;
+-#ifdef WCN_PRONTO
++#if defined(WCN_PRONTO) && (WLAN_NV_VERSION == NV_VERSION_LPDC_FW_CONFIG)
+    enumNoOfFieldArray[7] = enumNoOfFieldArray[7] + 1;
+ #endif
+    enumNoOfFieldArray[7] = enumNoOfFieldArray[7] + 9;
+-#ifdef WCN_PRONTO
++#if defined(WCN_PRONTO) && (WLAN_NV_VERSION == NV_VERSION_LPDC_FW_CONFIG)
+    enumNoOfFieldArray[7] = enumNoOfFieldArray[7] + 1;
+ #endif
+    enumNoOfFieldArray[7] = enumNoOfFieldArray[7] + 40;
+diff --git a/drivers/staging/prima/CORE/WDA/src/wlan_nv.c b/drivers/staging/prima/CORE/WDA/src/wlan_nv.c
+index bf62d6fc..e7d89cc4 100644
+--- a/drivers/staging/prima/CORE/WDA/src/wlan_nv.c
++++ b/drivers/staging/prima/CORE/WDA/src/wlan_nv.c
+@@ -171,7 +171,7 @@ const sHalNv nvDefaults =
+                 {0000},    // HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_CB_NGI_58_5_MBPS,
+                 {0000},    // HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_CB_NGI_65_MBPS,
+                 {0000},    // HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_CB_NGI_78_MBPS,
+-#ifdef WCN_PRONTO
++#if defined(WCN_PRONTO) && (WLAN_NV_VERSION == NV_VERSION_LPDC_FW_CONFIG)
+                 {0000},    // HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_NGI_86_5_MBPS,
+ #endif
+                 {0000},    // HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_CB_SGI_7_2_MBPS,
+@@ -183,7 +183,7 @@ const sHalNv nvDefaults =
+                 {0000},    // HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_CB_SGI_65_MBPS,
+                 {0000},    // HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_CB_SGI_72_2_MBPS,
+                 {0000},    // HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_CB_SGI_86_6_MBPS,
+-#ifdef WCN_PRONTO
++#if defined(WCN_PRONTO) && (WLAN_NV_VERSION == NV_VERSION_LPDC_FW_CONFIG)
+                 {0000},    // HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_SGI_96_1_MBPS,
+ #endif
+ 
+@@ -321,7 +321,7 @@ const sHalNv nvDefaults =
+                 {1100},    // HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_CB_NGI_58_5_MBPS,
+                 {1000,    // HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_CB_NGI_65_MBPS,
+                 { 900},    // HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_CB_NGI_78_MBPS,
+-#ifdef WCN_PRONTO
++#if defined(WCN_PRONTO) && (WLAN_NV_VERSION == NV_VERSION_LPDC_FW_CONFIG)
+                 { 800},     // HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_NGI_86_5_MBPS,
+ #endif
+                 {1400},    // HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_CB_SGI_7_2_MBPS,
+@@ -333,7 +333,7 @@ const sHalNv nvDefaults =
+                 {1100},    // HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_CB_SGI_65_MBPS,
+                 {1000},    // HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_CB_SGI_72_2_MBPS,
+                 { 900},    // HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_CB_SGI_86_6_MBPS,
+-#ifdef WCN_PRONTO
++#if defined(WCN_PRONTO) && (WLAN_NV_VERSION == NV_VERSION_LPDC_FW_CONFIG)
+                 { 800},     // HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_SGI_96_1_MBPS,
+ #endif
+                //11ac 40MHZ NG, SG
+@@ -471,7 +471,7 @@ const sHalNv nvDefaults =
+                 {1100},    // HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_CB_NGI_58_5_MBPS,
+                 {1000},    // HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_CB_NGI_65_MBPS,
+                 { 900},    // HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_CB_NGI_78_MBPS,
+-#ifdef WCN_PRONTO
++#if defined(WCN_PRONTO) && (WLAN_NV_VERSION == NV_VERSION_LPDC_FW_CONFIG)
+                 { 800},     // HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_NGI_86_5_MBPS,
+ #endif
+                 {1400},    // HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_CB_SGI_7_2_MBPS,
+@@ -483,7 +483,7 @@ const sHalNv nvDefaults =
+                 {1100},    // HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_CB_SGI_65_MBPS,
+                 {1000},    // HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_CB_SGI_72_2_MBPS,
+                 { 900},    // HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_CB_SGI_86_6_MBPS,
+-#ifdef WCN_PRONTO
++#if defined(WCN_PRONTO) && (WLAN_NV_VERSION == NV_VERSION_LPDC_FW_CONFIG)
+                 { 800},     // HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_SGI_96_1_MBPS,
+ #endif
+                //11ac 40MHZ NG, SG
+@@ -621,7 +621,7 @@ const sHalNv nvDefaults =
+                 {1100},    // HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_CB_NGI_58_5_MBPS,
+                 {1000},    // HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_CB_NGI_65_MBPS,
+                 { 900},    // HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_CB_NGI_78_MBPS,
+-#ifdef WCN_PRONTO
++#if defined(WCN_PRONTO) && (WLAN_NV_VERSION == NV_VERSION_LPDC_FW_CONFIG)
+                 { 800},     // HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_NGI_86_5_MBPS,
+ #endif
+                 {1400},    // HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_CB_SGI_7_2_MBPS,
+@@ -633,7 +633,7 @@ const sHalNv nvDefaults =
+                 {1100},    // HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_CB_SGI_65_MBPS,
+                 {1000},    // HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_CB_SGI_72_2_MBPS,
+                 { 900},    // HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_CB_SGI_86_6_MBPS,
+-#ifdef WCN_PRONTO
++#if defined(WCN_PRONTO) && (WLAN_NV_VERSION == NV_VERSION_LPDC_FW_CONFIG)
+                 { 800},     // HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_SGI_96_1_MBPS,
+ #endif
+                //11ac 40MHZ NG, SG
+@@ -772,7 +772,7 @@ const sHalNv nvDefaults =
+                 {1100},    // HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_CB_NGI_58_5_MBPS,
+                 {1000},    // HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_CB_NGI_65_MBPS,
+                 { 900},    // HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_CB_NGI_78_MBPS,
+-#ifdef WCN_PRONTO
++#if defined(WCN_PRONTO) && (WLAN_NV_VERSION == NV_VERSION_LPDC_FW_CONFIG)
+                 { 800},     // HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_NGI_86_5_MBPS,
+ #endif
+                 {1400},    // HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_CB_SGI_7_2_MBPS,
+@@ -784,7 +784,7 @@ const sHalNv nvDefaults =
+                 {1100},    // HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_CB_SGI_65_MBPS,
+                 {1000},    // HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_CB_SGI_72_2_MBPS,
+                 { 900},    // HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_CB_SGI_86_6_MBPS,
+-#ifdef WCN_PRONTO
++#if defined(WCN_PRONTO) && (WLAN_NV_VERSION == NV_VERSION_LPDC_FW_CONFIG)
+                 { 800},     // HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_SGI_96_1_MBPS,
+ #endif
+                //11ac 40MHZ NG, SG
+diff --git a/drivers/staging/prima/riva/inc/wlan_nv.h b/drivers/staging/prima/riva/inc/wlan_nv.h
+index e4e9ea75..2c30aff3 100755
+--- a/drivers/staging/prima/riva/inc/wlan_nv.h
++++ b/drivers/staging/prima/riva/inc/wlan_nv.h
+@@ -112,11 +112,8 @@ typedef enum
+ #define NV_VERSION_11N_11AC_FW_CONFIG      1
+ #define NV_VERSION_LPDC_FW_CONFIG          2
+ 
+-#ifdef WCN_PRONTO
+-#define WLAN_NV_VERSION     NV_VERSION_LPDC_FW_CONFIG
+-#else //WCN_PRONTO
++/* Dior uses the stock version 1 NV calibration layout. */
+ #define WLAN_NV_VERSION     NV_VERSION_11N_11AC_FW_CONFIG
+-#endif //WCN_PRONTO
+ 
+ typedef PACKED_PRE struct PACKED_POST
+ {
+@@ -587,7 +584,7 @@ typedef enum
+     HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_NGI_58_5_MBPS,
+     HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_NGI_65_MBPS,
+     HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_NGI_78_MBPS,
+-#ifdef WCN_PRONTO
++#if defined(WCN_PRONTO) && (WLAN_NV_VERSION == NV_VERSION_LPDC_FW_CONFIG)
+     HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_NGI_86_5_MBPS,
+ #endif
+     
+@@ -601,7 +598,7 @@ typedef enum
+     HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_SGI_65_MBPS,
+     HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_SGI_72_2_MBPS,
+     HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_SGI_86_6_MBPS,
+-#ifdef WCN_PRONTO
++#if defined(WCN_PRONTO) && (WLAN_NV_VERSION == NV_VERSION_LPDC_FW_CONFIG)
+     HAL_PHY_RATE_VHT_20MHZ_MCS_1NSS_SGI_96_1_MBPS,
+ #endif
+     

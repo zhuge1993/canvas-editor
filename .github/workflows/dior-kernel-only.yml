@@ -1,0 +1,61 @@
+name: Dior kernel GCC4 only
+
+on:
+  push:
+    branches: [linux-server-armhf]
+    paths:
+      - '.github/workflows/dior-kernel-only.yml'
+      - 'linux/dior/ci-build-kernel.py'
+      - 'linux/dior/pmaports-snapshot/device/archived/linux-xiaomi-dior/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dior-kernel-only-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  kernel:
+    if: github.repository == 'zhuge1993/canvas-editor' && github.ref == 'refs/heads/linux-server-armhf'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONUNBUFFERED: '1'
+      PMB_SUDO: sudo
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check boot component preservation and malformed input rejection
+        run: python3 -m unittest discover -s linux/dior/tests -p test_replace_kernel.py -v
+      - name: Install existing pmbootstrap build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ca-certificates curl git python3 sudo tar xz-utils zstd \
+            qemu-user-static binfmt-support util-linux procps file
+      - name: Compile linux-xiaomi-dior with GCC4 and inspect compiled payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 linux/dior/ci-build-kernel.py 2>&1 | tee "$RUNNER_TEMP/dior-kernel-build.log"
+      - name: Upload verified kernel candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: Dior-kernel-GCC4-${{ github.sha }}
+          path: ${{ runner.temp }}/dior-kernel-only/artifact/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Dior-kernel-diagnostics-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/dior-kernel-build.log
+            ${{ runner.temp }}/dior-kernel-only/pmbootstrap.log
+          if-no-files-found: warn
+          retention-days: 7
