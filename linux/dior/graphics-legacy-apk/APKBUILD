@@ -27,6 +27,14 @@ builddir="$srcdir/mesa-17.3.9"
 _prefix=/opt/dior-graphics
 _stage="$srcdir/compat-stage"
 
+_configure() {
+    ./configure "$@" || {
+        _configure_status=$?
+        test ! -f config.log || cat config.log >&2
+        return "$_configure_status"
+    }
+}
+
 prepare() {
     patch -d "$srcdir/libdrm-2.4.89" -p1 -i "$srcdir/0001-libdrm-dior-kgsl-compat.patch"
 }
@@ -34,15 +42,20 @@ prepare() {
 build() {
     # The armv7 chroot runs helpers/checks through QEMU. Default crossdirect
     # accelerates -c compiler calls and leaves target linking in that chroot.
+    printf '%s\n' '#include <stddef.h>' \
+        '_Static_assert(sizeof(void *) == 4, "ARM32 compiler required");' \
+        'int main(void) { return 0; }' > "$srcdir/compiler-preflight.c"
+    $CC $CFLAGS "$srcdir/compiler-preflight.c" $LDFLAGS -o "$srcdir/compiler-preflight"
+    "$srcdir/compiler-preflight"
     # Python 2 is a source generator only; it is never installed on the phone.
     cd "$srcdir/Python-2.7.18"
     CFLAGS="$CFLAGS -std=gnu89 -Wno-error=implicit-function-declaration -Wno-error=incompatible-pointer-types" \
-        ./configure --prefix="$srcdir/build-python" --disable-shared --without-ensurepip
+        _configure --prefix="$srcdir/build-python" --disable-shared --without-ensurepip
     make -j2
 
     cd "$srcdir/libdrm-2.4.89"
     CFLAGS="$CFLAGS -Wno-error=implicit-function-declaration -Wno-error=incompatible-pointer-types" \
-        ./configure --prefix="$_prefix" --disable-static \
+        _configure --prefix="$_prefix" --disable-static \
         --enable-freedreno --enable-freedreno-kgsl --disable-intel \
         --disable-radeon --disable-amdgpu --disable-nouveau \
         --disable-omap-experimental-api --disable-exynos-experimental-api \
@@ -58,7 +71,7 @@ build() {
     export PKG_CONFIG_SYSROOT_DIR="$_stage"
     CFLAGS="$CFLAGS -Wno-error=implicit-function-declaration -Wno-error=incompatible-pointer-types" \
     CXXFLAGS="$CXXFLAGS -std=gnu++11" \
-        ./configure --prefix="$_prefix" --libdir="$_prefix/lib" \
+        _configure --prefix="$_prefix" --libdir="$_prefix/lib" \
         --with-dri-driverdir="$_prefix/lib/dri" \
         --with-gallium-drivers=freedreno --with-dri-drivers= \
         --with-platforms=drm,surfaceless --enable-egl --enable-gbm \
