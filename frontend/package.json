@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "build:exe": "node scripts/build-exe.mjs",
     "build:linux": "node scripts/build-linux-release.mjs",
+    "test:server-lifetime": "node tests/server-lifetime.mjs && node tests/tunnel-notifications.mjs",
     "lint": "oxlint",
     "preview": "node scripts/show-logs.mjs && vite preview",
     "logs": "node scripts/show-logs.mjs"

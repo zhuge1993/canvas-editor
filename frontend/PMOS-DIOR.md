@@ -2,6 +2,8 @@
 
 > 目标：把单卡 Redmi Note 4G / `dior` 作为长期在线的 FlowBoard ARMv7 小服务器使用。
 
+已运行的 DirectRoot 手机继续部署服务时，请看 [Dior 长期服务器部署](./DIOR-ALWAYS-ON.md)。该流程更新程序与启动服务，保留现有系统、内核、画布和账号。
+
 ## 现实边界
 
 `dior` 的社区 Linux 支持目前属于 **downstream kernel** 路线，而不是 mainline Linux。也就是说：

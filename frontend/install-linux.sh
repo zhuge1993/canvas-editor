@@ -39,7 +39,7 @@ else
   exit 1
 fi
 
-for required in server-bundle.cjs dist/index.html start-server.sh flowboard.env.example; do
+for required in server-bundle.cjs dist/index.html start-server.sh healthcheck.cjs flowboard.env.example; do
   if [ ! -e "$SOURCE_DIR/$required" ]; then
     echo "安装包缺少 $required，请先生成并解压 FlowBoard-linux.tar.gz" >&2
     exit 1
@@ -89,6 +89,7 @@ rm -rf "$TARGET_DIR/dist"
 cp -a "$SOURCE_DIR/dist" "$TARGET_DIR/dist"
 chown -R root:root "$TARGET_DIR/dist"
 install -o root -g root -m 0755 "$SOURCE_DIR/start-server.sh" "$TARGET_DIR/start-server.sh"
+install -o root -g root -m 0644 "$SOURCE_DIR/healthcheck.cjs" "$TARGET_DIR/healthcheck.cjs"
 install -o root -g root -m 0644 "$SOURCE_DIR/flowboard.env.example" "$TARGET_DIR/flowboard.env.example"
 
 if [ ! -f "$TARGET_DIR/flowboard.env" ]; then

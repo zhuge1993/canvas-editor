@@ -6,7 +6,7 @@ FlowBoard 的 Linux 服务端不需要桌面、GPU 或 Electron。浏览器继�
 
 ### Redmi Note 4G / dior
 
-优先使用 **postmarketOS / Alpine**。该机型是社区 downstream-kernel 设备，因此应保留设备专用内核，同时使用尽可能新的 Linux 用户空间；安装器同时支持 postmarketOS 的 OpenRC 与 systemd 变体。具体看 [PMOS-DIOR.md](./PMOS-DIOR.md)。
+优先使用 **postmarketOS / Alpine**。该机型是社区 downstream-kernel 设备，因此应保留设备专用内核，同时使用尽可能新的 Linux 用户空间；安装器同时支持 postmarketOS 的 OpenRC 与 systemd 变体。具体看 [PMOS-DIOR.md](./PMOS-DIOR.md)。已经启动的 dior 手机长期服务器配置见 [DIOR-ALWAYS-ON.md](./DIOR-ALWAYS-ON.md)。
 
 ### 其他 ARMv7 主机
 

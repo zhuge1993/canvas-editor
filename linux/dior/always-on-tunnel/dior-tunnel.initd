@@ -1,0 +1,24 @@
+#!/sbin/openrc-run
+
+name="Dior FlowBoard tunnel"
+description="Reconnect the selected public tunnel for the local FlowBoard server"
+supervisor="supervise-daemon"
+command="/usr/local/libexec/dior-tunnel-run"
+command_user="flowboard-tunnel:flowboard-tunnel"
+directory="/etc/dior-tunnel"
+umask=0027
+respawn_delay=10
+respawn_max=0
+retry="TERM/20/KILL/5"
+
+depend() {
+    # An absent access point must not prevent boot. Clients reconnect themselves.
+    need localmount flowboard
+    after firewall NetworkManager networking
+}
+
+start_pre() {
+    checkpath --directory --owner flowboard-tunnel:flowboard-tunnel --mode 0750 /var/log/dior-tunnel
+    checkpath --directory --owner flowboard-tunnel:flowboard-tunnel --mode 0755 /var/lib/dior-tunnel
+    /usr/bin/node /usr/local/libexec/dior-tunnel-check.cjs || return 1
+}

@@ -37,9 +37,10 @@ fs.rmSync(releaseDir, { recursive: true, force: true })
 fs.mkdirSync(releaseDir, { recursive: true })
 fs.copyFileSync(bundlePath, path.join(releaseDir, 'server-bundle.cjs'))
 fs.cpSync(distDir, path.join(releaseDir, 'dist'), { recursive: true })
-for (const file of ['start-server.sh', 'install-linux.sh', 'LINUX-ARMHF.md', 'PMOS-DIOR.md', 'flowboard.env.example', 'flowboard.service', 'flowboard.openrc', 'nginx.flowboard.conf.example']) {
+for (const file of ['start-server.sh', 'healthcheck.cjs', 'install-linux.sh', 'LINUX-ARMHF.md', 'PMOS-DIOR.md', 'DIOR-ALWAYS-ON.md', 'flowboard.env.example', 'flowboard.service', 'flowboard.openrc', 'nginx.flowboard.conf.example']) {
   ensureFile(path.join(root, file), file)
-  fs.copyFileSync(path.join(root, file), path.join(releaseDir, file))
+  // A Windows checkout may use CRLF. Linux shebangs and service scripts need LF.
+  fs.writeFileSync(path.join(releaseDir, file), fs.readFileSync(path.join(root, file), 'utf8').replace(/\r\n/g, '\n'), 'utf8')
 }
 fs.writeFileSync(
   path.join(releaseDir, 'BUILD.txt'),

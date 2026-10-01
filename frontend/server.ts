@@ -7,7 +7,8 @@ import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 import { exec, execSync, spawn } from 'node:child_process'
-import { collectOrphanAssets, detectLanIPv4Addresses, ensureRuntimeDirs, handleRuntimeRequest, migrateInlineAssets, preferredPublicHost, sendSmtpMail } from './runtimeCore.js'
+import { createTunnelNotificationWorker } from './tunnelNotifications.js'
+import { appendRuntimeLog, collectOrphanAssets, detectLanIPv4Addresses, ensureRuntimeDirs, handleRuntimeRequest, migrateInlineAssets, preferredPublicHost, preferredPublicOrigin, sendSmtpMail, sendTunnelNotificationMail } from './runtimeCore.js'
 
 interface RuntimeOptions {
   host: string
@@ -278,6 +279,8 @@ function loadQrLibs(): { qrcode: string; qrcodeUtf8: string } {
 }
 
 function qrTargetUrl(options: RuntimeOptions): string {
+  const publicOrigin = preferredPublicOrigin()
+  if (publicOrigin) return `${publicOrigin}/`
   const lanAddresses = detectLanIPv4Addresses()
   const publicHost = preferredPublicHost()
   const host = publicHost !== 'localhost'
@@ -855,17 +858,19 @@ function startInteractiveConsole(options: RuntimeOptions): void {
   })
 }
 
+let tunnelNotificationWorker: ReturnType<typeof createTunnelNotificationWorker> | undefined
+
 function startListening(server: http.Server, options: RuntimeOptions): void {
   process.env.FLOWBOARD_RUNTIME_PORT = String(options.port)
   const onListening = () => {
     const localUrl = `http://127.0.0.1:${options.port}`
     const lanAddresses = detectLanIPv4Addresses()
     const publicHost = preferredPublicHost()
-    const publicUrl = publicHost !== 'localhost'
+    const publicUrl = preferredPublicOrigin() ?? (publicHost !== 'localhost'
       ? `http://${publicHost}:${options.port}`
       : lanAddresses.length > 0
         ? `http://${lanAddresses[0]}:${options.port}`
-        : localUrl
+        : localUrl)
     const mode = isPackagedMode ? 'packaged' : 'development'
     const firewallAllowed = checkFirewallRule(options.port)
     const line = (label: string, value: string) => `  ${label.padEnd(12)} ${value}`
@@ -899,6 +904,26 @@ function startListening(server: http.Server, options: RuntimeOptions): void {
     console.log('╚══════════════════════════════════════════════════════════╝')
     console.log('')
 
+
+    if (!tunnelNotificationWorker && process.env.FLOWBOARD_PUBLIC_URL_FILE?.trim()
+      && /^(1|true|yes|on)$/i.test(process.env.FLOWBOARD_TUNNEL_NOTIFY ?? '')) {
+      const notifications = createTunnelNotificationWorker({
+        authDirectory,
+        currentUrl: preferredPublicOrigin,
+        smtpConfigured: isSmtpConfigured,
+        send: sendTunnelNotificationMail,
+        report: (status) => {
+          void appendRuntimeLog({ dataDirectory, logDirectory, authDirectory }, {
+            level: 'info', event: 'tunnel.notifications',
+            message: `Tunnel notifications: ${status.status}`,
+            details: { pending: status.pending, sent: status.sent },
+          }).catch(() => undefined)
+        },
+      })
+      tunnelNotificationWorker = notifications
+      notifications.start()
+      server.once('close', () => { notifications.stop(); tunnelNotificationWorker = undefined })
+    }
 
     if (options.openBrowser) openBrowser(`${localUrl}/`)
     // 启动交互式控制台（可在黑框里直接敲命令）
@@ -1213,7 +1238,7 @@ async function runAdminCommand(): Promise<void> {
       const jsonFiles = files.filter(file => file.endsWith('.json'))
       let count = 0
       for (const file of jsonFiles) {
-        const project = await readJsonFileSafe<StoredDocumentLike>(path.join(dataDirectory, file), null)
+        const project = await readJsonFileSafe<StoredDocumentLike | null>(path.join(dataDirectory, file), null)
         if (!project || typeof project.id !== 'string') continue
         if (ownerIdFilter && project.ownerId !== ownerIdFilter) continue
         const ownerEmail = [...ownerByEmail.entries()].find(([, id]) => id === project.ownerId)?.[0] ?? project.ownerId ?? '(未知)'
@@ -1241,7 +1266,7 @@ async function runAdminCommand(): Promise<void> {
         return
       }
       const sourcePath = projectPathSafe(arg1)
-      const project = await readJsonFileSafe<StoredDocumentLike>(sourcePath, null)
+      const project = await readJsonFileSafe<StoredDocumentLike | null>(sourcePath, null)
       if (!project || typeof project.id !== 'string') {
         console.error(`文档不存在: ${arg1}`)
         process.exit(1)
@@ -1314,7 +1339,7 @@ async function runAdminCommand(): Promise<void> {
       let deleted = 0
       const deletedDocIds = new Set<string>()
       for (const file of files.filter(f => f.endsWith('.json'))) {
-        const project = await readJsonFileSafe<StoredDocumentLike>(path.join(dataDirectory, file), null)
+        const project = await readJsonFileSafe<StoredDocumentLike | null>(path.join(dataDirectory, file), null)
         if (project?.ownerId === user.id) {
           await fsp.unlink(path.join(dataDirectory, file)).catch(() => undefined)
           if (typeof project.id === 'string') {

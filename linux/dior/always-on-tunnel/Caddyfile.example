@@ -1,0 +1,4 @@
+# VPS only. This hostname's A/AAAA record must point at the owner's VPS.
+REPLACE_WITH_FIXED_HOSTNAME {
+    reverse_proxy 127.0.0.1:63000
+}

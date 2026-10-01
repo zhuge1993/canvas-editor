@@ -1,0 +1,17 @@
+# VPS only. The proxied HTTP port is visible to its local HTTPS reverse proxy.
+bindAddr = "0.0.0.0"
+bindPort = 7000
+proxyBindAddr = "127.0.0.1"
+allowPorts = [{ single = 63000 }]
+maxPortsPerClient = 1
+auth.method = "token"
+auth.additionalScopes = ["HeartBeats", "NewWorkConns"]
+auth.tokenSource.type = "file"
+auth.tokenSource.file.path = "/etc/frp/dior-token"
+transport.tls.force = true
+transport.tls.certFile = "/etc/frp/server.crt"
+transport.tls.keyFile = "/etc/frp/server.key"
+transport.tcpMux = true
+log.to = "/var/log/frp/frps.log"
+log.level = "warn"
+log.maxDays = 3

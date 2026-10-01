@@ -10,10 +10,18 @@ no_new_privs=yes
 umask=0027
 respawn_delay=3
 respawn_max=0
+retry="TERM/15/KILL/5"
+healthcheck_delay=30
+healthcheck_timer=30
 
 depend() {
-  need net
+  # The local server must start even when the access point is unavailable.
+  need localmount
   after firewall
+}
+
+healthcheck() {
+  /usr/bin/node /opt/flowboard/healthcheck.cjs
 }
 
 start_pre() {

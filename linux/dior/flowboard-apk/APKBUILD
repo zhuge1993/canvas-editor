@@ -2,7 +2,7 @@
 # and runs "pmbootstrap checksum flowboard-server" before building.
 pkgname=flowboard-server
 pkgver=1.0.0
-pkgrel=3
+pkgrel=4
 pkgdesc="FlowBoard always-on drawing server"
 url="https://github.com/zhuge1993/canvas-editor"
 arch="noarch"
@@ -22,6 +22,7 @@ package() {
 	install -Dm644 "$srcdir"/server-bundle.cjs "$pkgdir"/opt/flowboard/server-bundle.cjs
 	cp -a "$srcdir"/dist "$pkgdir"/opt/flowboard/dist
 	install -Dm755 "$srcdir"/start-server.sh "$pkgdir"/opt/flowboard/start-server.sh
+	install -Dm644 "$srcdir"/healthcheck.cjs "$pkgdir"/opt/flowboard/healthcheck.cjs
 	install -Dm600 "$srcdir"/flowboard.env.example "$pkgdir"/opt/flowboard/flowboard.env
 
 	install -d -m 0750 "$pkgdir"/opt/flowboard/project-data

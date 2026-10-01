@@ -1,0 +1,26 @@
+{
+  "cloudflared": {
+    "version": "2026.9.1",
+    "release": "https://github.com/cloudflare/cloudflared/releases/tag/2026.9.1",
+    "linux_armhf": {
+      "url": "https://github.com/cloudflare/cloudflared/releases/download/2026.9.1/cloudflared-linux-armhf",
+      "sha256": "95420507a720fb543122a5d69372fbde8f5c919790e95ddd4374a449e0a6f4dd"
+    },
+    "windows_amd64": {
+      "url": "https://github.com/cloudflare/cloudflared/releases/download/2026.9.1/cloudflared-windows-amd64.exe",
+      "sha256": "2837888cc0f5d58f15b6dc478376de90b4d3ba5241c7947455d1e0a0df429712"
+    }
+  },
+  "frp": {
+    "version": "0.71.0",
+    "release": "https://github.com/fatedier/frp/releases/tag/v0.71.0",
+    "linux_armhf": {
+      "url": "https://github.com/fatedier/frp/releases/download/v0.71.0/frp_0.71.0_linux_arm_hf.tar.gz",
+      "sha256": "eab1ecb45b00e2f9cf2ebc458fde570ceecb50689c4c5c728677f44825bf3d88"
+    },
+    "windows_amd64": {
+      "url": "https://github.com/fatedier/frp/releases/download/v0.71.0/frp_0.71.0_windows_amd64.zip",
+      "sha256": "9e5062e3e5cf07e67144a3a4acf175ef6a2486f3605dd6cf288bae34ab39819f"
+    }
+  }
+}

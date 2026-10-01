@@ -25,6 +25,10 @@ jobs:
           cache-dependency-path: frontend/pnpm-lock.yaml
       - name: Validate Dior shell scripts
         run: |
+          sh -n frontend/start-server.sh
+          sh -n frontend/install-linux.sh
+          sh -n frontend/flowboard.openrc
+          node --check frontend/healthcheck.cjs
           sh -n linux/dior/build-image.sh
           sh -n linux/dior/flowboard-dior-firmware-apk/APKBUILD
           sh -n linux/dior/build-v1-first-flash.sh
@@ -40,6 +44,9 @@ jobs:
       - name: Install dependencies
         working-directory: frontend
         run: pnpm install --frozen-lockfile
+      - name: Validate durable saves and server recovery probes
+        working-directory: frontend
+        run: pnpm run test:server-lifetime
       - name: Build Linux release
         working-directory: frontend
         run: pnpm run build:linux

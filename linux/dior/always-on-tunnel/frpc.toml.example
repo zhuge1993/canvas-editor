@@ -1,0 +1,32 @@
+# Phone client. TLS identity must match the certificate on the owner's VPS.
+serverAddr = "REPLACE_WITH_VPS_HOSTNAME"
+serverPort = 7000
+loginFailExit = false
+auth.method = "token"
+auth.additionalScopes = ["HeartBeats", "NewWorkConns"]
+auth.tokenSource.type = "file"
+auth.tokenSource.file.path = "/etc/dior-tunnel/frp-token"
+transport.protocol = "tcp"
+transport.tls.enable = true
+transport.tls.serverName = "REPLACE_WITH_VPS_HOSTNAME"
+transport.tls.trustedCaFile = "/etc/dior-tunnel/frp-ca.crt"
+transport.dialServerTimeout = 10
+transport.dialServerKeepalive = 30
+transport.tcpMux = true
+transport.tcpMuxKeepaliveInterval = 30
+transport.poolCount = 0
+log.to = "/var/log/dior-tunnel/frpc.log"
+log.level = "warn"
+log.maxDays = 3
+log.disablePrintColor = true
+
+[[proxies]]
+name = "dior-flowboard"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 3000
+remotePort = 63000
+healthCheck.type = "tcp"
+healthCheck.timeoutSeconds = 3
+healthCheck.maxFailed = 3
+healthCheck.intervalSeconds = 15

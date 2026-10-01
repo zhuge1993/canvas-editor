@@ -86,3 +86,31 @@ enables DRM/GENLOCK/MSM_KGSL_DRM and disables per-process page tables.
 actual Adreno renderer identification and matching rendered pixels are
 required. Bluetooth pairing/data transfer and OTG/TF read/write testing
 require connected test partners or media.
+
+## Server connectivity on r8
+
+The r8 kernel (`#9-postmarketOS`, GCC 4.9.4) adds a narrow rtnetlink
+forward-compatibility fix. NetworkManager 1.58 sends the extended IFA_FLAGS
+attribute when installing a DHCP address. The old generic parser rejected
+attribute 8 before the IPv4 handler, so the router's successful DHCP ACK was
+followed by an EADDRNOTAVAIL bind failure. Unknown attributes now remain for
+the message handler, while only known attributes enter the bounded table.
+
+The non-mutating ifindex=0 probe changed from ENODEV/EINVAL to
+ENODEV/ENODEV on the actual device. DHCP then installed the lease, default
+gateway and DNS; the boot partition prefix matched the delivered image and
+the live IKCONFIG matched its compiled configuration. The NV firmware file
+and original boot ramdisk/QCDT remained unchanged.
+
+NetworkManager scan MAC randomization is disabled for wlan0; saved networks
+preserve the stable local address selected at driver startup. A plain
+down/up does not rebuild this driver's SME session, so configuration must
+take effect before a fresh driver boot. Saved system profiles use mode 0600
+and keep credentials outside the repository.
+
+The always-on server deployment and account-free tunnel are documented in
+`../../frontend/DIOR-ALWAYS-ON.md` and `always-on-tunnel/README.md`.
+Successful SMTP acceptance is recorded separately from recipient inbox
+delivery. An account-free Quick Tunnel can change its random hostname after
+the tunnel process or phone restarts; public URL notifications preserve
+access to the existing share tokens.
