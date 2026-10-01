@@ -46,10 +46,13 @@ def verify_zimage(path: Path, destination: Path) -> dict:
     finish = image.index(b"IKCFG_ED", begin)
     config = gzip.decompress(image[begin:finish]).decode("ascii")
     for setting in ("CONFIG_PRONTO_WLAN=y", "CONFIG_MSM_KGSL=y", "CONFIG_RFKILL=y",
-                    "CONFIG_DRM=y", "CONFIG_GENLOCK=y", "CONFIG_MSM_KGSL_DRM=y",
-                    "# CONFIG_KGSL_PER_PROCESS_PAGE_TABLE is not set"):
+                    "CONFIG_DRM=y", "CONFIG_GENLOCK=y", "CONFIG_MSM_KGSL_DRM=y"):
         if setting not in config.splitlines():
             raise ValueError("effective compiled config missing " + setting)
+    # Kconfig omits hidden disabled symbols entirely when DRM makes their
+    # dependency false. Reject an enabled value rather than require a comment.
+    if re.search(r"^CONFIG_KGSL_PER_PROCESS_PAGE_TABLE=[ym]$", config, re.M):
+        raise ValueError("KGSL DRM requires global page tables")
     (destination / "kernel.config").write_bytes(config.encode("ascii"))
     return {"linux_banner": banner.group().decode().strip(), "gcc4_verified": True,
             "nv_patch_marker_present": True, "thermal_netlink_fix_verified": True,
