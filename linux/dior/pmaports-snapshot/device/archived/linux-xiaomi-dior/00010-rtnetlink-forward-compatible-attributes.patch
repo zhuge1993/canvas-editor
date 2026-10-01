@@ -1,0 +1,34 @@
+From: Dior Linux maintainers
+Subject: [PATCH] rtnetlink: allow optional attributes from newer userspace
+
+Modern NetworkManager includes IFA_FLAGS (8) when configuring IPv4 leases.
+The legacy common parser rejects it against IFA_MAX (7), preventing the
+address from being installed; accepting the DHCP lease then fails to bind
+its UDP socket with EADDRNOTAVAIL.
+
+Ignore attributes outside the legacy table without indexing rta_buf. The
+message-specific parser still sees the complete message and validates its
+known fields and lengths. Keep the existing handler API and buffer layout.
+
+Upstream rationale: 661d2967b3f1b34eeaa7e212e7b9bbe8ee072b59
+(rtnetlink: Remove passing of attributes into rtnl_doit functions).
+This is a narrow compatibility backport, not the full handler API change.
+
+diff --git a/net/core/rtnetlink.c b/net/core/rtnetlink.c
+index 1604bf22..ae2da871 100644
+--- a/net/core/rtnetlink.c
++++ b/net/core/rtnetlink.c
+@@ -2045,11 +2045,9 @@ static int rtnetlink_rcv_msg(struct sk_buff *skb, struct nlmsghdr *nlh)
+ 
+ 		while (RTA_OK(attr, attrlen)) {
+ 			unsigned flavor = attr->rta_type;
+-			if (flavor) {
+-				if (flavor > rta_max[sz_idx])
+-					return -EINVAL;
++			/* Leave newer attributes to the message-specific parser. */
++			if (flavor && flavor <= rta_max[sz_idx])
+ 				rta_buf[flavor-1] = attr;
+-			}
+ 			attr = RTA_NEXT(attr, attrlen);
+ 		}
+ 	}
