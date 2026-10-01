@@ -40,6 +40,8 @@ def verify_zimage(path: Path, destination: Path) -> dict:
         raise ValueError("compiled kernel is not GCC4")
     if b"Dior prima driver NV default version=%d" not in image:
         raise ValueError("compiled kernel has no Dior NV compatibility marker")
+    if b"thermal_mc_grp\0" not in image or b"thermal_mc_group" in image:
+        raise ValueError("compiled kernel lacks the thermal netlink name fix")
     begin = image.index(b"IKCFG_ST") + 8
     finish = image.index(b"IKCFG_ED", begin)
     config = gzip.decompress(image[begin:finish]).decode("ascii")
@@ -48,7 +50,8 @@ def verify_zimage(path: Path, destination: Path) -> dict:
             raise ValueError("effective compiled config missing " + setting)
     (destination / "kernel.config").write_text(config, encoding="ascii")
     return {"linux_banner": banner.group().decode().strip(), "gcc4_verified": True,
-            "nv_patch_marker_present": True, "effective_config_verified": True}
+            "nv_patch_marker_present": True, "thermal_netlink_fix_verified": True,
+            "effective_config_verified": True}
 
 
 def build() -> None:
@@ -83,8 +86,11 @@ def build() -> None:
     # locked recipe/patch, even if upstream now contains a different kernel.
     shutil.copytree(snapshot / "device/archived/linux-xiaomi-dior", candidates[0], dirs_exist_ok=True)
     recipe = (candidates[0] / "APKBUILD").read_text()
-    if f'_commit="{KERNEL_COMMIT}"' not in recipe or 'pkgrel=4' not in recipe:
+    release = re.search(r"^pkgrel=(\d+)$", recipe, re.M)
+    if (f'_commit="{KERNEL_COMMIT}"' not in recipe or 'pkgver=3.4.0' not in recipe
+            or not release or int(release.group(1)) < 4):
         raise ValueError("kernel recipe revision differs from the requested build")
+    package_name = f"linux-xiaomi-dior-3.4.0-r{release.group(1)}.apk"
     cfg = configparser.ConfigParser(interpolation=None)
     cfg["pmbootstrap"] = {
         "aports": str(state / "pmaports"), "work": str(state / "work"),
@@ -104,10 +110,13 @@ def build() -> None:
         if pmb("config", "device", capture=True) != "xiaomi-dior":
             raise ValueError("pmbootstrap initialized the wrong device")
         pmb("build", "linux-xiaomi-dior")
-        packages = list((state / "work/packages").glob("*/armv7/linux-xiaomi-dior-3.4.0-r4.apk"))
+        packages = list((state / "work/packages").glob("*/armv7/" + package_name))
         if len(packages) != 1:
-            raise ValueError("expected exactly one freshly built r4 kernel APK")
+            raise ValueError("expected exactly one freshly built kernel APK")
         package = packages[0]
+        # Preserve the completed package for diagnosis even if payload
+        # inspection fails later; it remains a candidate until verified.
+        shutil.copy2(package, output / package.name)
         unpacked = state / "unpacked"
         unpacked.mkdir()
         CI.run(["tar", "--ignore-zeros", "-xzf", str(package), "-C", str(unpacked)])
@@ -118,7 +127,6 @@ def build() -> None:
             raise ValueError("kernel APK has no boot/vmlinuz")
         shutil.copy2(kernel, output / "zImage")
         proof = verify_zimage(output / "zImage", output)
-        shutil.copy2(package, output / package.name)
         manifest = {**revisions, **proof, "kernel_sha256": CI.sha256(output / "zImage"),
                     "kernel_apk_sha256": CI.sha256(package), "package": package.name,
                     "physical_boot_verified": False, "boot_repack_required": True,

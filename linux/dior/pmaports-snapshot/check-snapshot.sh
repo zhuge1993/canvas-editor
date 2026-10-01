@@ -70,7 +70,8 @@ for name in \
 	linux3.4-ARM-8933-1-replace-Sun-Solaris-style-flag-on-section.patch \
 	0001-fix-refresh-rate.patch \
 	0001-framebuffer-fixes.patch \
-	0001-prima-nv-v1-compatibility.patch
+	0001-prima-nv-v1-compatibility.patch \
+	0002-thermal-genl-group-name.patch
 do
 	verify_source "$KERNEL_DIR" "$KERNEL_APKBUILD" "$name"
 done
