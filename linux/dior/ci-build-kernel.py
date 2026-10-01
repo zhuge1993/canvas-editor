@@ -111,9 +111,11 @@ def build() -> None:
         unpacked = state / "unpacked"
         unpacked.mkdir()
         CI.run(["tar", "--ignore-zeros", "-xzf", str(package), "-C", str(unpacked)])
-        kernel = unpacked / "boot/vmlinuz-xiaomi-dior"
+        # Current devicepkg-dev installs an unflavored /boot/vmlinuz; the
+        # flavor is recorded separately under /usr/share/kernel/.
+        kernel = unpacked / "boot/vmlinuz"
         if not kernel.is_file():
-            raise ValueError("kernel APK has no vmlinuz-xiaomi-dior")
+            raise ValueError("kernel APK has no boot/vmlinuz")
         shutil.copy2(kernel, output / "zImage")
         proof = verify_zimage(output / "zImage", output)
         shutil.copy2(package, output / package.name)
