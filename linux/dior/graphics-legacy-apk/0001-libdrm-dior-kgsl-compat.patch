@@ -1,0 +1,199 @@
+--- a/freedreno/freedreno_priv.h
++++ b/freedreno/freedreno_priv.h
+@@ -152,6 +152,8 @@
+ };
+ 
+ struct fd_bo_funcs {
++	/* Downstream ION-backed GEM objects do not have DRM mmap offsets. */
++	void *(*map)(struct fd_bo *bo);
+ 	int (*offset)(struct fd_bo *bo, uint64_t *offset);
+ 	int (*cpu_prep)(struct fd_bo *bo, struct fd_pipe *pipe, uint32_t op);
+ 	void (*cpu_fini)(struct fd_bo *bo);
+--- a/freedreno/freedreno_bo.c
++++ b/freedreno/freedreno_bo.c
+@@ -296,6 +296,10 @@
+ 
+ void * fd_bo_map(struct fd_bo *bo)
+ {
++	if (!bo->map && bo->funcs->map) {
++		bo->map = bo->funcs->map(bo);
++		return bo->map;
++	}
+ 	if (!bo->map) {
+ 		uint64_t offset;
+ 		int ret;
+--- a/freedreno/kgsl/kgsl_bo.c
++++ b/freedreno/kgsl/kgsl_bo.c
+@@ -71,6 +71,39 @@
+ 	return 0;
+ }
+ 
++/* The Dior shim allocates GEM objects in ION and exports their dma-buf. */
++static void *kgsl_bo_map(struct fd_bo *bo)
++{
++	struct drm_kgsl_gem_get_ion_fd req = {
++		.handle = bo->handle,
++		.ion_fd = -1,
++	};
++	void *map;
++	int ret, saved_errno;
++
++	ret = bo_alloc(to_kgsl_bo(bo));
++	if (ret)
++		return NULL;
++
++	ret = drmCommandWriteRead(bo->dev->fd, DRM_KGSL_GEM_GET_ION_FD,
++			&req, sizeof(req));
++	if (ret || req.ion_fd < 0) {
++		ERROR_MSG("Dior GEM ION export failed: %s", strerror(errno));
++		return NULL;
++	}
++
++	map = drm_mmap(NULL, bo->size, PROT_READ | PROT_WRITE, MAP_SHARED,
++			req.ion_fd, 0);
++	saved_errno = errno;
++	close(req.ion_fd);
++	if (map == MAP_FAILED) {
++		errno = saved_errno;
++		ERROR_MSG("Dior GEM ION mmap failed: %s", strerror(errno));
++		return NULL;
++	}
++	return map;
++}
++
+ static int kgsl_bo_offset(struct fd_bo *bo, uint64_t *offset)
+ {
+ 	struct kgsl_bo *kgsl_bo = to_kgsl_bo(bo);
+@@ -129,6 +162,7 @@
+ }
+ 
+ static const struct fd_bo_funcs funcs = {
++		.map = kgsl_bo_map,
+ 		.offset = kgsl_bo_offset,
+ 		.cpu_prep = kgsl_bo_cpu_prep,
+ 		.cpu_fini = kgsl_bo_cpu_fini,
+--- a/freedreno/kgsl/kgsl_drm.h
++++ b/freedreno/kgsl/kgsl_drm.h
+@@ -19,6 +19,7 @@
+ #define DRM_KGSL_GEM_UNLOCK_HANDLE 0x0C
+ #define DRM_KGSL_GEM_UNLOCK_ON_TS 0x0D
+ #define DRM_KGSL_GEM_CREATE_FD 0x0E
++#define DRM_KGSL_GEM_GET_ION_FD 0x0F
+ 
+ #define DRM_IOCTL_KGSL_GEM_CREATE \
+ DRM_IOWR(DRM_COMMAND_BASE + DRM_KGSL_GEM_CREATE, struct drm_kgsl_gem_create)
+@@ -76,7 +77,8 @@
+ struct drm_kgsl_gem_create_fd)
+ 
+ /* Maximum number of sub buffers per GEM object */
+-#define DRM_KGSL_GEM_MAX_BUFFERS 2
++/* Dior's frozen Qualcomm shim has three entries, including in BUFINFO. */
++#define DRM_KGSL_GEM_MAX_BUFFERS 3
+ 
+ /* Memory types - these define the source and caching policies
+    of the GEM memory chunk */
+@@ -189,4 +191,9 @@
+ 	uint32_t handle;
+ };
+ 
++struct drm_kgsl_gem_get_ion_fd {
++	uint32_t handle;
++	int ion_fd;
++};
++
+ #endif
+--- a/freedreno/kgsl/kgsl_pipe.c
++++ b/freedreno/kgsl/kgsl_pipe.c
+@@ -43,6 +43,13 @@
+ 		return 0;
+ 	case FD_GPU_ID:
+ 		*value = kgsl_pipe->devinfo.gpu_id;
++		/* Qualcomm's A305B enum is 335, but its silicon chip ID is
++		 * 3.0.5.16/18. Mesa's GPU family ID is 305. Preserve CHIP_ID.
++		 */
++		if (*value == 335 &&
++		    (kgsl_pipe->devinfo.chip_id == 0x03000510 ||
++		     kgsl_pipe->devinfo.chip_id == 0x03000512))
++			*value = 305;
+ 		return 0;
+ 	case FD_GMEM_SIZE:
+ 		*value = kgsl_pipe->devinfo.gmem_sizebytes;
+@@ -65,14 +72,15 @@
+ 		uint64_t timeout)
+ {
+ 	struct kgsl_pipe *kgsl_pipe = to_kgsl_pipe(pipe);
+-	struct kgsl_device_waittimestamp req = {
++	struct kgsl_device_waittimestamp_ctxtid req = {
++			.context_id = kgsl_pipe->drawctxt_id,
+ 			.timestamp = timestamp,
+ 			.timeout   = 5000,
+ 	};
+ 	int ret;
+ 
+ 	do {
+-		ret = ioctl(kgsl_pipe->fd, IOCTL_KGSL_DEVICE_WAITTIMESTAMP, &req);
++		ret = ioctl(kgsl_pipe->fd, IOCTL_KGSL_DEVICE_WAITTIMESTAMP_CTXTID, &req);
+ 	} while ((ret == -1) && ((errno == EINTR) || (errno == EAGAIN)));
+ 	if (ret)
+ 		ERROR_MSG("waittimestamp failed! %d (%s)", ret, strerror(errno));
+@@ -84,10 +92,11 @@
+ drm_private int kgsl_pipe_timestamp(struct kgsl_pipe *kgsl_pipe,
+ 		uint32_t *timestamp)
+ {
+-	struct kgsl_cmdstream_readtimestamp req = {
++	struct kgsl_cmdstream_readtimestamp_ctxtid req = {
++			.context_id = kgsl_pipe->drawctxt_id,
+ 			.type = KGSL_TIMESTAMP_RETIRED
+ 	};
+-	int ret = ioctl(kgsl_pipe->fd, IOCTL_KGSL_CMDSTREAM_READTIMESTAMP, &req);
++	int ret = ioctl(kgsl_pipe->fd, IOCTL_KGSL_CMDSTREAM_READTIMESTAMP_CTXTID, &req);
+ 	if (ret) {
+ 		ERROR_MSG("readtimestamp failed! %d (%s)",
+ 				ret, strerror(errno));
+@@ -218,7 +227,7 @@
+ 			[FD_PIPE_2D] = "/dev/kgsl-2d0",
+ 	};
+ 	struct kgsl_drawctxt_create req = {
+-			.flags = 0x2000, /* ??? */
++			.flags = KGSL_CONTEXT_PER_CONTEXT_TS,
+ 	};
+ 	struct kgsl_pipe *kgsl_pipe = NULL;
+ 	struct fd_pipe *pipe = NULL;
+--- a/freedreno/kgsl/kgsl_ringbuffer.c
++++ b/freedreno/kgsl/kgsl_ringbuffer.c
+@@ -64,9 +64,11 @@
+ 	};
+ 	int ret;
+ 
+-	drm_munmap(bo->hostptr, bo->size);
+-
+-	ret = ioctl(bo->pipe->fd, IOCTL_KGSL_SHAREDMEM_FREE, &req);
++	if (bo->hostptr)
++		drm_munmap(bo->hostptr, bo->size);
++
++	ret = bo->gpuaddr ? ioctl(bo->pipe->fd,
++			IOCTL_KGSL_SHAREDMEM_FREE, &req) : 0;
+ 	if (ret) {
+ 		ERROR_MSG("sharedmem free failed: %s", strerror(errno));
+ 	}
+@@ -88,6 +90,8 @@
+ 		ERROR_MSG("allocation failed");
+ 		return NULL;
+ 	}
++	bo->pipe = pipe;
++	bo->size = size;
+ 	ret = ioctl(pipe->fd, IOCTL_KGSL_GPUMEM_ALLOC, &req);
+ 	if (ret) {
+ 		ERROR_MSG("gpumem allocation failed: %s", strerror(errno));
+@@ -99,6 +103,11 @@
+ 	bo->size = size;
+ 	bo->hostptr = drm_mmap(NULL, size, PROT_WRITE|PROT_READ,
+ 				MAP_SHARED, pipe->fd, req.gpuaddr);
++	if (bo->hostptr == MAP_FAILED) {
++		bo->hostptr = NULL;
++		ERROR_MSG("Dior command-buffer mmap failed: %s", strerror(errno));
++		goto fail;
++	}
+ 
+ 	return bo;
+ fail:

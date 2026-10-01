@@ -1,0 +1,121 @@
+# Isolated legacy KGSL/Freedreno userspace for the frozen Dior 3.4 kernel.
+pkgname=dior-graphics
+pkgver=17.3.9
+pkgrel=0
+pkgdesc="Isolated Dior Adreno 305 legacy GLES compatibility and rendering probe"
+url="https://docs.mesa3d.org/drivers/freedreno.html"
+arch="armv7"
+license="MIT AND LGPL-2.1-or-later"
+options="!strip !pmb:crossdirect"
+depends="musl libgcc libstdc++ zlib python3"
+makedepends="build-base pkgconf zlib-dev bison flex libatomic_ops-dev"
+source="
+	https://archive.mesa3d.org/older-versions/17.x/mesa-17.3.9.tar.xz
+	https://dri.freedesktop.org/libdrm/libdrm-2.4.89.tar.bz2
+	https://www.python.org/ftp/python/2.7.18/Python-2.7.18.tar.xz
+	https://files.pythonhosted.org/packages/source/M/Mako/Mako-0.9.1.tar.gz
+	https://files.pythonhosted.org/packages/source/M/MarkupSafe/MarkupSafe-1.1.1.tar.gz
+	0001-libdrm-dior-kgsl-compat.patch
+	test-kgsl-abi.c
+	test-kgsl-map.c
+	test-kgsl-timestamps.c
+	kernel-kgsl-drm-uapi.h
+	dior-gles-check
+	dior-gles-probe.py
+"
+builddir="$srcdir/mesa-17.3.9"
+_prefix=/opt/dior-graphics
+_stage="$srcdir/compat-stage"
+
+prepare() {
+    patch -d "$srcdir/libdrm-2.4.89" -p1 -i "$srcdir/0001-libdrm-dior-kgsl-compat.patch"
+}
+
+build() {
+    # pmbootstrap QEMU_ONLY executes this build and checks inside armv7 musl.
+    # Python 2 is a source generator only; it is never installed on the phone.
+    cd "$srcdir/Python-2.7.18"
+    CFLAGS="$CFLAGS -std=gnu89 -Wno-error=implicit-function-declaration -Wno-error=incompatible-pointer-types" \
+        ./configure --prefix="$srcdir/build-python" --disable-shared --without-ensurepip
+    make -j2
+
+    cd "$srcdir/libdrm-2.4.89"
+    CFLAGS="$CFLAGS -Wno-error=implicit-function-declaration -Wno-error=incompatible-pointer-types" \
+        ./configure --prefix="$_prefix" --disable-static \
+        --enable-freedreno --enable-freedreno-kgsl --disable-intel \
+        --disable-radeon --disable-amdgpu --disable-nouveau \
+        --disable-omap-experimental-api --disable-exynos-experimental-api \
+        --disable-tegra-experimental-api --disable-vc4 --disable-etnaviv-experimental-api \
+        --disable-libkms --disable-udev --disable-valgrind --disable-cairo-tests --disable-manpages
+    make -j2
+    make DESTDIR="$_stage" install
+
+    cd "$builddir"
+    export PYTHON2="$srcdir/Python-2.7.18/python"
+    export PYTHONPATH="$srcdir/Mako-0.9.1:$srcdir/MarkupSafe-1.1.1/src"
+    export PKG_CONFIG_PATH="$_stage$_prefix/lib/pkgconfig"
+    export PKG_CONFIG_SYSROOT_DIR="$_stage"
+    CFLAGS="$CFLAGS -Wno-error=implicit-function-declaration -Wno-error=incompatible-pointer-types" \
+    CXXFLAGS="$CXXFLAGS -std=gnu++11" \
+        ./configure --prefix="$_prefix" --libdir="$_prefix/lib" \
+        --with-dri-driverdir="$_prefix/lib/dri" \
+        --with-gallium-drivers=freedreno --with-dri-drivers= \
+        --with-egl-platforms=drm,surfaceless --enable-egl --enable-gbm \
+        --enable-dri --disable-dri3 --enable-gles2 --disable-gles1 \
+        --disable-opengl --enable-shared-glapi --disable-glx --disable-glx-tls \
+        --disable-llvm --disable-gallium-llvm --disable-libunwind --disable-selinux \
+        --disable-osmesa --disable-gallium-osmesa --disable-xa --disable-xvmc \
+        --disable-vdpau --disable-va --disable-omx --disable-opencl \
+        --disable-gallium-tests
+    make -j2
+    make DESTDIR="$_stage" install
+}
+
+check() {
+    cd "$srcdir/libdrm-2.4.89"
+    export LD_LIBRARY_PATH="$_stage$_prefix/lib"
+    _includes="-DHAVE_CONFIG_H -I. -Iinclude/drm -Ifreedreno -I$srcdir"
+    _links="-L$_stage$_prefix/lib -ldrm_freedreno -ldrm -lpthread"
+    for _test in test-kgsl-abi test-kgsl-map test-kgsl-timestamps; do
+        $CC $CFLAGS -std=gnu11 -ffunction-sections -fdata-sections $_includes \
+            "$srcdir/$_test.c" -Wl,--gc-sections $_links -o "$srcdir/$_test"
+        "$srcdir/$_test"
+    done
+    $CC $CFLAGS -std=gnu11 $_includes \
+        '-DDIOR_DRM_HEADER="kernel-kgsl-drm-uapi.h"' \
+        "$srcdir/test-kgsl-abi.c" -o "$srcdir/test-kernel-kgsl-abi"
+    "$srcdir/test-kgsl-abi" > "$srcdir/userspace-abi.txt"
+    "$srcdir/test-kernel-kgsl-abi" > "$srcdir/kernel-abi.txt"
+    cmp "$srcdir/userspace-abi.txt" "$srcdir/kernel-abi.txt"
+    test -f "$_stage$_prefix/lib/dri/kgsl_dri.so"
+    test -f "$_stage$_prefix/lib/libEGL.so.1"
+    test -f "$_stage$_prefix/lib/libGLESv2.so.2"
+    printf '%s\n' 'PASS target UAPI equality, ION mapping failure paths, context timestamps' \
+        > "$srcdir/graphics-build-checks.txt"
+}
+
+package() {
+    install -d "$pkgdir/opt"
+    cp -a "$_stage$_prefix" "$pkgdir/opt/"
+    install -Dm755 "$srcdir/dior-gles-check" "$pkgdir$_prefix/bin/dior-gles-check"
+    install -Dm644 "$srcdir/dior-gles-probe.py" "$pkgdir$_prefix/libexec/dior-gles-probe.py"
+    install -Dm644 "$srcdir/graphics-build-checks.txt" "$pkgdir$_prefix/share/graphics-build-checks.txt"
+    # The package's runtime stays entirely in its isolated prefix.
+    rm -f "$pkgdir$_prefix"/lib/*.la
+    rm -rf "$pkgdir$_prefix/include" "$pkgdir$_prefix/lib/pkgconfig"
+}
+
+sha512sums="
+83deffbc6b9823b8e93cccf57d7952106f3d55fea881e3924f9f9586f0e9347a6e3a1a36cc19c24af819f2fde3af9496652a6ff56132511a5618d5774404f63f  mesa-17.3.9.tar.xz
+380e4e46cd3971a73264bd1b482791fab0503268adb65ac81b674df009662cfb8ef5741e362f19670b2a43b1c46f022d857706c9a4bebed2b1cddaa317b7706d  libdrm-2.4.89.tar.bz2
+a7bb62b51f48ff0b6df0b18f5b0312a523e3110f49c3237936bfe56ed0e26838c0274ff5401bda6fc21bf24337477ccac49e8026c5d651e4b4cafb5eb5086f6c  Python-2.7.18.tar.xz
+762affad80f804a7d71030deba65e8153e3c7fcd26c34cfb2f546804ec12e092a3eabdb8b0d12430e35b15220c39653be57ed80e3cbb314067d8b35f39834c63  Mako-0.9.1.tar.gz
+f3014e6131a3ab866914c5635b5397ef71906bffb1b6f8c5f2ed2acf167429ff7914236d38943e872683a57a9be9669f4c5aace6274f3307ab21ef25373db0b6  MarkupSafe-1.1.1.tar.gz
+96802b9cf1868276ee72a0bbf0cb95e156f9e1fc6b0dd731b28d1e6dad165890f154a2317b51c49718a21b148825bdead5a92b79c634c1850d013cb2d3ce991c  0001-libdrm-dior-kgsl-compat.patch
+38e1767be68654cff1f29a4d9e81776dcac768ce4feeed189faf495c5b0663d0c2c0394090a9c30fa940faa970aabb7fb024c049e252c346ed7d7016714095d7  test-kgsl-abi.c
+f309925bd828e0f9ce7b7ca7e31fa0899a2d113155ed435820a654309aa2cc8ee5c9bdf444d8a11f69a382e534596e817db161af539707be2e4b795913d79ee8  test-kgsl-map.c
+5fd72e7a291627e4d6494a97c0a43a927980eb7f22b4fd572e62b64abf69a7c81f41993eff5957a18e5936cebfd8eac27eac8c8751e96646c55f2aab689eafda  test-kgsl-timestamps.c
+870e381b9c1b986a15ee03a1c6501d1fc01ad52f70370937b7527789640e5ed39a357e9b17d69f1d42f778f073f50187a85932959f5a33032e10df2f72e09e6a  kernel-kgsl-drm-uapi.h
+7c0967fb2580065bb9e0c7628c3e5433e27e5c1aca1e93f514e4dd044e54a6dcce26b620d9b42f258c36c609cd1aa320043681ad3e4de71abfda03b4b21b1e08  dior-gles-check
+b13107df11777bfa90f9c8dd63f1dbdfb6a03256f739d1abe30080ea124ab93aa404e337a7e49889c1ad7061bedd97a6ef62636d4f23cfd29eda364c0ae0ae7a  dior-gles-probe.py
+"

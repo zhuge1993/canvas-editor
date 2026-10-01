@@ -1,0 +1,53 @@
+name: Dior legacy KGSL graphics
+on:
+  push:
+    branches: [linux-server-armhf]
+    paths:
+      - 'linux/dior/graphics-legacy-apk/**'
+      - 'linux/dior/ci-build-graphics.py'
+      - '.github/workflows/dior-graphics-legacy.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: dior-graphics-legacy-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  graphics:
+    if: github.repository == 'zhuge1993/canvas-editor' && github.ref == 'refs/heads/linux-server-armhf'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONUNBUFFERED: '1'
+      PMB_SUDO: sudo
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install native armv7 build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ca-certificates curl git python3 sudo tar xz-utils zstd \
+            qemu-user-static binfmt-support util-linux procps file
+      - name: Build isolated legacy graphics and target UAPI tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 linux/dior/ci-build-graphics.py 2>&1 | tee "$RUNNER_TEMP/dior-graphics-build.log"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Dior-graphics-legacy-${{ github.sha }}
+          path: ${{ runner.temp }}/dior-graphics-only/artifact/
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Dior-graphics-diagnostics-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/dior-graphics-build.log
+            ${{ runner.temp }}/dior-graphics-only/pmbootstrap.log
+          if-no-files-found: warn
+          retention-days: 7
