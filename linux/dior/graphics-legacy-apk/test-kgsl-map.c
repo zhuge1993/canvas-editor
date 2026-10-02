@@ -19,30 +19,21 @@ static int dior_test_close(int);
 #undef drmCommandWriteRead
 #undef close
 
-/* Keep the actual relocation source in release mode while test assertions
- * remain active. Abort is substituted only to inspect the pre-submit state. */
+/* The release-mode relocation implementation is compiled in its own source
+ * unit, keeping its static function table independent of kgsl_bo.c's table. */
 static jmp_buf relocation_failure;
 static int abort_calls, submit_calls;
-static void dior_test_abort(void);
-static void dior_test_add_submit(struct kgsl_pipe *, struct kgsl_bo *);
-#define NDEBUG
-#define funcs dior_test_ringbuffer_funcs
-#define abort dior_test_abort
-#define kgsl_pipe_add_submit dior_test_add_submit
-#include "freedreno/kgsl/kgsl_ringbuffer.c"
-#undef kgsl_pipe_add_submit
-#undef abort
-#undef funcs
-#undef NDEBUG
-#include <assert.h>
+void dior_test_abort(void);
+void dior_test_add_submit(struct kgsl_pipe *, struct kgsl_bo *);
+void dior_test_emit_reloc(struct fd_ringbuffer *, const struct fd_reloc *);
 
-static void dior_test_abort(void)
+void dior_test_abort(void)
 {
     abort_calls++;
     longjmp(relocation_failure, 1);
 }
 
-static void dior_test_add_submit(struct kgsl_pipe *pipe, struct kgsl_bo *bo)
+void dior_test_add_submit(struct kgsl_pipe *pipe, struct kgsl_bo *bo)
 {
     (void)pipe;
     (void)bo;
@@ -132,13 +123,13 @@ int main(void)
     object.gpuaddr = 0;
     mode = 2;
     if (setjmp(relocation_failure) == 0) {
-        kgsl_ringbuffer_emit_reloc(&ring, &relocation);
+        dior_test_emit_reloc(&ring, &relocation);
         assert(!"allocation failure must abort before emitting GPU commands");
     }
     assert(abort_calls == 1 && submit_calls == 0);
     assert(command == 0xfeedface && ring.cur == &command);
     mode = 6;
-    kgsl_ringbuffer_emit_reloc(&ring, &relocation);
+    dior_test_emit_reloc(&ring, &relocation);
     assert(command == 0x12000010 && ring.cur == &command + 1 && submit_calls == 1);
     puts("PASS ION mapping: correct FD/offset, allocation/export failures, mmap cleanup and errno");
     puts("PASS GPU address: allocation/BUFINFO failures return zero; success preserves byte offset");
