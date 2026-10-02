@@ -160,7 +160,40 @@
  	if (ret) {
  		ERROR_MSG("readtimestamp failed! %d (%s)",
  				ret, strerror(errno));
-@@ -218,11 +227,11 @@
+@@ -97,7 +106,7 @@
+ 	return 0;
+ }
+ 
+-static void kgsl_pipe_destroy(struct fd_pipe *pipe)
++static void kgsl_pipe_destroy_final(struct fd_pipe *pipe)
+ {
+ 	struct kgsl_pipe *kgsl_pipe = to_kgsl_pipe(pipe);
+ 	struct kgsl_drawctxt_destroy req = {
+@@ -111,6 +120,23 @@
+ 		close(kgsl_pipe->fd);
+ 
+ 	free(kgsl_pipe);
++}
++
++drm_private struct kgsl_pipe *kgsl_cmd_pipe_ref(struct kgsl_pipe *pipe)
++{
++	atomic_inc(&pipe->cmd_refs);
++	return pipe;
++}
++
++drm_private void kgsl_cmd_pipe_put(struct kgsl_pipe *pipe)
++{
++	if (atomic_dec_and_test(&pipe->cmd_refs))
++		kgsl_pipe_destroy_final(&pipe->base);
++}
++
++static void kgsl_pipe_destroy(struct fd_pipe *pipe)
++{
++	kgsl_cmd_pipe_put(to_kgsl_pipe(pipe));
+ }
+ 
+ static const struct fd_pipe_funcs funcs = {
+@@ -218,11 +244,11 @@
  			[FD_PIPE_2D] = "/dev/kgsl-2d0",
  	};
  	struct kgsl_drawctxt_create req = {
@@ -174,16 +207,24 @@
  
  	fd = open(paths[id], O_RDWR);
  	if (fd < 0) {
-@@ -237,6 +246,8 @@
- 				ret, strerror(errno));
+@@ -238,6 +264,8 @@
  		goto fail;
  	}
-+
-+	context_created = 1;
  
++	context_created = 1;
++
  	kgsl_pipe = calloc(1, sizeof(*kgsl_pipe));
  	if (!kgsl_pipe) {
-@@ -280,7 +291,17 @@
+ 		ERROR_MSG("allocation failed");
+@@ -249,6 +277,7 @@
+ 
+ 	kgsl_pipe->fd = fd;
+ 	kgsl_pipe->drawctxt_id = req.drawctxt_id;
++	atomic_set(&kgsl_pipe->cmd_refs, 1);
+ 
+ 	list_inithead(&kgsl_pipe->submit_list);
+ 	list_inithead(&kgsl_pipe->pending_list);
+@@ -280,7 +309,17 @@
  
  	return pipe;
  fail:
@@ -204,48 +245,400 @@
  }
 --- a/freedreno/kgsl/kgsl_ringbuffer.c
 +++ b/freedreno/kgsl/kgsl_ringbuffer.c
-@@ -64,9 +64,11 @@
- 	};
- 	int ret;
+@@ -36,15 +36,30 @@
+ #include "kgsl_priv.h"
  
+ 
+-/* because kgsl tries to validate the gpuaddr on kernel side in ISSUEIBCMDS,
+- * we can't use normal gem bo's for ringbuffer..  someday the kernel part
+- * needs to be reworked into a single sane drm driver :-/
+- */
++/* Command allocations are distinct from GEM fd_bo objects. Nested IBs retain
++ * these allocations, not their caller-owned ring wrappers. */
++struct kgsl_rb_fence {
++	int fd;
++	struct kgsl_pipe *owner;
++	uint32_t device_id;
++	uint32_t context_id;
++	uint32_t timestamp;
++	struct kgsl_rb_fence *next;
++};
++
++struct kgsl_rb_dependency {
++	struct kgsl_rb_bo *target;
++	struct kgsl_rb_dependency *next;
++};
++
+ struct kgsl_rb_bo {
+-	struct kgsl_pipe *pipe;
+-	void    *hostptr;
++	int alloc_fd;
++	void *hostptr;
+ 	uint32_t gpuaddr;
+ 	uint32_t size;
++	atomic_t references;
++	struct kgsl_rb_fence *fences;
++	struct kgsl_rb_dependency *dependencies;
+ };
+ 
+ struct kgsl_ringbuffer {
+@@ -52,123 +67,301 @@
+ 	struct kgsl_rb_bo *bo;
+ };
+ 
+-static inline struct kgsl_ringbuffer * to_kgsl_ringbuffer(struct fd_ringbuffer *x)
++struct kgsl_rb_submission {
++	struct kgsl_rb_bo **objects;
++	struct kgsl_rb_fence **prepared;
++	unsigned count;
++	unsigned capacity;
++};
++
++/* Public ring construction remains caller-serialized. This lock protects
++ * shared BO dependency/fence metadata when different parents are submitted. */
++static pthread_mutex_t kgsl_rb_lock = PTHREAD_MUTEX_INITIALIZER;
++
++static inline struct kgsl_ringbuffer *to_kgsl_ringbuffer(struct fd_ringbuffer *x)
+ {
+ 	return (struct kgsl_ringbuffer *)x;
+ }
+ 
+-static void kgsl_rb_bo_del(struct kgsl_rb_bo *bo)
+-{
+-	struct kgsl_sharedmem_free req = {
+-			.gpuaddr = bo->gpuaddr,
+-	};
+-	int ret;
+-
 -	drm_munmap(bo->hostptr, bo->size);
 -
 -	ret = ioctl(bo->pipe->fd, IOCTL_KGSL_SHAREDMEM_FREE, &req);
+-	if (ret) {
++static void kgsl_rb_bo_put(struct kgsl_rb_bo *bo);
++
++static void kgsl_rb_wait(struct kgsl_rb_bo *bo)
++{
++	struct kgsl_rb_fence *fence;
++	for (fence = bo->fences; fence; fence = fence->next) {
++		struct kgsl_device_waittimestamp_ctxtid req = {
++			.context_id = fence->context_id,
++			.timestamp = fence->timestamp,
++			.timeout = 5000,
++		};
++		int ret;
++		do {
++			ret = ioctl(fence->fd, IOCTL_KGSL_DEVICE_WAITTIMESTAMP_CTXTID, &req);
++		} while (ret == -1 && (errno == EINTR || errno == EAGAIN));
++		if (ret) {
++			/* A void destroy/reset cannot report a retirement failure.
++			 * Do not unmap/free memory that the GPU may still fetch. */
++			ERROR_MSG("Dior command BO retirement failed: %s", strerror(errno));
++			abort();
++		}
++	}
++}
++
++static void kgsl_rb_clear_dependencies(struct kgsl_rb_bo *bo)
++{
++	struct kgsl_rb_dependency *item;
++	pthread_mutex_lock(&kgsl_rb_lock);
++	item = bo->dependencies;
++	bo->dependencies = NULL;
++	pthread_mutex_unlock(&kgsl_rb_lock);
++	while (item) {
++		struct kgsl_rb_dependency *next = item->next;
++		kgsl_rb_bo_put(item->target);
++		free(item);
++		item = next;
++	}
++}
++
++static void kgsl_rb_bo_put(struct kgsl_rb_bo *bo)
++{
++	struct kgsl_rb_fence *fence;
++	struct kgsl_sharedmem_free req = { .gpuaddr = bo->gpuaddr };
++	pthread_mutex_lock(&kgsl_rb_lock);
++	assert(atomic_read(&bo->references));
++	if (!atomic_dec_and_test(&bo->references)) {
++		pthread_mutex_unlock(&kgsl_rb_lock);
++		return;
++	}
++	pthread_mutex_unlock(&kgsl_rb_lock);
++	/* Zero references means no live owner/dependency can add another fence. */
++	kgsl_rb_wait(bo);
++	kgsl_rb_clear_dependencies(bo);
 +	if (bo->hostptr)
 +		drm_munmap(bo->hostptr, bo->size);
-+
-+	ret = bo->gpuaddr ? ioctl(bo->pipe->fd,
-+			IOCTL_KGSL_SHAREDMEM_FREE, &req) : 0;
- 	if (ret) {
++	if (bo->gpuaddr && ioctl(bo->alloc_fd, IOCTL_KGSL_SHAREDMEM_FREE, &req))
  		ERROR_MSG("sharedmem free failed: %s", strerror(errno));
- 	}
-@@ -88,6 +90,8 @@
- 		ERROR_MSG("allocation failed");
+-	}
+-
++	while ((fence = bo->fences)) {
++		bo->fences = fence->next;
++		close(fence->fd);
++		kgsl_cmd_pipe_put(fence->owner);
++		free(fence);
++	}
++	if (bo->alloc_fd >= 0)
++		close(bo->alloc_fd);
+ 	free(bo);
+ }
+ 
+-static struct kgsl_rb_bo * kgsl_rb_bo_new(struct kgsl_pipe *pipe, uint32_t size)
++static struct kgsl_rb_bo *kgsl_rb_bo_new(struct kgsl_pipe *pipe, uint32_t size)
+ {
+ 	struct kgsl_rb_bo *bo;
+ 	struct kgsl_gpumem_alloc req = {
+-			.size = ALIGN(size, 4096),
+-			.flags = KGSL_MEMFLAGS_GPUREADONLY,
++		.size = ALIGN(size, 4096),
++		.flags = KGSL_MEMFLAGS_GPUREADONLY,
+ 	};
+-	int ret;
+-
+ 	bo = calloc(1, sizeof(*bo));
+-	if (!bo) {
+-		ERROR_MSG("allocation failed");
++	if (!bo)
  		return NULL;
- 	}
-+	bo->pipe = pipe;
+-	}
+-	ret = ioctl(pipe->fd, IOCTL_KGSL_GPUMEM_ALLOC, &req);
+-	if (ret) {
+-		ERROR_MSG("gpumem allocation failed: %s", strerror(errno));
++	atomic_set(&bo->references, 1);
++	bo->alloc_fd = -1;
 +	bo->size = size;
- 	ret = ioctl(pipe->fd, IOCTL_KGSL_GPUMEM_ALLOC, &req);
- 	if (ret) {
- 		ERROR_MSG("gpumem allocation failed: %s", strerror(errno));
-@@ -99,6 +103,11 @@
- 	bo->size = size;
- 	bo->hostptr = drm_mmap(NULL, size, PROT_WRITE|PROT_READ,
- 				MAP_SHARED, pipe->fd, req.gpuaddr);
++	/* A command allocation can outlive the CPU wrapper which constructed it. */
++	bo->alloc_fd = fcntl(pipe->fd, F_DUPFD_CLOEXEC, 0);
++	if (bo->alloc_fd < 0)
+ 		goto fail;
+-	}
+-
+-	bo->pipe = pipe;
++	if (ioctl(bo->alloc_fd, IOCTL_KGSL_GPUMEM_ALLOC, &req))
++		goto fail;
+ 	bo->gpuaddr = req.gpuaddr;
+-	bo->size = size;
+-	bo->hostptr = drm_mmap(NULL, size, PROT_WRITE|PROT_READ,
+-				MAP_SHARED, pipe->fd, req.gpuaddr);
+-
++	bo->hostptr = drm_mmap(NULL, size, PROT_WRITE | PROT_READ, MAP_SHARED,
++			      bo->alloc_fd, req.gpuaddr);
 +	if (bo->hostptr == MAP_FAILED) {
 +		bo->hostptr = NULL;
-+		ERROR_MSG("Dior command-buffer mmap failed: %s", strerror(errno));
 +		goto fail;
 +	}
- 
  	return bo;
  fail:
-@@ -168,7 +177,11 @@
+-	if (bo)
+-		kgsl_rb_bo_del(bo);
++	kgsl_rb_bo_put(bo);
+ 	return NULL;
+ }
+ 
+-static void * kgsl_ringbuffer_hostptr(struct fd_ringbuffer *ring)
+-{
+-	struct kgsl_ringbuffer *kgsl_ring = to_kgsl_ringbuffer(ring);
+-	return kgsl_ring->bo->hostptr;
++/* Called with the metadata lock held. Collect unique BOs before ioctl;
++ * dependency insertion below rejects cycles before any address is emitted. */
++static int kgsl_rb_collect(struct kgsl_rb_submission *submit,
++			  struct kgsl_rb_bo *bo, unsigned depth)
++{
++	struct kgsl_rb_dependency *dependency;
++	unsigned i;
++	for (i = 0; i < submit->count; i++)
++		if (submit->objects[i] == bo)
++			return 0;
++	if (depth > 256)
++		return -ELOOP;
++	if (submit->count == submit->capacity) {
++		unsigned capacity = submit->capacity ? submit->capacity * 2 : 8;
++		void *memory = realloc(submit->objects, capacity * sizeof(*submit->objects));
++		if (!memory)
++			return -ENOMEM;
++		submit->objects = memory;
++		submit->capacity = capacity;
++	}
++	submit->objects[submit->count++] = bo;
++	for (dependency = bo->dependencies; dependency; dependency = dependency->next) {
++		int ret = kgsl_rb_collect(submit, dependency->target, depth + 1);
++		if (ret)
++			return ret;
++	}
++	return 0;
++}
++
++static struct kgsl_rb_fence *kgsl_rb_find_fence(struct kgsl_rb_bo *bo,
++					      struct kgsl_pipe *owner)
++{
++	struct kgsl_rb_fence *fence;
++	for (fence = bo->fences; fence; fence = fence->next)
++		if (fence->owner == owner)
++			return fence;
++	return NULL;
++}
++
++static void kgsl_rb_cancel_prepared(struct kgsl_rb_submission *submit)
++{
++	unsigned i;
++	if (!submit->prepared)
++		return;
++	for (i = 0; i < submit->count; i++) {
++		if (submit->prepared[i]) {
++			close(submit->prepared[i]->fd);
++			kgsl_cmd_pipe_put(submit->prepared[i]->owner);
++			free(submit->prepared[i]);
++		}
++	}
++	free(submit->prepared);
++	submit->prepared = NULL;
++}
++
++static int kgsl_rb_prepare(struct kgsl_rb_submission *submit, struct kgsl_pipe *pipe)
++{
++	unsigned i;
++	submit->prepared = calloc(submit->count, sizeof(*submit->prepared));
++	if (!submit->prepared)
++		return -ENOMEM;
++	for (i = 0; i < submit->count; i++) {
++		struct kgsl_rb_fence *fence;
++		if (kgsl_rb_find_fence(submit->objects[i], pipe))
++			continue;
++		fence = calloc(1, sizeof(*fence));
++		if (!fence)
++			goto fail;
++		fence->fd = fcntl(pipe->fd, F_DUPFD_CLOEXEC, 0);
++		if (fence->fd < 0) {
++			free(fence);
++			goto fail;
++		}
++		fence->context_id = pipe->drawctxt_id;
++		fence->device_id = pipe->base.id;
++		fence->owner = kgsl_cmd_pipe_ref(pipe);
++		submit->prepared[i] = fence;
++	}
++	return 0;
++fail:
++	kgsl_rb_cancel_prepared(submit);
++	return -ENOMEM;
++}
++
++static void kgsl_rb_commit(struct kgsl_rb_submission *submit,
++			  struct kgsl_pipe *owner, uint32_t timestamp)
++{
++	unsigned i;
++	for (i = 0; i < submit->count; i++) {
++		struct kgsl_rb_bo *bo = submit->objects[i];
++		struct kgsl_rb_fence *fence = submit->prepared[i];
++		if (fence) {
++			fence->timestamp = timestamp;
++			fence->next = bo->fences;
++			bo->fences = fence;
++			submit->prepared[i] = NULL;
++		} else {
++			fence = kgsl_rb_find_fence(bo, owner);
++			/* Preserve the latest fence across 32-bit timestamp rollover. */
++			if ((int32_t)(timestamp - fence->timestamp) > 0)
++				fence->timestamp = timestamp;
++		}
++	}
++}
++
++static void *kgsl_ringbuffer_hostptr(struct fd_ringbuffer *ring)
++{
++	return to_kgsl_ringbuffer(ring)->bo->hostptr;
+ }
+ 
+ static int kgsl_ringbuffer_flush(struct fd_ringbuffer *ring, uint32_t *last_start,
+-		int in_fence_fd, int *out_fence_fd)
++			       int in_fence_fd, int *out_fence_fd)
+ {
+ 	struct kgsl_ringbuffer *kgsl_ring = to_kgsl_ringbuffer(ring);
+ 	struct kgsl_pipe *kgsl_pipe = to_kgsl_pipe(ring->pipe);
+ 	uint32_t offset = (uint8_t *)last_start - (uint8_t *)ring->start;
+ 	struct kgsl_ibdesc ibdesc = {
+-			.gpuaddr     = kgsl_ring->bo->gpuaddr + offset,
+-			.hostptr     = last_start,
+-			.sizedwords  = ring->cur - last_start,
++		.gpuaddr = kgsl_ring->bo->gpuaddr + offset,
++		.hostptr = last_start,
++		.sizedwords = ring->cur - last_start,
+ 	};
+ 	struct kgsl_ringbuffer_issueibcmds req = {
+-			.drawctxt_id = kgsl_pipe->drawctxt_id,
+-			.ibdesc_addr = (unsigned long)&ibdesc,
+-			.numibs      = 1,
+-			.flags       = KGSL_CONTEXT_SUBMIT_IB_LIST,
++		.drawctxt_id = kgsl_pipe->drawctxt_id,
++		.ibdesc_addr = (unsigned long)&ibdesc,
++		.numibs = 1,
++		.flags = KGSL_CONTEXT_SUBMIT_IB_LIST,
+ 	};
++	struct kgsl_rb_submission submit = { 0 };
+ 	int ret;
+-
+ 	assert(in_fence_fd == -1);
+ 	assert(out_fence_fd == NULL);
+-
+ 	kgsl_pipe_pre_submit(kgsl_pipe);
+-
+-	/* z180_cmdstream_issueibcmds() is made of fail: */
++	/* Keep the legacy 2D packet fixup unchanged. */
+ 	if (ring->pipe->id == FD_PIPE_2D) {
+-		/* fix up size field in last cmd packet */
+ 		uint32_t last_size = (uint32_t)(ring->cur - last_start);
+-		/* 5 is length of first packet, 2 for the two 7f000000's */
+ 		last_start[2] = last_size - (5 + 2);
+ 		ibdesc.gpuaddr = kgsl_ring->bo->gpuaddr;
+ 		ibdesc.hostptr = kgsl_ring->bo->hostptr;
+ 		ibdesc.sizedwords = 0x145;
+ 		req.timestamp = (uintptr_t)kgsl_ring->bo->hostptr;
+ 	}
+-
++	pthread_mutex_lock(&kgsl_rb_lock);
++	ret = kgsl_rb_collect(&submit, kgsl_ring->bo, 0);
++	if (!ret)
++		ret = kgsl_rb_prepare(&submit, kgsl_pipe);
++	if (ret) {
++		free(submit.objects);
++		pthread_mutex_unlock(&kgsl_rb_lock);
++		return ret;
++	}
+ 	do {
+ 		ret = ioctl(kgsl_pipe->fd, IOCTL_KGSL_RINGBUFFER_ISSUEIBCMDS, &req);
+-	} while ((ret == -1) && ((errno == EINTR) || (errno == EAGAIN)));
+-	if (ret)
+-		ERROR_MSG("issueibcmds failed!  %d (%s)", ret, strerror(errno));
+-
++	} while (ret == -1 && (errno == EINTR || errno == EAGAIN));
++	if (ret) {
++		/* A failed ioctl may already have queued work before copyout failed.
++		 * Stop without releasing any possibly active command allocation. */
++		pthread_mutex_unlock(&kgsl_rb_lock);
++		ERROR_MSG("Dior command submission failed: %s", strerror(errno));
++		abort();
++	}
++	kgsl_rb_commit(&submit, kgsl_pipe, req.timestamp);
++	kgsl_rb_cancel_prepared(&submit);
++	free(submit.objects);
++	pthread_mutex_unlock(&kgsl_rb_lock);
+ 	ring->last_timestamp = req.timestamp;
+ 	ring->last_start = ring->cur;
+-
+ 	kgsl_pipe_post_submit(kgsl_pipe, req.timestamp);
+-
+-	return ret;
++	return 0;
+ }
+ 
+ static void kgsl_ringbuffer_emit_reloc(struct fd_ringbuffer *ring,
+-		const struct fd_reloc *r)
++				     const struct fd_reloc *r)
  {
  	struct kgsl_bo *kgsl_bo = to_kgsl_bo(r->bo);
  	uint32_t addr = kgsl_bo_gpuaddr(kgsl_bo, r->offset);
 -	assert(addr);
-+	/* Never emit an invalid GPU address, including NDEBUG builds. */
 +	if (!addr) {
 +		ERROR_MSG("Dior GPU relocation allocation failed");
 +		abort();
@@ -253,6 +646,144 @@
  	if (r->shift < 0)
  		addr >>= -r->shift;
  	else
+@@ -181,55 +374,102 @@
+ 		struct fd_ringbuffer *target, uint32_t cmd_idx,
+ 		uint32_t submit_offset, uint32_t size)
+ {
+-	struct kgsl_ringbuffer *target_ring = to_kgsl_ringbuffer(target);
++	struct kgsl_rb_bo *bo = to_kgsl_ringbuffer(ring)->bo;
++	struct kgsl_rb_bo *child = to_kgsl_ringbuffer(target)->bo;
++	struct kgsl_rb_dependency *item;
++	struct kgsl_rb_submission reachable = { 0 };
++	int ret;
++	unsigned i;
+ 	assert(cmd_idx == 0);
+-	(*ring->cur++) = target_ring->bo->gpuaddr + submit_offset;
++	pthread_mutex_lock(&kgsl_rb_lock);
++	ret = kgsl_rb_collect(&reachable, child, 0);
++	for (i = 0; !ret && i < reachable.count; i++)
++		if (reachable.objects[i] == bo)
++			ret = -ELOOP;
++	free(reachable.objects);
++	if (ret) {
++		pthread_mutex_unlock(&kgsl_rb_lock);
++		ERROR_MSG("Dior nested command dependency invalid");
++		abort();
++	}
++	for (item = bo->dependencies; item; item = item->next)
++		if (item->target == child)
++			break;
++	if (!item) {
++		item = calloc(1, sizeof(*item));
++		if (!item) {
++			pthread_mutex_unlock(&kgsl_rb_lock);
++			ERROR_MSG("Dior nested command dependency allocation failed");
++			abort();
++		}
++		item->target = child;
++		atomic_inc(&child->references);
++		item->next = bo->dependencies;
++		bo->dependencies = item;
++	}
++	pthread_mutex_unlock(&kgsl_rb_lock);
++	(*ring->cur++) = child->gpuaddr + submit_offset;
+ 	return size;
+ }
+ 
++static void kgsl_ringbuffer_reset(struct fd_ringbuffer *ring)
++{
++	struct kgsl_ringbuffer *kgsl_ring = to_kgsl_ringbuffer(ring);
++	struct kgsl_rb_bo *bo = kgsl_ring->bo;
++	int shared;
++	pthread_mutex_lock(&kgsl_rb_lock);
++	shared = atomic_read(&bo->references) > 1;
++	pthread_mutex_unlock(&kgsl_rb_lock);
++	if (shared) {
++		/* Generic del calls reset first. Parents may still submit the old
++		 * commands, so preserve both storage and its dependency graph. */
++		struct kgsl_rb_bo *replacement = kgsl_rb_bo_new(to_kgsl_pipe(ring->pipe), ring->size);
++		if (!replacement) {
++			ERROR_MSG("Dior shared command reset allocation failed");
++			abort();
++		}
++		kgsl_ring->bo = replacement;
++		ring->start = replacement->hostptr;
++		ring->end = ring->start + ring->size / 4;
++		ring->cur = ring->last_start = ring->start;
++		ring->last_timestamp = 0;
++		kgsl_rb_bo_put(bo);
++		return;
++	}
++	kgsl_rb_wait(bo);
++	kgsl_rb_clear_dependencies(bo);
++}
++
+ static void kgsl_ringbuffer_destroy(struct fd_ringbuffer *ring)
+ {
+ 	struct kgsl_ringbuffer *kgsl_ring = to_kgsl_ringbuffer(ring);
+-	if (ring->last_timestamp)
+-		fd_pipe_wait(ring->pipe, ring->last_timestamp);
+ 	if (kgsl_ring->bo)
+-		kgsl_rb_bo_del(kgsl_ring->bo);
++		kgsl_rb_bo_put(kgsl_ring->bo);
+ 	free(kgsl_ring);
+ }
+ 
+ static const struct fd_ringbuffer_funcs funcs = {
+-		.hostptr = kgsl_ringbuffer_hostptr,
+-		.flush = kgsl_ringbuffer_flush,
+-		.emit_reloc = kgsl_ringbuffer_emit_reloc,
+-		.emit_reloc_ring = kgsl_ringbuffer_emit_reloc_ring,
+-		.destroy = kgsl_ringbuffer_destroy,
+-};
+-
+-drm_private struct fd_ringbuffer * kgsl_ringbuffer_new(struct fd_pipe *pipe,
+-		uint32_t size)
++	.hostptr = kgsl_ringbuffer_hostptr,
++	.flush = kgsl_ringbuffer_flush,
++	.reset = kgsl_ringbuffer_reset,
++	.emit_reloc = kgsl_ringbuffer_emit_reloc,
++	.emit_reloc_ring = kgsl_ringbuffer_emit_reloc_ring,
++	.destroy = kgsl_ringbuffer_destroy,
++};
++
++drm_private struct fd_ringbuffer *kgsl_ringbuffer_new(struct fd_pipe *pipe,
++						    uint32_t size)
+ {
+ 	struct kgsl_ringbuffer *kgsl_ring;
+-	struct fd_ringbuffer *ring = NULL;
+-
+ 	kgsl_ring = calloc(1, sizeof(*kgsl_ring));
+-	if (!kgsl_ring) {
+-		ERROR_MSG("allocation failed");
+-		goto fail;
+-	}
+-
+-	ring = &kgsl_ring->base;
+-	ring->funcs = &funcs;
+-	ring->size = size;
+-
++	if (!kgsl_ring)
++		return NULL;
++	kgsl_ring->base.funcs = &funcs;
++	kgsl_ring->base.size = size;
+ 	kgsl_ring->bo = kgsl_rb_bo_new(to_kgsl_pipe(pipe), size);
+ 	if (!kgsl_ring->bo) {
+-		ERROR_MSG("ringbuffer allocation failed");
+-		goto fail;
+-	}
+-
+-	return ring;
+-fail:
+-	if (ring)
+-		fd_ringbuffer_del(ring);
+-	return NULL;
+-}
++		free(kgsl_ring);
++		return NULL;
++	}
++	return &kgsl_ring->base;
++}
 --- a/util_double_list.h
 +++ b/util_double_list.h
 @@ -110,7 +110,7 @@
@@ -264,3 +795,24 @@
  #endif
  
  #define LIST_FOR_EACH_ENTRY(pos, head, member)				\
+--- a/freedreno/kgsl/kgsl_priv.h
++++ b/freedreno/kgsl/kgsl_priv.h
+@@ -66,12 +66,18 @@
+ 	 * from 3d, we need to also internally open the 3d pipe:
+ 	 */
+ 	struct fd_pipe *p3d;
++
++	/* Submitted command allocations own the context until retirement. */
++	atomic_t cmd_refs;
+ };
+ 
+ static inline struct kgsl_pipe * to_kgsl_pipe(struct fd_pipe *x)
+ {
+ 	return (struct kgsl_pipe *)x;
+ }
++
++drm_private struct kgsl_pipe *kgsl_cmd_pipe_ref(struct kgsl_pipe *pipe);
++drm_private void kgsl_cmd_pipe_put(struct kgsl_pipe *pipe);
+ 
+ drm_private int is_kgsl_pipe(struct fd_pipe *pipe);
+ 

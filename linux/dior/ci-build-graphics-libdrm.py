@@ -21,7 +21,7 @@ BASE_APK = "dior-graphics-17.3.9-r1.apk"
 BASE_SHA256 = "769617c44f9509e7cf5e0d9194eae361992a34217edbe9301316ca69ac0cfb6f"
 LOCAL_SOURCES = ("0001-libdrm-dior-kgsl-compat.patch", "test-kgsl-abi.c", "test-kgsl-map.c",
                  "test-kgsl-reloc.c", "test-kgsl-timestamps.c", "kernel-kgsl-drm-uapi.h",
-                 "dior-gles-check", "dior-gles-probe.py")
+                 "dior-gles-check", "dior-gles-probe.py", "test-kgsl-rings.c")
 spec = importlib.util.spec_from_file_location("dior_ci", HERE / "ci-build-image.py")
 CI = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(CI)
@@ -82,8 +82,8 @@ def generated_aport(target, payload, base_manifest, source_commit):
     source = HERE / "graphics-legacy-apk"
     text = (source / "APKBUILD").read_text(encoding="ascii")
     version = dict(re.findall(r"^(pkgname|pkgver|pkgrel)=([^\s]+)$", text, re.MULTILINE))
-    if version != {"pkgname": "dior-graphics", "pkgver": "17.3.9", "pkgrel": "4"}:
-        raise ValueError("Hotfix requires reviewed dior-graphics 17.3.9-r4 source")
+    if version != {"pkgname": "dior-graphics", "pkgver": "17.3.9", "pkgrel": "5"}:
+        raise ValueError("Hotfix requires reviewed dior-graphics 17.3.9-r5 source")
     if 'sonameprefix="$pkgname:"' not in text:
         raise ValueError("Isolated SONAME provider namespace is mandatory")
     target.mkdir(parents=True)
@@ -153,18 +153,23 @@ proof = json.loads(proof_path.read_text())
 list_marker = "PASS production KGSL list termination: runtime pipe IDs 1/2; empty and 1/2 real BOs; pre/post/retire stop at head"
 assert list_marker in (source / "test-kgsl-timestamps-results.txt").read_text()
 assert list_marker in (source / "test-kgsl-timestamps-O2-results.txt").read_text()
+ring_marker = "PASS KGSL command BO lifetime: child-first/parent-first, transitive nested, duplicate/multiple-parent fences, wrap-zero, rollback, wait-failure no FREE"
+assert ring_marker in (source / "test-kgsl-rings-results.txt").read_text()
+assert ring_marker in (source / "test-kgsl-rings-O2-results.txt").read_text()
 proof["base_source_manifest_sha512"] = proof["local_source_sha512"].pop("base-payload-manifest.json")
-assert len(proof["local_source_sha512"]) == 8
+assert len(proof["local_source_sha512"]) == 9
 assert set(proof["local_source_sha512"]) == {
     "0001-libdrm-dior-kgsl-compat.patch", "test-kgsl-abi.c", "test-kgsl-map.c",
     "test-kgsl-reloc.c", "test-kgsl-timestamps.c", "kernel-kgsl-drm-uapi.h",
-    "dior-gles-check", "dior-gles-probe.py"}
+    "dior-gles-check", "dior-gles-probe.py", "test-kgsl-rings.c"}
 proof.update({"build_mode": "libdrm_only_hotfix", "mesa_recompiled": False,
+    "native_libdrm_tests_before_mesa": False, "native_libdrm_checks_with_verified_mesa_reuse": True,
     "mesa_payload_source_commit": origin["source_commit"],
     "libdrm_source_commit": origin["hotfix_source_commit"],
     "base_apk_sha256": origin["apk_sha256"], "base_payload_gzip_sha256": origin["payload_gzip_sha256"],
     "ion_wire_offsets_verified": True, "ion_wire_raw_word_mock": True,
     "production_list_termination_regressions": True, "timestamp_optimization_runs": ["-Os", "-O2"],
+    "nested_command_buffer_lifetime_regressions": True, "ring_optimization_runs": ["-Os", "-O2"],
     "mesa_and_script_bytes_preserved": True, "preserved_files_sha256": preserved,
     "rebuilt_libdrm_sha256": libraries, "physical_gpu_render_verified": False})
 proof_path.write_text(json.dumps(proof, indent=2) + "\\n")
@@ -189,7 +194,7 @@ def verified_hotfix_package(package, origin, source_commit):
         raise ValueError("Expected newly signed APK v2")
     with tarfile.open(fileobj=io.BytesIO(parts[1][1]), mode="r:") as control:
         lines = control.extractfile(".PKGINFO").read().decode("utf-8").splitlines()
-    for setting in ("pkgname = dior-graphics", "pkgver = 17.3.9-r4", "arch = armv7",
+    for setting in ("pkgname = dior-graphics", "pkgver = 17.3.9-r5", "arch = armv7",
                     "datahash = " + sha(parts[2][0])):
         if setting not in lines:
             raise ValueError("Unexpected candidate metadata: " + setting)
@@ -200,6 +205,12 @@ def verified_hotfix_package(package, origin, source_commit):
         proof = json.loads(payload.extractfile("opt/dior-graphics/share/GRAPHICS-LIBDRM-HOTFIX-CHECKS.json").read())
         if proof["libdrm_source_commit"] != source_commit or not proof["ion_wire_offsets_verified"]:
             raise ValueError("Missing current native hotfix proof")
+        if set(proof["local_source_sha512"]) != set(LOCAL_SOURCES):
+            raise ValueError("Hotfix proof must contain all nine reviewed local source pins")
+        if (not proof["nested_command_buffer_lifetime_regressions"] or
+                proof["ring_optimization_runs"] != ["-Os", "-O2"] or
+                proof["physical_gpu_render_verified"] is not False):
+            raise ValueError("Missing native ring lifetime checks or invalid physical GPU claim")
         for name, expected in proof["preserved_files_sha256"].items():
             if sha(payload.extractfile("opt/dior-graphics/" + name).read()) != expected:
                 raise ValueError("Packaged Mesa/script coherence mismatch: " + name)
@@ -251,7 +262,7 @@ def build():
     try:
         command("init", input_text="\n" * 80, timeout=600)
         command("build", "dior-graphics")
-        packages = list((state / "work/packages").glob("*/armv7/dior-graphics-17.3.9-r4.apk"))
+        packages = list((state / "work/packages").glob("*/armv7/dior-graphics-17.3.9-r5.apk"))
         if len(packages) != 1:
             raise RuntimeError("Expected exactly one hotfix APK")
         package = packages[0]
