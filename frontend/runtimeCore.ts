@@ -3104,7 +3104,7 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
 
     documentBytes += Buffer.byteLength(JSON.stringify(auth), 'utf8')
     if (documentBytes > MAX_WEB_BACKUP_DOCUMENT_BYTES) throw new RequestBodyError('备份JSON超过Web安全上限', 413)
-    payload.management = await exportManagementBackup(paths, MAX_WEB_BACKUP_DOCUMENT_BYTES - documentBytes, MAX_WEB_BACKUP_ASSET_BYTES - assetBytes)
+    payload.management = await exportManagementBackup(paths, MAX_WEB_BACKUP_DOCUMENT_BYTES - documentBytes, MAX_WEB_BACKUP_ASSET_BYTES - assetBytes, {writeJson})
     const oldFileCount = Object.keys(data).length + Object.keys(versions).length + Object.keys(assets).length + Object.keys(auth).length
     const management = payload.management as Awaited<ReturnType<typeof exportManagementBackup>>
     if (oldFileCount + Object.keys(management.projects).length + Object.keys(management.assetMetadata).length + Object.keys(management.assets).length + 2 > 10000) throw new RequestBodyError('Web备份文件数量超过10000', 413)

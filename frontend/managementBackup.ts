@@ -3,7 +3,7 @@ import path from 'node:path'
 import { createHash } from 'node:crypto'
 import type { RuntimePaths, StoredDocument } from './runtimeCore.js'
 import { publishProjectChange } from './managementLive.js'
-import { withManagementDataset } from './managementCore.js'
+import { withManagementDataset, recoverPendingManagementDeletes } from './managementCore.js'
 import { normalizeStoredProjectInvite } from './managementInvites.js'
 import { normalizeManagementStatus, validateManagementStageMetadata } from './managementWorkflow.js'
 import { normalizeTableConfig, validateFieldValues } from './managementFields.js'
@@ -86,7 +86,7 @@ function validateEvent(value: unknown, projectId: string, roles: Set<string>, ca
 }
 function validateProject(value: unknown, expectedId: string): JsonRecord {
   const project = record(value, '管理项目')
-  keys(project, ['schemaVersion','id','ownerId','name','description','color','icon','roles','categories','canvasIds','events','history','createdAt','updatedAt','archivedAt','revision','deletedAt','receipts','tableConfig','members','inviteAcceptances'], '管理项目')
+  keys(project, ['schemaVersion','id','ownerId','name','description','color','icon','roles','categories','canvasIds','events','history','createdAt','updatedAt','archivedAt','revision','deletedAt','receipts','tableConfig','members','inviteAcceptances','isExample','guideVersion'], '管理项目')
   if (project.schemaVersion !== 1 || project.id !== expectedId) bad('管理项目ID或schemaVersion不匹配')
   identifier(project.ownerId, '所有者'); string(project.name, '项目名称', 200, true); string(project.description, '项目描述', 20000); string(project.icon, '图标', 60)
   if (typeof project.color !== 'string' || !/^#[a-fA-F0-9]{6}$/.test(project.color)) bad('项目颜色无效')
@@ -108,6 +108,8 @@ function validateProject(value: unknown, expectedId: string): JsonRecord {
       const key=`${entry.inviteId}:${entry.userId}`;if (accepted.has(key)) bad('邀请接受记录重复');accepted.add(key)
     }
   }
+  if (project.isExample!==undefined&&typeof project.isExample!=='boolean') bad('示例标志必须是布尔值')
+  if (project.guideVersion!==undefined&&(!Number.isSafeInteger(project.guideVersion)||(project.guideVersion as number)<1||(project.guideVersion as number)>100)) bad('引导版本无效')
   const validateTags = (value: unknown, role: boolean) => {
     const set = new Set<string>()
     for (const item of array(value, '标签')) {
@@ -146,8 +148,9 @@ function validateProject(value: unknown, expectedId: string): JsonRecord {
   }
   return project
 }
-export async function exportManagementBackup(paths: RuntimePaths, documentBudget: number, assetBudget: number): Promise<ManagementBackupSection> {
+export async function exportManagementBackup(paths: RuntimePaths, documentBudget: number, assetBudget: number, writers: {writeJson(file:string,value:unknown):Promise<void>}): Promise<ManagementBackupSection> {
   return withManagementDataset(paths, async () => {
+    await recoverPendingManagementDeletes(paths,writers)
     const result: ManagementBackupSection = { schemaVersion: 1, projects: {}, assetMetadata: {}, assets: {}, aiShares: [] }
     let jsonBytes = 0, assetBytes = 0, count = 0
     const addJson = async (file: string) => {
@@ -313,6 +316,7 @@ export async function commitManagementRestore(paths: RuntimePaths, stage: Manage
   writeJson(file: string, value: unknown): Promise<void>; writeBuffer(file: string, value: Buffer): Promise<void>
 }): Promise<void> {
   await withManagementDataset(paths, async () => {
+    await recoverPendingManagementDeletes(paths,writers)
     for (const item of stage.projects) {
       await writers.writeJson(path.join(paths.dataDirectory, 'management', 'projects', item.file), item.value)
       publishProjectChange(item.value.id as string, item.value.revision as number)

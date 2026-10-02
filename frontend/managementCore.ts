@@ -8,6 +8,7 @@ import type {
   ManagementHistory, ManagementProject, ManagementProjectSummary, ManagementStats, ManagementTag, ManagementRole, ManagementNotification, ManagementStatus, ManagementWorkRecord, ManagementWorkRecords,
 } from './managementTypes.js'
 import { ManagementFieldError, normalizeTableConfig, validateFieldValues } from './managementFields.js'
+import { createManagementExample } from './managementExample.js'
 import { ManagementInviteError, createProjectInvite, validateProjectInvite } from './managementInvites.js'
 import type { InviteStored } from './managementInvites.js'
 import { MANAGEMENT_STATUSES, MANAGEMENT_STATUS_DEFINITIONS, ManagementWorkflowError, normalizeManagementStatus, managementTransitionMetadata } from './managementWorkflow.js'
@@ -319,6 +320,115 @@ async function projectInviteManagement(req:IncomingMessage,res:ServerResponse,pa
   if (Buffer.byteLength(JSON.stringify(next))>MAX_PROJECT_BYTES) fail(413,'项目邀请记录超过12MiB')
   await services.writeJson(invitesFile(paths),next)
   services.sendJson(res,201,projectInviteResponse(req,invite,project,users,services));return true
+}
+interface DeleteJournal { schemaVersion:1; projectId:string; ownerId:string; createdAt:number }
+function deletionsDir(paths:RuntimePaths) { return path.join(rootDir(paths),'.deletions') }
+async function syncManagementDirectory(directory:string) {
+  if (process.platform==='win32') return
+  const file=await fs.open(directory,'r')
+  try { await file.sync() } finally { await file.close() }
+}
+async function pendingDeletes(paths:RuntimePaths) {
+  const result:Array<{directory:string;journal:DeleteJournal}>=[]
+  for (const entry of await fs.readdir(deletionsDir(paths),{withFileTypes:true}).catch(error=>{
+    if ((error as NodeJS.ErrnoException).code==='ENOENT') return []
+    throw error
+  })) {
+    const match=entry.name.match(/^([A-Za-z0-9_-]{1,120})\.([a-f0-9]{24})$/)
+    if (!match||!entry.isDirectory()||entry.isSymbolicLink()) fail(500,'删除记录目录无效')
+    const directory=path.join(deletionsDir(paths),entry.name)
+    const journal=await readJson<DeleteJournal|null>(path.join(directory,'journal.json'),null)
+    if (!journal) {
+      // SIGKILL before replaceFileDurably's intent rename can leave only its
+      // preparation temp. No authority or detached project/assets exists yet.
+      const preparation=await fs.readdir(directory,{withFileTypes:true})
+      if (preparation.every(file=>file.isFile()&&!file.isSymbolicLink()&&/^journal\.json\.[0-9]+\.[a-f0-9]{12}\.tmp$/.test(file.name))) {
+        for (const file of preparation) await fs.unlink(path.join(directory,file.name))
+        await fs.rmdir(directory);await syncManagementDirectory(deletionsDir(paths));continue
+      }
+      fail(500,'删除记录缺失，未忽略残留数据')
+    }
+    if (journal.schemaVersion!==1||journal.projectId!==match[1]||!validId(journal.ownerId)||!Number.isSafeInteger(journal.createdAt)||journal.createdAt<0) fail(500,'删除记录无效')
+    result.push({directory,journal})
+  }
+  return result
+}
+async function exists(file:string) { return fs.access(file).then(()=>true,error=>{if ((error as NodeJS.ErrnoException).code==='ENOENT') return false;throw error}) }
+async function withDeletionInviteLocks<T>(paths:RuntimePaths,projectId:string,work:()=>Promise<T>):Promise<T> {
+  const ids=(await loadProjectInvites(paths)).invites.filter(invite=>invite.projectId===projectId).map(invite=>invite.id).sort()
+  const locked=(offset:number):Promise<T>=>offset===ids.length ? work() : withInviteLock(ids[offset]!,()=>locked(offset+1))
+  return locked(0)
+}
+async function completeProjectDelete(paths:RuntimePaths,directory:string,journal:DeleteJournal,writers:Pick<ManagementServices,'writeJson'>) {
+  await withDeletionInviteLocks(paths,journal.projectId,async()=>{
+    const original=projectFile(paths,journal.projectId),detached=path.join(directory,'project.json')
+    if (await exists(original)) {
+      const current=await readJson<StoredManagement|null>(original,null)
+      if (!current||current.ownerId!==journal.ownerId) fail(409,'删除对象所有者已改变，未删除')
+      if (await exists(detached)) fail(409,'删除对象ID存在冲突，未删除')
+      await fs.rename(original,detached)
+      await syncManagementDirectory(projectsDir(paths));await syncManagementDirectory(directory)
+      publishProjectChange(journal.projectId,current.revision+1)
+    }
+    const assets=assetDir(paths,journal.projectId),detachedAssets=path.join(directory,'assets')
+    if (await exists(assets)) {
+      if (await exists(detachedAssets)) fail(409,'删除附件目录存在冲突')
+      await fs.rename(assets,detachedAssets)
+      await syncManagementDirectory(path.dirname(assets));await syncManagementDirectory(directory)
+    }
+    const shares=await readJson<StoredAIShare[]>(sharesFile(paths),[])
+    const keptShares=shares.filter(share=>share.kind!=='management'||share.resourceId!==journal.projectId)
+    if (keptShares.length!==shares.length) await writers.writeJson(sharesFile(paths),keptShares)
+    const store=await loadProjectInvites(paths)
+    const keptInvites=store.invites.filter(invite=>invite.projectId!==journal.projectId),keptInviteReceipts=store.receipts.filter(receipt=>receipt.projectId!==journal.projectId)
+    if (keptInvites.length!==store.invites.length||keptInviteReceipts.length!==store.receipts.length)
+      await writers.writeJson(invitesFile(paths),{...store,invites:keptInvites,receipts:keptInviteReceipts})
+    const notifications=await loadNotifications(paths)
+    const keptNotices=notifications.notifications.filter(note=>note.projectId!==journal.projectId),keptNoticeReceipts=notifications.receipts.filter(receipt=>receipt.projectId!==journal.projectId)
+    if (keptNotices.length!==notifications.notifications.length||keptNoticeReceipts.length!==notifications.receipts.length)
+      await writers.writeJson(notificationsFile(paths),{...notifications,notifications:keptNotices,receipts:keptNoticeReceipts})
+    // This is an authorized, isolated deletion journal path. It can never
+    // resolve to project-data, auth-data or another live project's directory.
+    // Keep the durable intent until every deleted byte has been removed. A
+    // failed asset cleanup must remain recoverable on the next request.
+    await fs.rm(detachedAssets,{recursive:true,force:true})
+    await fs.rm(detached,{force:true})
+    await fs.unlink(path.join(directory,'journal.json'))
+    await fs.rmdir(directory)
+    await syncManagementDirectory(deletionsDir(paths))
+  })
+}
+/** Caller holds the dataset queue. Recovery completes authorized destruction;
+ * journals are neither visible projects nor restorable archive records. */
+export async function recoverPendingManagementDeletes(paths:RuntimePaths,writers:Pick<ManagementServices,'writeJson'>) {
+  for (const item of await pendingDeletes(paths)) await completeProjectDelete(paths,item.directory,item.journal,writers)
+}
+async function deleteManagementProject(paths:RuntimePaths,projectId:string,actor:ManagementActor,body:Record<string,unknown>,services:ManagementServices) {
+  validateRevisionShape(body)
+  const project=await readJson<StoredManagement|null>(projectFile(paths,projectId),null)
+  if (!project) return
+  requireProjectOwner(project,actor);checkRevision(project,body)
+  const parent=deletionsDir(paths);await fs.mkdir(parent,{recursive:true,mode:0o700})
+  const directory=path.join(parent,`${projectId}.${randomBytes(12).toString('hex')}`)
+  await fs.mkdir(directory,{mode:0o700})
+  const journal:DeleteJournal={schemaVersion:1,projectId,ownerId:actor.id,createdAt:Date.now()}
+  try { await services.writeJson(path.join(directory,'journal.json'),journal) }
+  catch(error) { await fs.rm(directory,{recursive:true,force:true});throw error }
+  await syncManagementDirectory(parent)
+  await completeProjectDelete(paths,directory,journal,services)
+}
+async function exampleProject(req:IncomingMessage,res:ServerResponse,paths:RuntimePaths,services:ManagementServices,actor:ManagementActor) {
+  if (req.method!=='POST') fail(405,'请使用POST创建或读取当前账号的可编辑示例')
+  await services.readBody(req,JSON_BODY_BYTES)
+  for (const file of await fs.readdir(projectsDir(paths)).catch(()=>[] as string[])) {
+    if (!/^[A-Za-z0-9_-]+\.json$/.test(file)) continue
+    const existing=await readJson<StoredManagement|null>(path.join(projectsDir(paths),file),null)
+    if (existing?.ownerId===actor.id&&existing.isExample&&!existing.deletedAt) {services.sendJson(res,201,publicProject(existing,actor));return}
+  }
+  const example=createManagementExample(actor,Date.now())
+  const project:StoredManagement={...example,schemaVersion:1,receipts:[]}
+  await writeProject(paths,project,services)
+  services.sendJson(res,201,publicProject(project,actor))
 }
 async function validateMembers(paths: RuntimePaths, services: ManagementServices, ids: string[]) {
   if (ids.length > 100 || ids.some(value => !validId(value))) fail(400, '成员列表无效')
@@ -763,6 +873,7 @@ async function aiManagement(req: IncomingMessage, res: ServerResponse, paths: Ru
 async function management(req: IncomingMessage, res: ServerResponse, paths: RuntimePaths, services: ManagementServices, actor: ManagementActor, url: URL): Promise<boolean> {
   const prefix = '/api/management/projects'
   if (!url.pathname.startsWith(prefix)) return false
+  if (url.pathname === `${prefix}/example`) { await exampleProject(req,res,paths,services,actor);return true }
   if (url.pathname === prefix) {
     if (req.method === 'GET') {
       const values: ManagementProjectSummary[] = []
@@ -801,6 +912,11 @@ async function management(req: IncomingMessage, res: ServerResponse, paths: Runt
   const match = url.pathname.match(/^\/api\/management\/projects\/([A-Za-z0-9_-]+)(.*)$/)
   if (!match) fail(404, '接口不存在')
   const projectId = match[1]!; const tail = match[2] ?? ''
+  if (tail==='' && req.method==='DELETE') {
+    const body=await services.readBody(req,JSON_BODY_BYTES)
+    await deleteManagementProject(paths,projectId,actor,body,services)
+    services.sendJson(res,200,{ok:true});return true
+  }
   const project = await readableProject(paths, projectId, actor, services)
   if (await projectInviteManagement(req,res,paths,services,actor,project,tail)) return true
   if (tail === '/live') {
@@ -880,10 +996,6 @@ async function management(req: IncomingMessage, res: ServerResponse, paths: Runt
     })
     services.sendJson(res, 200, response); return true
   }
-  if (tail === '' && req.method === 'DELETE') {
-    await mutate(paths, projectId, actor, body, 'project.delete', services, draft => { draft.deletedAt = Date.now(); history(draft, actor, 'project.delete', [{ field: 'deletedAt', before: null, after: draft.deletedAt }]); return true })
-    services.sendJson(res, 200, { ok: true }); return true
-  }
   let response: ManagementProject
   if (tail === '' && req.method === 'PATCH') {
     response = await mutate(paths, projectId, actor, body, 'project.update', services, async draft => {
@@ -912,7 +1024,7 @@ async function management(req: IncomingMessage, res: ServerResponse, paths: Runt
         fields.tableConfig = normalizeTableConfig(body.tableConfig, draft.tableConfig, draft.roles)
         validateConfiguredEvents(draft, fields.tableConfig as ManagementProject['tableConfig'])
       }
-      if (body.archived !== undefined) { if (typeof body.archived !== 'boolean') fail(400, '归档标志无效'); fields.archivedAt = body.archived ? (draft.archivedAt ?? Date.now()) : undefined }
+      if (body.archived !== undefined) fail(400,'项目使用直接删除，不再提供归档操作')
       const changes = changed(draft as unknown as Record<string, unknown>, fields)
       Object.assign(draft, fields); history(draft, actor, 'project.update', changes); return changes.length > 0
     })
@@ -1003,5 +1115,8 @@ async function dispatchManagementRequest(req: IncomingMessage, res: ServerRespon
 export async function handleManagementRequest(req: IncomingMessage, res: ServerResponse, paths: RuntimePaths, services: ManagementServices): Promise<boolean> {
   const pathname = new URL(req.url ?? '/', 'http://flowboard.local').pathname
   if (!pathname.startsWith('/ai/') && !pathname.startsWith('/api/ai-shares') && !pathname.startsWith('/api/management/')) return false
-  return withManagementDataset(paths, () => dispatchManagementRequest(req, res, paths, services))
+  return withManagementDataset(paths, async () => {
+    await recoverPendingManagementDeletes(paths,services)
+    return dispatchManagementRequest(req,res,paths,services)
+  })
 }

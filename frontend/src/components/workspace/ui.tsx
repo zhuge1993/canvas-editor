@@ -9,7 +9,7 @@ export function PageIntro({ eyebrow, title, description, children }: { eyebrow: 
 export function EmptyState({ title, description, children }: { title: string; description: string; children?: ReactNode }) { return <div className="ws-empty"><div className="ws-empty-art"><FolderOpen size={30} strokeWidth={1.4} /></div><h3>{title}</h3><p>{description}</p>{children}</div> }
 export function ErrorNotice({ error, onRetry }: { error: string; onRetry?: () => void }) { return error ? <div className="ws-error" role="alert"><span>{error}</span>{onRetry && <button onClick={onRetry}>重新加载 <ArrowUpRight size={14} /></button>}</div> : null }
 const ModalCloseContext = createContext<() => void>(() => {})
-export function ModalCancelButton() { const close = useContext(ModalCloseContext); return <button type="button" className="ws-button" onClick={close}>取消</button> }
+export function ModalCancelButton({ label = '取消' }: { label?: string }) { const close = useContext(ModalCloseContext); return <button type="button" className="ws-button" onClick={close}>{label}</button> }
 export function WorkspaceModal({ title, description, children, onClose, dirty = false, busy = false, wide = false }: { title: string; description?: string; children: ReactNode; onClose: () => void; dirty?: boolean; busy?: boolean; wide?: boolean }) {
   const id = useId()
   const panel = useRef<HTMLDivElement>(null)

@@ -29,7 +29,7 @@ function query(filters: ManagementFilters = {}, days?: number): string {
 export const listProjects = () => request<ManagementProjectSummary[]>(base)
 export const getProject = (id: string) => request<ManagementProject>(path(id))
 export const createProject = (draft: ProjectDraft, options?: MutationOptions) => request<ManagementProject>(base, { method: 'POST', body: body(draft, options) })
-export const updateProject = (id: string, patch: Partial<ProjectDraft> & { archived?: boolean }, options?: MutationOptions) => request<ManagementProject>(path(id), { method: 'PATCH', body: body(patch, options) })
+export const updateProject = (id: string, patch: Partial<ProjectDraft>, options?: MutationOptions) => request<ManagementProject>(path(id), { method: 'PATCH', body: body(patch, options) })
 export const getStats = (id: string, filters: ManagementFilters = {}, days = 14) => request<ManagementStats>(`${path(id)}/stats${query(filters, days)}`)
 export const getEvents = (id: string, filters: ManagementFilters = {}) => request<ManagementEvent[]>(`${path(id)}/events${query(filters)}`)
 export const getHistory = (id: string) => request<ManagementHistory[]>(`${path(id)}/history`)
@@ -61,3 +61,6 @@ export const createProjectInvite = (id: string, input: { permission: 'view' | 'e
 export const revokeProjectInvite = (id: string, inviteId: string) => request<{ ok: boolean }>(`${path(id)}/invites/${encodeURIComponent(inviteId)}`, { method: 'DELETE' })
 export const previewProjectInvite = (token: string) => request<ProjectInvitePreview>(`/api/management/invites/${encodeURIComponent(token)}`)
 export const acceptProjectInvite = (token: string, actionId: string) => request<ManagementProject>(`/api/management/invites/${encodeURIComponent(token)}/accept`, { method: 'POST', body: JSON.stringify({ mutationId: actionId }) })
+
+export const deleteProject = (id: string, options?: MutationOptions) => request<{ ok: true }>(path(id), { method: 'DELETE', body: body({}, options) })
+export const createExampleProject = (actionId: string) => request<ManagementProject>(`${base}/example`, { method: 'POST', body: JSON.stringify({ mutationId: actionId }) })

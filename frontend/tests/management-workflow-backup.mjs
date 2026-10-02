@@ -139,7 +139,7 @@ try {
   }
   project = await request(`${route}/events/${event.id}`,'PATCH',{title:'Changed after backup'})
   await request(route,'DELETE',{})
-  await request(`/api/ai-shares/${share.id}`,'DELETE',{})
+  await request(`/api/ai-shares/${share.id}`,'DELETE',{},'owner',404)
   const restored = await request('/api/admin/restore','POST',backup)
   assert.equal(restored.ok,true); assert.deepEqual(await request(route),oldSnapshot)
   assert.deepEqual(await request(asset.url),{private:'unchanged'})

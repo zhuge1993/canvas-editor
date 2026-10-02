@@ -36,6 +36,7 @@ export interface ManagementProject {
   roles: ManagementRole[]; categories: ManagementCategory[]; canvasIds: string[]
   events: ManagementEvent[]; history: ManagementHistory[]
   createdAt: number; updatedAt: number; archivedAt?: number; revision: number
+  isExample?: boolean; guideVersion?: number
   tableConfig?: ManagementTableConfig
   members?: ManagementProjectMember[]; access?: 'owner' | 'view' | 'edit'
 }
