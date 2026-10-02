@@ -85,12 +85,12 @@ export function getCurrentUser(): Promise<{ user: AuthUser | null }> {
   return request('/api/auth/me')
 }
 
-export function sendVerificationCode(email: string, purpose?: 'register' | 'reset', inviteCode?: string): Promise<{ ok: boolean; expiresIn: number; resendAfter: number; developmentCode?: string }> {
-  return request('/api/auth/send-code', { method: 'POST', body: JSON.stringify({ email, purpose, inviteCode }) })
+export function sendVerificationCode(email: string, purpose?: 'register' | 'reset', inviteCode?: string, projectInviteToken?: string): Promise<{ ok: boolean; expiresIn: number; resendAfter: number; developmentCode?: string }> {
+  return request('/api/auth/send-code', { method: 'POST', body: JSON.stringify({ email, purpose, inviteCode, ...(projectInviteToken ? { projectInviteToken } : {}) }) })
 }
 
-export function register(email: string, code: string, password: string, inviteCode?: string): Promise<{ user: AuthUser }> {
-  return request('/api/auth/register', { method: 'POST', body: JSON.stringify({ email, code, password, inviteCode }) })
+export function register(email: string, code: string, password: string, inviteCode?: string, projectInviteToken?: string): Promise<{ user: AuthUser }> {
+  return request('/api/auth/register', { method: 'POST', body: JSON.stringify({ email, code, password, inviteCode, ...(projectInviteToken ? { projectInviteToken } : {}) }) })
 }
 
 export function login(email: string, password: string): Promise<{ user: AuthUser }> {

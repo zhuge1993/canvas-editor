@@ -10,6 +10,11 @@ import { gzipSync, gunzipSync } from 'node:zlib'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { replaceFileDurably } from './runtimeStorage.js'
 import { quickTunnelOrigin } from './tunnelNotifications.js'
+import { ManagementInviteError } from './managementInvites.js'
+import { handleManagementRequest, withProjectRegistrationInvite } from './managementCore.js'
+import { ManagementBackupError, exportManagementBackup, stageManagementRestore, commitManagementRestore } from './managementBackup.js'
+import { ManagementWorkflowError } from './managementWorkflow.js'
+import { ManagementFieldError } from './managementFields.js'
 
 const scryptAsync = promisify(scryptCallback) as (
   password: string,
@@ -132,6 +137,7 @@ interface StoredUser {
   id: string
   email: string
   passwordHash: string
+  projectInviteId?: string
   createdAt: number
   verifiedAt: number
   lastLoginAt?: number
@@ -635,7 +641,8 @@ function validateRestoredUsers(value: unknown): StoredUser[] {
       || typeof item.passwordHash !== 'string' || !parsePasswordDigest(item.passwordHash)
       || !isFiniteNumber(item.createdAt) || !isFiniteNumber(item.verifiedAt)
       || (item.lastLoginAt !== undefined && !isFiniteNumber(item.lastLoginAt))
-      || (item.isAdmin !== undefined && typeof item.isAdmin !== 'boolean')) {
+      || (item.isAdmin !== undefined && typeof item.isAdmin !== 'boolean')
+      || (item.projectInviteId !== undefined && (typeof item.projectInviteId !== 'string' || !validProjectId(item.projectInviteId)))) {
       throw new RequestBodyError('备份中的 users.json 包含无效用户记录')
     }
     const email = item.email.trim().toLowerCase()
@@ -650,6 +657,7 @@ function validateRestoredUsers(value: unknown): StoredUser[] {
       verifiedAt: item.verifiedAt,
       lastLoginAt: item.lastLoginAt as number | undefined,
       isAdmin: item.isAdmin as boolean | undefined,
+      projectInviteId: item.projectInviteId as string | undefined,
     })
   }
   return users
@@ -1438,6 +1446,11 @@ async function handleAuth(req: IncomingMessage, res: ServerResponse, paths: Runt
         ? 'reset'
         : null
     const inviteCode = normalizeInviteCode(body.inviteCode)
+    const projectInviteToken = body.projectInviteToken
+    if (projectInviteToken !== undefined && email === DEFAULT_ADMIN_EMAIL) {
+      sendError(res, 403, '管理员邮箱请使用原有管理员注册或登录入口，不能使用项目邀请注册')
+      return true
+    }
     if (!validEmail(email)) {
       sendError(res, 400, '请输入有效邮箱地址')
       return true
@@ -1457,13 +1470,15 @@ async function handleAuth(req: IncomingMessage, res: ServerResponse, paths: Runt
       if (purpose === 'reset' && !users.some(user => user.email === email)) {
         return { ok: false as const, status: 404, error: '该邮箱未注册' }
       }
-      if (purpose === 'register' && email !== DEFAULT_ADMIN_EMAIL) {
+      if (purpose === 'register' && (email !== DEFAULT_ADMIN_EMAIL || projectInviteToken !== undefined)) {
         if (users.length >= DEFAULT_MAX_USERS) {
           return { ok: false as const, status: 403, error: `服务器已达到注册上限（${DEFAULT_MAX_USERS} 人），请联系管理员` }
         }
-        const invite = (await loadInvites(paths)).find(item => item.code === inviteCode)
-        if (!inviteIsUsable(invite)) {
-          return { ok: false as const, status: 403, error: '邀请码无效、已停用或使用次数已耗尽' }
+        if (projectInviteToken !== undefined) {
+          await withProjectRegistrationInvite(paths, projectInviteToken, users, async () => undefined)
+        } else {
+          const invite = (await loadInvites(paths)).find(item => item.code === inviteCode)
+          if (!inviteIsUsable(invite)) return { ok: false as const, status: 403, error: '邀请码无效、已停用或使用次数已耗尽' }
         }
       }
 
@@ -1517,6 +1532,11 @@ async function handleAuth(req: IncomingMessage, res: ServerResponse, paths: Runt
     const code = typeof body.code === 'string' ? body.code.trim() : ''
     const password = typeof body.password === 'string' ? body.password : ''
     const inviteCode = normalizeInviteCode(body.inviteCode)
+    const projectInviteToken = body.projectInviteToken
+    if (projectInviteToken !== undefined && email === DEFAULT_ADMIN_EMAIL) {
+      sendError(res, 403, '管理员邮箱请使用原有管理员注册或登录入口，不能使用项目邀请注册')
+      return true
+    }
     if (!validEmail(email) || !/^\d{6}$/.test(code) || password.length < PASSWORD_MIN_LENGTH || password.length > PASSWORD_MAX_LENGTH) {
       sendError(res, 400, `邮箱、6 位验证码和 ${PASSWORD_MIN_LENGTH}-${PASSWORD_MAX_LENGTH} 位密码均为必填项`)
       return true
@@ -1559,7 +1579,7 @@ async function handleAuth(req: IncomingMessage, res: ServerResponse, paths: Runt
       if (users.some(user => user.email === email)) {
         return { ok: false as const, status: 409, error: '该邮箱已注册' }
       }
-      if (email !== DEFAULT_ADMIN_EMAIL && users.length >= DEFAULT_MAX_USERS) {
+      if ((email !== DEFAULT_ADMIN_EMAIL || projectInviteToken !== undefined) && users.length >= DEFAULT_MAX_USERS) {
         return { ok: false as const, status: 403, error: `服务器已达到注册上限（${DEFAULT_MAX_USERS} 人），请联系管理员` }
       }
 
@@ -1576,7 +1596,7 @@ async function handleAuth(req: IncomingMessage, res: ServerResponse, paths: Runt
 
       let invites: StoredInvite[] = []
       let invite: StoredInvite | undefined
-      if (email !== DEFAULT_ADMIN_EMAIL) {
+      if (email !== DEFAULT_ADMIN_EMAIL && projectInviteToken === undefined) {
         invites = await loadInvites(paths)
         invite = invites.find(item => item.code === inviteCode)
         if (!inviteIsUsable(invite)) {
@@ -1590,17 +1610,24 @@ async function handleAuth(req: IncomingMessage, res: ServerResponse, paths: Runt
         passwordHash,
         createdAt: now,
         verifiedAt: now,
-        isAdmin: email === DEFAULT_ADMIN_EMAIL,
+        isAdmin: projectInviteToken === undefined && email === DEFAULT_ADMIN_EMAIL,
       }
 
-      await saveUsers(paths, [...users, user])
-      if (invite) {
-        await saveInvites(paths, invites.map(item => item.code === invite.code
-          ? { ...item, usedCount: item.usedCount + 1, lastUsedAt: now }
-          : item))
+      const commit = async () => {
+        await saveUsers(paths, [...users, user])
+        if (invite) {
+          await saveInvites(paths, invites.map(item => item.code === invite.code
+            ? { ...item, usedCount: item.usedCount + 1, lastUsedAt: now }
+            : item))
+        }
+        await saveVerificationCodes(paths, codes.filter(item => item.email !== email))
+        return { ok: true as const, user }
       }
-      await saveVerificationCodes(paths, codes.filter(item => item.email !== email))
-      return { ok: true as const, user }
+      if (projectInviteToken !== undefined) return withProjectRegistrationInvite(paths, projectInviteToken, users, async projectInvite => {
+        user.projectInviteId = projectInvite.id
+        return commit()
+      })
+      return commit()
     })
 
     if (!registration.ok) {
@@ -1609,7 +1636,7 @@ async function handleAuth(req: IncomingMessage, res: ServerResponse, paths: Runt
     }
 
     const user = registration.user
-    await claimLegacyProjects(paths, user.id)
+    if (!user.projectInviteId) await claimLegacyProjects(paths, user.id)
     await createSession(user.id, paths, res)
     sendJson(res, 201, { user: authUser(user) })
     return true
@@ -2995,7 +3022,8 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
       meta: {
         app: 'FlowBoard',
         backupAt: new Date().toISOString(),
-        formatVersion: 3,
+        formatVersion: 4,
+        includesManagement: true,
         includesAssets: true,
         includesVersions: true,
       },
@@ -3074,6 +3102,12 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
       try { auth[file] = JSON.parse(await fsp.readFile(path.join(paths.authDirectory, file), 'utf8')) } catch { /* skip */ }
     }
 
+    documentBytes += Buffer.byteLength(JSON.stringify(auth), 'utf8')
+    if (documentBytes > MAX_WEB_BACKUP_DOCUMENT_BYTES) throw new RequestBodyError('备份JSON超过Web安全上限', 413)
+    payload.management = await exportManagementBackup(paths, MAX_WEB_BACKUP_DOCUMENT_BYTES - documentBytes, MAX_WEB_BACKUP_ASSET_BYTES - assetBytes)
+    const oldFileCount = Object.keys(data).length + Object.keys(versions).length + Object.keys(assets).length + Object.keys(auth).length
+    const management = payload.management as Awaited<ReturnType<typeof exportManagementBackup>>
+    if (oldFileCount + Object.keys(management.projects).length + Object.keys(management.assetMetadata).length + Object.keys(management.assets).length + 2 > 10000) throw new RequestBodyError('Web备份文件数量超过10000', 413)
     const payloadJson = JSON.stringify(payload)
     const payloadBytes = Buffer.byteLength(payloadJson, 'utf8')
     if (payloadBytes > MAX_RESTORE_JSON_BYTES) {
@@ -3109,6 +3143,8 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
       text = body.toString('utf8')
     }
     let payload: {
+      meta?: Record<string, unknown>
+      management?: unknown
       data?: Record<string, unknown>
       versions?: Record<string, unknown>
       assets?: Record<string, unknown>
@@ -3120,6 +3156,10 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
       sendError(res, 400, '备份文件格式无效')
       return true
     }
+    if (!isRecord(payload)) throw new RequestBodyError('备份文件必须是JSON对象')
+    if (payload.meta !== undefined && (!isRecord(payload.meta) || ![3, 4].includes(Number(payload.meta.formatVersion)))) throw new RequestBodyError('不支持的备份格式版本')
+    if (payload.meta?.formatVersion === 4 && payload.management === undefined) throw new RequestBodyError('格式版本4备份缺少管理数据区')
+    if (payload.management !== undefined && payload.meta?.formatVersion !== 4) throw new RequestBodyError('管理备份必须使用格式版本4')
     // 第一阶段：只解析与校验，不写盘。坏备份必须在任何持久化修改前失败。
     const stagedProjects: Array<{ projectId: string; file: string; content: Record<string, unknown> }> = []
     const stagedVersions: Array<{ projectId: string; file: string; content: Record<string, unknown> }> = []
@@ -3201,6 +3241,16 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
       if (payload.auth['shares.json'] !== undefined) stagedShares = validateRestoredShares(payload.auth['shares.json'])
     }
 
+    const oldDocumentBytes = Buffer.byteLength(JSON.stringify(payload.data ?? {})) + Buffer.byteLength(JSON.stringify(payload.versions ?? {})) + Buffer.byteLength(JSON.stringify(payload.auth ?? {}))
+    if (oldDocumentBytes > MAX_WEB_BACKUP_DOCUMENT_BYTES) throw new RequestBodyError('备份JSON超过Web恢复安全上限', 413)
+    const restoredCanvases = new Map(stagedProjects.map(item => [item.projectId, item.content]))
+    const stagedManagement = payload.management === undefined ? undefined : await stageManagementRestore(paths, payload.management, {
+      documentBudget: MAX_WEB_BACKUP_DOCUMENT_BYTES - oldDocumentBytes,
+      assetBudget: MAX_WEB_BACKUP_ASSET_BYTES - stagedAssets.reduce((sum, item) => sum + item.buffer.length, 0),
+      readCanvas: async canvasId => (restoredCanvases.get(canvasId) as StoredDocument | undefined) ?? await readProject(paths, canvasId),
+    })
+    if (stagedProjects.length + stagedVersions.length + stagedAssets.length + (stagedManagement?.fileCount ?? 0) + 3 > 10000) throw new RequestBodyError('Web恢复文件数量超过10000', 413)
+
     // 第二阶段：所有备份内容已验证后才开始写盘。
     let restored = 0
     for (const item of stagedProjects) {
@@ -3268,6 +3318,10 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
       return restoredUsers.some(item => item.id === user.id && item.isAdmin === true)
     })
 
+    if (stagedManagement) {
+      await commitManagementRestore(paths, stagedManagement, { writeJson, writeBuffer: writeBufferAtomic })
+      restored += stagedManagement.fileCount
+    }
     if (canResumeAdminSession) await createSession(user.id, paths, res)
     else clearSessionCookie(res)
     sendJson(res, 200, {
@@ -3420,6 +3474,17 @@ export async function handleRuntimeRequest(req: IncomingMessage, res: ServerResp
   // 提前记录客户端是否接受 gzip（sendJson 里无法可靠拿到请求头）
   ;(res as GzipAwareResponse).__acceptsGzip = /\bgzip\b/.test(String(req.headers['accept-encoding'] ?? ''))
   try {
+    if (await handleManagementRequest(req, res, paths, {
+      currentUser,
+      ownerExists: async (runtimePaths, ownerId) => (await loadUsers(runtimePaths)).some(user => user.id === ownerId),
+      registeredUsers: async runtimePaths => (await loadUsers(runtimePaths)).map(({ id, email, projectInviteId }) => ({ id, email, ...(projectInviteId ? { projectInviteId } : {}) })),
+      readCanvas: readProject,
+      readBody,
+      writeJson,
+      writeBuffer: writeBufferAtomic,
+      origin: publicOrigin,
+      sendJson,
+    })) return true
     if (await handleAuth(req, res, paths, pathname)) return true
     if (await handleAssets(req, res, paths, pathname)) return true
     if (await handleShare(req, res, paths, pathname)) return true
@@ -3459,14 +3524,18 @@ export async function handleRuntimeRequest(req: IncomingMessage, res: ServerResp
     }
     return false
   } catch (error) {
-    const isClientError = error instanceof RequestBodyError
+    const isClientError = error instanceof RequestBodyError || error instanceof ManagementBackupError || error instanceof ManagementFieldError || error instanceof ManagementWorkflowError || error instanceof ManagementInviteError
+    const aiToken = pathname.match(/^\/(?:ai|api\/management\/invites)\/([A-Za-z0-9_-]+)/)?.[1]
+    const rawMessage = error instanceof Error ? error.message : String(error)
+    const redactedMessage = aiToken ? rawMessage.split(aiToken).join('[redacted]') : rawMessage
+    const loggedUrl = aiToken ? (req.url ?? '').split(aiToken).join('[redacted]') : req.url
     await appendRuntimeLog(paths, {
       level: isClientError ? 'warn' : 'error',
       event: isClientError ? 'runtime.invalid_request' : 'runtime.request_failed',
-      message: error instanceof Error ? error.message : String(error),
-      details: { method: req.method, url: req.url },
+      message: redactedMessage,
+      details: { method: req.method, url: loggedUrl },
     })
-    sendError(res, isClientError ? error.status : 500, error instanceof Error ? error.message : String(error))
+    sendError(res, isClientError ? error.status : 500, redactedMessage)
     return true
   }
 }

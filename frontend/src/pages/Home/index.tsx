@@ -1,190 +1,51 @@
-import { useEffect, useState } from 'react'
-import { ArrowDownWideNarrow, ArrowUpNarrowWide, Clock, FileText, LogOut, Plus, Search, Share2, ShieldCheck, Trash2 } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
+import { ArrowDownWideNarrow, ArrowRight, ArrowUpRight, CheckCircle2, Clock3, FileText, FolderOpen, Layers, Plus, Search, Share2, Sparkles, Trash2, Undo2 } from 'lucide-react'
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import ShareDialog from '@/components/editor/ShareDialog'
-import { getCurrentUser, logout, type AuthUser } from '@/services/auth'
+import ProjectDashboard from '@/components/workspace/ProjectDashboard'
+import { useShanghaiToday } from '@/components/workspace/useToday'
+import AIShareDialog from '@/components/workspace/AIShareDialog'
+import { EmptyState, ErrorNotice, PageIntro, timeLabel } from '@/components/workspace/ui'
+import { useWorkspace } from '@/components/workspace/WorkspaceShell'
+import { listProjects } from '@/services/management'
+import type { ManagementProjectSummary } from '@/types/management'
 import { deleteDocument, deleteDocumentForever, generateId, getAllDocuments, getTrashDocuments, restoreDocument, saveDocument } from '@/utils/storage'
 import type { StoredDocument } from '@/utils/storage'
 
 export default function HomePage() {
-  const navigate = useNavigate()
+  const { user } = useWorkspace()
+  const navigate = useNavigate(), location = useLocation()
+  const [params, setParams] = useSearchParams()
+  const canvasOnly = location.pathname === '/canvases'
+  const trashOpen = params.get('trash') === '1'
   const [documents, setDocuments] = useState<StoredDocument[]>([])
-  const [trashDocuments, setTrashDocuments] = useState<Array<StoredDocument & { deletedAt: number }>>([])
-  const [trashOpen, setTrashOpen] = useState(false)
-  const [loading, setLoading] = useState(true)
-  const [user, setUser] = useState<AuthUser | null>(null)
-  const [search, setSearch] = useState('')
-  const [sortDesc, setSortDesc] = useState(true)
-  const [error, setError] = useState('')
-  const [shareProjectId, setShareProjectId] = useState<string | null>(null)
-
-  useEffect(() => {
-    void getCurrentUser().then(({ user: currentUser }) => {
-      if (!currentUser) {
-        navigate(`/register?next=${encodeURIComponent(window.location.pathname)}`, { replace: true })
-        return
-      }
-      setUser(currentUser)
-      void loadDocuments()
-    }).catch(() => navigate('/register', { replace: true }))
-  }, [navigate])
-
-  async function loadDocuments() {
-    try {
-      setError('')
-      const [docs, trash] = await Promise.all([getAllDocuments(), getTrashDocuments()])
-      setDocuments(docs)
-      setTrashDocuments(trash)
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : '加载文档列表失败')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  async function handleCreate() {
-    try {
-      const id = generateId()
-      const now = Date.now()
-      const doc: StoredDocument = { id, title: '未命名画布', content: '', createdAt: now, updatedAt: now }
-      await saveDocument(doc)
-      navigate(`/editor/${id}`)
-    } catch (createError) {
-      setError(createError instanceof Error ? createError.message : '创建文档失败')
-    }
-  }
-
-  async function handleDelete(id: string) {
-    try {
-      await deleteDocument(id)
-      setDocuments(previous => previous.filter(document => document.id !== id))
-      void loadDocuments()
-    } catch (deleteError) {
-      setError(deleteError instanceof Error ? deleteError.message : '删除文档失败')
-    }
-  }
-
-  async function handleRestore(id: string) {
-    try {
-      await restoreDocument(id)
-      void loadDocuments()
-    } catch (restoreError) {
-      setError(restoreError instanceof Error ? restoreError.message : '恢复失败')
-    }
-  }
-
-  async function handleDeleteForever(id: string) {
-    try {
-      await deleteDocumentForever(id)
-      setTrashDocuments(previous => previous.filter(document => document.id !== id))
-    } catch (deleteError) {
-      setError(deleteError instanceof Error ? deleteError.message : '彻底删除失败')
-    }
-  }
-
-  async function handleLogout() {
-    await logout()
-    navigate('/auth', { replace: true })
-  }
-
-  function formatTime(timestamp: number): string {
-    return new Date(timestamp).toLocaleString('zh-CN', {
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-    })
-  }
-
-  return (
-    <div className="flex h-full flex-col bg-surface-muted">
-      <header className="flex h-14 items-center justify-between border-b border-surface-border bg-surface px-6">
-        <div className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-600"><span className="text-sm font-bold text-white">F</span></div>
-          <h1 className="text-lg font-semibold text-ink">FlowBoard</h1>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="hidden text-xs text-ink-muted sm:block">{user?.email}</span>
-          {user?.isAdmin && <button className="btn-ghost" title="管理员：查看/复制全部画册" onClick={() => navigate('/admin')}><ShieldCheck size={15} />管理</button>}
-          <button className="btn-ghost" title="回收站" onClick={() => setTrashOpen(value => !value)}><Trash2 size={15} />回收站{trashDocuments.length > 0 ? ` (${trashDocuments.length})` : ''}</button>
-          <button className="btn-ghost" title="退出登录" onClick={() => void handleLogout()}><LogOut size={15} />退出</button>
-          <button className="btn-primary" onClick={() => void handleCreate()}><Plus size={16} />新建画布</button>
-        </div>
-      </header>
-
-      <main className="flex-1 overflow-y-auto p-6">
-        {error && <div className="mb-4 border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
-        {trashOpen && (
-          <div className="mb-4 rounded-md border border-surface-border bg-surface p-4">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-ink">回收站</h2>
-              <button className="text-xs text-ink-muted hover:text-ink" onClick={() => setTrashOpen(false)}>收起</button>
-            </div>
-            {trashDocuments.length === 0 ? (
-              <p className="py-4 text-center text-xs text-ink-muted">回收站为空</p>
-            ) : (
-              <div className="space-y-2">
-                {trashDocuments.map(document => (
-                  <div key={document.id} className="flex items-center justify-between rounded border border-surface-border bg-surface-muted px-3 py-2">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium text-ink">{document.title}</p>
-                      <p className="mt-0.5 text-xs text-ink-muted">删除于 {formatTime(document.deletedAt)}</p>
-                    </div>
-                    <div className="flex shrink-0 gap-1">
-                      <button className="btn-ghost !h-7 !w-7 text-xs" title="恢复" onClick={() => void handleRestore(document.id)}>恢复</button>
-                      <button className="btn-ghost !h-7 !w-7 text-red-500 text-xs" title="彻底删除" onClick={() => void handleDeleteForever(document.id)}>彻底删除</button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-        {loading ? <div className="flex h-40 items-center justify-center text-ink-muted">加载中...</div> : documents.length === 0 ? (
-          <div className="flex h-64 flex-col items-center justify-center gap-4">
-            <FileText size={48} className="text-surface-border" />
-            <p className="text-ink-muted">暂无文档，点击「新建画布」开始创作</p>
-            <button className="btn-primary" onClick={() => void handleCreate()}><Plus size={16} />新建画布</button>
-          </div>
-        ) : (
-          <>
-            <div className="mb-4 flex items-center gap-2">
-              <div className="relative flex-1 max-w-xs">
-                <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-muted" />
-                <input aria-label="搜索文档" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索文档标题..." className="h-8 w-full rounded border border-surface-border bg-surface pl-8 pr-2 text-xs text-ink outline-none focus:border-brand-400" />
-              </div>
-              <button className="btn-ghost !h-8" title={sortDesc ? '最新在前' : '最早在前'} onClick={() => setSortDesc(value => !value)}>{sortDesc ? <ArrowDownWideNarrow size={15} /> : <ArrowUpNarrowWide size={15} />}{sortDesc ? '最新' : '最早'}</button>
-            </div>
-            {(() => {
-              const filtered = documents.filter(document => !search || document.title.toLowerCase().includes(search.toLowerCase()))
-              const sorted = [...filtered].sort((a, b) => sortDesc ? b.updatedAt - a.updatedAt : a.updatedAt - b.updatedAt)
-              if (sorted.length === 0) return <div className="flex h-40 items-center justify-center text-ink-muted">{search ? `没有找到包含「${search}」的文档` : '暂无文档'}</div>
-              return (
-          <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-            {sorted.map(document => (
-              <div key={document.id} className="group panel cursor-pointer p-4 transition-shadow hover:shadow-float" onClick={() => navigate(`/editor/${document.id}`)}>
-                <div className="mb-3 flex h-28 items-center justify-center overflow-hidden rounded-md border border-surface-border bg-surface-muted">
-                  {document.thumbnail ? <img src={document.thumbnail} alt={document.title} className="h-full w-full object-cover" /> : <FileText size={32} className="text-surface-border" />}
-                </div>
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-ink">{document.title}</p>
-                    <p className="mt-1 flex items-center gap-1 text-xs text-ink-muted"><Clock size={12} />{formatTime(document.updatedAt)}</p>
-                  </div>
-                  <div className="flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-                    <button className="tool-btn !h-7 !w-7" title="分享" onClick={event => { event.stopPropagation(); setShareProjectId(document.id) }}><Share2 size={14} /></button>
-                    <button className="tool-btn !h-7 !w-7 text-red-500" title="删除" onClick={event => { event.stopPropagation(); void handleDelete(document.id) }}><Trash2 size={14} /></button>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-              )
-            })()}
-          </>
-        )}
-      </main>
-      {shareProjectId && <ShareDialog projectId={shareProjectId} onClose={() => setShareProjectId(null)} />}
-    </div>
-  )
+  const [trash, setTrash] = useState<Array<StoredDocument & { deletedAt: number }>>([])
+  const [projects, setProjects] = useState<ManagementProjectSummary[]>([])
+  const [loading, setLoading] = useState(true), [projectError, setProjectError] = useState(''), [error, setError] = useState(''), [busy, setBusy] = useState(false)
+  const [search, setSearch] = useState(''), [sortDesc, setSortDesc] = useState(true)
+  const [shareId, setShareId] = useState<string | null>(null), [aiDocument, setAIDocument] = useState<StoredDocument | null>(null)
+  const dayKey = useShanghaiToday()
+  const autoCreate = useRef(false)
+  async function load() { setLoading(true); setError(''); const results = await Promise.allSettled([getAllDocuments(), getTrashDocuments(), listProjects()]); const docs = results[0], deleted = results[1], management = results[2]; if (docs?.status === 'fulfilled') setDocuments(docs.value); else if (docs?.status === 'rejected') setError(docs.reason instanceof Error ? docs.reason.message : '画布加载失败'); if (deleted?.status === 'fulfilled') setTrash(deleted.value); if (management?.status === 'fulfilled') { setProjects(management.value.filter(project => !project.archivedAt)); setProjectError('') } else setProjectError('项目统计暂时不可用'); setLoading(false) }
+  useEffect(() => { void load() }, [dayKey])
+  useEffect(() => { const focus = () => { void load() }; window.addEventListener('focus', focus); return () => window.removeEventListener('focus', focus) }, [])
+  async function createCanvas() { setBusy(true); try { const id = generateId(), now = Date.now(); await saveDocument({ id, title: '未命名画布', content: '', createdAt: now, updatedAt: now }); navigate(`/editor/${id}`) } catch (cause) { setError(cause instanceof Error ? cause.message : '画布创建失败') } finally { setBusy(false) } }
+  useEffect(() => { if (canvasOnly && params.get('create') === '1' && !autoCreate.current) { autoCreate.current = true; setParams({}, { replace: true }); void createCanvas() } }, [params])
+  async function remove(id: string) { setBusy(true); try { await deleteDocument(id); await load() } catch (cause) { setError(cause instanceof Error ? cause.message : '移至回收站失败') } finally { setBusy(false) } }
+  async function restore(id: string) { setBusy(true); try { await restoreDocument(id); await load() } catch (cause) { setError(cause instanceof Error ? cause.message : '恢复失败') } finally { setBusy(false) } }
+  async function removeForever(id: string) { setBusy(true); try { await deleteDocumentForever(id); setTrash(previous => previous.filter(document => document.id !== id)) } catch (cause) { setError(cause instanceof Error ? cause.message : '彻底删除失败') } finally { setBusy(false) } }
+  const shown = [...documents].filter(document => document.title.toLowerCase().includes(search.toLowerCase())).sort((a, b) => sortDesc ? b.updatedAt - a.updatedAt : a.updatedAt - b.updatedAt)
+  const totals = projects.reduce((sum, project) => {
+    const activeTotal = project.stats.activeTotal ?? Math.max(0, (project.stats.total ?? project.eventCount) - (project.stats.cancelled ?? 0))
+    const done = project.stats.done ?? 0
+    return { pending: sum.pending + Math.max(0, activeTotal - done), done: sum.done + done }
+  }, { pending: 0, done: 0 })
+  return <><PageIntro eyebrow={canvasOnly ? 'CREATIVE SPACE' : 'YOUR WORKSPACE'} title={canvasOnly ? '我的画布' : `${user.email.split('@')[0]}，欢迎回来`} description={canvasOnly ? '保存灵感，连接设计。你的画布和分享链接都在这里。' : '让设计、需求和每一步进展，在同一个空间井然有序。'}><button className="ws-button ws-button-primary" disabled={busy} onClick={() => void createCanvas()}><Plus size={15} />新建画布</button></PageIntro><ErrorNotice error={error} onRetry={() => void load()} />
+    {!canvasOnly && <><div className="ws-stat-grid">{[{ label: '我的画布', value: documents.length, icon: Layers, color: '', caption: '随时继续你的设计' }, { label: '进行中的项目', value: projectError ? '—' : projects.length, icon: FolderOpen, color: 'teal', caption: projectError || '设计与需求相互连接' }, { label: '待推进事件', value: projectError ? '—' : totals.pending, icon: Clock3, color: 'amber', caption: '所有尚未完成的有效事项' }, { label: '已完成事件', value: projectError ? '—' : totals.done, icon: CheckCircle2, color: 'blue', caption: '每次完成，自动留下记录' }].map(card => <div className="ws-stat-card" key={card.label}><div className="ws-stat-top"><span>{card.label}</span><span className={`ws-stat-icon ${card.color}`}><card.icon size={15} /></span></div><strong className="ws-stat-value">{loading ? '…' : card.value}</strong><span className="ws-stat-caption">{card.caption}</span></div>)}</div><div className="ws-welcome-band"><div><h2>从一张画布，到一个完整的项目</h2><p>把想法画下来，让问题和需求有归属。<br />通过只读链接，让 AI 读懂你的设计并继续推进。</p><Link className="ws-link-button" to="/projects" style={{ marginTop: 13 }}>打开项目空间 <ArrowRight size={13} /></Link></div><div className="ws-welcome-art" aria-hidden="true"><i /><i /><i /></div></div><div className="ws-section-title"><h2>最近的项目 <small>{projects.length} 个进行中</small></h2><Link className="ws-link-button" to="/projects">查看全部 <ArrowUpRight size={13} /></Link></div>{projectError ? <ErrorNotice error={projectError} onRetry={() => void load()} /> : !loading && !projects.length ? <div className="ws-panel"><EmptyState title="给下一步，一个清晰的归属" description="创建一个项目，记录需求与问题，再关联你的设计画布。"><Link className="ws-button" to="/projects?create=1"><Plus size={14} />创建第一个项目</Link></EmptyState></div> : <div className="ws-grid">{projects.slice(0, 3).map(project => <Link className="ws-panel ws-project-card" to={`/projects/${project.id}`} key={project.id}><div className="ws-project-card-top"><span className="ws-project-mark" style={{ background: `${project.color}18`, color: project.color }}>{project.name.slice(0, 1)}</span><ArrowUpRight size={16} style={{ color: 'var(--ws-muted)' }} /></div><h3>{project.name}</h3><p>{project.description || '在这里连接设计、需求和进度。'}</p><div className="ws-project-meta"><span>{project.eventCount} 个事件</span><span>{project.stats.completionPercent}% 完成</span></div><div className="ws-progress"><span style={{ width: `${project.stats.completionPercent}%`, background: project.color }} /></div><div className="ws-project-card-bottom"><span>更新于 {timeLabel(project.updatedAt)}</span><span>{project.canvasIds.length} 张画布</span></div></Link>)}</div>}</>}
+    {!canvasOnly && <ProjectDashboard projects={projects} />}
+    <div className="ws-section-title"><h2>{canvasOnly ? '所有画布' : '最近的画布'} <small>{documents.length} 张</small></h2>{!canvasOnly && <Link className="ws-link-button" to="/canvases">查看全部 <ArrowUpRight size={13} /></Link>}</div><div className="ws-toolbar"><div className="ws-toolbar-left"><div className="ws-search"><Search size={15} /><input aria-label="搜索画布" placeholder="搜索画布标题…" value={search} onChange={event => setSearch(event.target.value)} /></div></div><div className="ws-toolbar-right"><button className="ws-button ws-button-small" onClick={() => setSortDesc(value => !value)}><ArrowDownWideNarrow size={13} />{sortDesc ? '最近更新' : '最早更新'}</button><button className="ws-button ws-button-small" onClick={() => setParams(trashOpen ? {} : { trash: '1' })}><Trash2 size={13} />回收站{trash.length ? ` · ${trash.length}` : ''}</button></div></div>
+    {trashOpen && <div className="ws-panel" style={{ marginBottom: 22 }}><div className="ws-panel-head"><h3>回收站</h3><button className="ws-link-button" onClick={() => setParams({})}>收起</button></div>{!trash.length ? <div className="ws-empty" style={{ minHeight: 130, padding: 25 }}><p>回收站为空，所有灵感都好好保存在这里。</p></div> : trash.map(document => <div className="ws-list-row" key={document.id}><FileText size={20} style={{ color: 'var(--ws-muted)' }} /><div><h3>{document.title}</h3><p>删除于 {timeLabel(document.deletedAt)}</p></div><div className="ws-list-row-end"><button className="ws-button ws-button-small" disabled={busy} onClick={() => void restore(document.id)}><Undo2 size={12} />恢复</button><button className="ws-button ws-button-small ws-button-danger" disabled={busy} onClick={() => void removeForever(document.id)}>彻底删除</button></div></div>)}</div>}
+    {loading ? <div className="ws-skeleton-grid">{Array.from({ length: 4 }, (_, index) => <div className="ws-skeleton" key={index} />)}</div> : !shown.length ? <div className="ws-panel"><EmptyState title={search ? '暂时没有找到这张画布' : '你的第一张画布，从这里开始'} description={search ? '试试其他关键词，或清空搜索查看全部画布。' : '自由绘制、整理灵感，或为项目建立一份直观的设计说明。'}>{!search && <button className="ws-button ws-button-primary" disabled={busy} onClick={() => void createCanvas()}><Plus size={14} />新建画布</button>}</EmptyState></div> : <div className="ws-grid ws-grid-canvases">{(canvasOnly || search ? shown : shown.slice(0, 8)).map(document => <article className="ws-panel ws-canvas-card" key={document.id}><button className="ws-canvas-preview" style={{ width: '100%', border: 0 }} aria-label={`打开画布 ${document.title}`} onClick={() => navigate(`/editor/${document.id}`)}>{document.thumbnail ? <img src={document.thumbnail} alt={document.title} /> : <div className="ws-canvas-blank"><Layers size={27} strokeWidth={1.3} /></div>}{document.permission && document.permission !== 'owner' && <span className="ws-tag">{document.permission === 'edit' ? '可编辑' : '只读'}</span>}</button><div className="ws-canvas-info"><div style={{ minWidth: 0 }}><h3>{document.title}</h3><p>{timeLabel(document.updatedAt)}</p></div><div className="ws-canvas-card-actions"><button className="ws-icon-button" title="画布分享与编辑链接" aria-label={`分享 ${document.title}`} onClick={() => setShareId(document.id)}><Share2 size={13} /></button><button className="ws-icon-button" title="AI 只读入口" aria-label={`让 AI 读取 ${document.title}`} onClick={() => setAIDocument(document)}><Sparkles size={13} /></button><button className="ws-icon-button" title="移至回收站" aria-label={`删除 ${document.title}`} disabled={busy} onClick={() => void remove(document.id)}><Trash2 size={13} /></button></div></div></article>)}</div>}
+    {shareId && <ShareDialog projectId={shareId} onClose={() => setShareId(null)} />}{aiDocument && <AIShareDialog kind="canvas" resourceId={aiDocument.id} title={aiDocument.title} onClose={() => setAIDocument(null)} />}
+  </>
 }

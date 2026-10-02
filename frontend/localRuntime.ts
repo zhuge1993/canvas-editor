@@ -5,7 +5,8 @@ import type { Plugin } from 'vite'
 import { ensureRuntimeDirs, handleRuntimeRequest } from './runtimeCore.js'
 
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url))
-const programRoot = path.resolve(moduleDirectory, '..')
+const configuredRuntimeRoot = process.env.FLOWBOARD_RUNTIME_DIR?.trim()
+const programRoot = configuredRuntimeRoot ? path.resolve(configuredRuntimeRoot) : path.resolve(moduleDirectory, '..')
 const paths = {
   dataDirectory: path.join(programRoot, 'project-data'),
   logDirectory: path.join(programRoot, 'logs'),
