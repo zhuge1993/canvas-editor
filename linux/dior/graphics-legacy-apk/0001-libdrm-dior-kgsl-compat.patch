@@ -240,3 +240,16 @@
  
  	return bo;
  fail:
+@@ -168,7 +177,11 @@
+ {
+ 	struct kgsl_bo *kgsl_bo = to_kgsl_bo(r->bo);
+ 	uint32_t addr = kgsl_bo_gpuaddr(kgsl_bo, r->offset);
+-	assert(addr);
++	/* Never emit an invalid GPU address, including NDEBUG builds. */
++	if (!addr) {
++		ERROR_MSG("Dior GPU relocation allocation failed");
++		abort();
++	}
+ 	if (r->shift < 0)
+ 		addr >>= -r->shift;
+ 	else

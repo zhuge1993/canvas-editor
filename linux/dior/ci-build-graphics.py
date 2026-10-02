@@ -5,6 +5,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import sys
 
@@ -24,6 +25,13 @@ def build():
     output=state/'artifact'
     output.mkdir()
     source_sha=CI.run(['git','-C',str(REPO),'rev-parse','HEAD'],capture=True)
+    package_fields=dict(re.findall(r'^(pkgname|pkgver|pkgrel)=([^\s]+)$',
+        (HERE/'graphics-legacy-apk/APKBUILD').read_text(encoding='ascii'),re.MULTILINE))
+    if (package_fields.get('pkgname')!='dior-graphics' or
+            not re.fullmatch(r'[0-9]+(?:\.[0-9]+)+',package_fields.get('pkgver','')) or
+            not re.fullmatch(r'[0-9]+',package_fields.get('pkgrel',''))):
+        raise RuntimeError('Unexpected graphics package identity')
+    package_name='{pkgname}-{pkgver}-r{pkgrel}.apk'.format(**package_fields)
     pmb_sha=CI.checkout('https://gitlab.postmarketos.org/postmarketOS/pmbootstrap.git',
                        '39e9c17c1439b25f7aced54e03f19b0515cdb029',state/'pmbootstrap')
     aport_sha=CI.checkout('https://gitlab.postmarketos.org/postmarketOS/pmaports.git',
@@ -53,7 +61,7 @@ def build():
     try:
         pmb('init',input_text='\n'*80,timeout=600)
         pmb('build','dior-graphics')
-        files=list((state/'work/packages').glob('*/armv7/dior-graphics-17.3.9-r0.apk'))
+        files=list((state/'work/packages').glob('*/armv7/'+package_name))
         if len(files)!=1:
             raise RuntimeError('Expected one armv7 isolated graphics package')
         package=files[0]

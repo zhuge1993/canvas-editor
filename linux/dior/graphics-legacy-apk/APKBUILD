@@ -1,7 +1,7 @@
 # Isolated legacy KGSL/Freedreno userspace for the frozen Dior 3.4 kernel.
 pkgname=dior-graphics
 pkgver=17.3.9
-pkgrel=0
+pkgrel=1
 pkgdesc="Isolated Dior Adreno 305 legacy GLES compatibility and rendering probe"
 url="https://docs.mesa3d.org/drivers/freedreno.html"
 arch="armv7"
@@ -61,6 +61,27 @@ EOF
     export CXX="$_compiler_dir/g++"
 }
 
+_check_libdrm() {
+    cd "$srcdir/libdrm-2.4.89"
+    export LD_LIBRARY_PATH="$_stage$_prefix/lib"
+    _includes="-DHAVE_CONFIG_H -I. -Iinclude/drm -Ifreedreno -I$srcdir"
+    _links="-L$_stage$_prefix/lib -ldrm_freedreno -ldrm -lpthread"
+    for _test in test-kgsl-abi test-kgsl-map test-kgsl-timestamps; do
+        $CC $CFLAGS -UNDEBUG -std=gnu11 -ffunction-sections -fdata-sections $_includes \
+            "$srcdir/$_test.c" -Wl,--gc-sections $_links -o "$srcdir/$_test"
+        "$srcdir/$_test" > "$srcdir/$_test-results.txt"
+        cat "$srcdir/$_test-results.txt"
+    done
+    $CC $CFLAGS -UNDEBUG -std=gnu11 $_includes \
+        '-DDIOR_DRM_HEADER="kernel-kgsl-drm-uapi.h"' \
+        "$srcdir/test-kgsl-abi.c" -o "$srcdir/test-kernel-kgsl-abi"
+    cp "$srcdir/test-kgsl-abi-results.txt" "$srcdir/userspace-abi.txt"
+    "$srcdir/test-kernel-kgsl-abi" > "$srcdir/kernel-abi.txt"
+    cmp "$srcdir/userspace-abi.txt" "$srcdir/kernel-abi.txt"
+    printf '%s\n' 'PASS native target UAPI, ION maps, context timestamps and resource failure paths' \
+        > "$srcdir/libdrm-target-checks.txt"
+}
+
 build() {
     # The armv7 chroot runs helpers/checks through QEMU. Default crossdirect
     # accelerates -c compiler calls and leaves target linking in that chroot.
@@ -86,6 +107,10 @@ build() {
         --disable-libkms --disable-udev --disable-valgrind --disable-cairo-tests --disable-manpages
     make -j2
     make DESTDIR="$_stage" install
+    # libtool archives retain the absolute /opt installation prefix in
+    # dependency_libs. Link the staged shared libraries via pkg-config.
+    rm -f "$_stage$_prefix"/lib/*.la
+    _check_libdrm
 
     cd "$builddir"
     export PYTHON2="$srcdir/Python-2.7.18/python"
@@ -110,32 +135,28 @@ build() {
 }
 
 check() {
-    _set_compilers
-    cd "$srcdir/libdrm-2.4.89"
-    export LD_LIBRARY_PATH="$_stage$_prefix/lib"
-    _includes="-DHAVE_CONFIG_H -I. -Iinclude/drm -Ifreedreno -I$srcdir"
-    _links="-L$_stage$_prefix/lib -ldrm_freedreno -ldrm -lpthread"
-    for _test in test-kgsl-abi test-kgsl-map test-kgsl-timestamps; do
-        $CC $CFLAGS -UNDEBUG -std=gnu11 -ffunction-sections -fdata-sections $_includes \
-            "$srcdir/$_test.c" -Wl,--gc-sections $_links -o "$srcdir/$_test"
-        "$srcdir/$_test"
-    done
-    $CC $CFLAGS -UNDEBUG -std=gnu11 $_includes \
-        '-DDIOR_DRM_HEADER="kernel-kgsl-drm-uapi.h"' \
-        "$srcdir/test-kgsl-abi.c" -o "$srcdir/test-kernel-kgsl-abi"
-    "$srcdir/test-kgsl-abi" > "$srcdir/userspace-abi.txt"
-    "$srcdir/test-kernel-kgsl-abi" > "$srcdir/kernel-abi.txt"
+    test -s "$srcdir/libdrm-target-checks.txt"
     cmp "$srcdir/userspace-abi.txt" "$srcdir/kernel-abi.txt"
     test -f "$_stage$_prefix/lib/dri/kgsl_dri.so"
     test -f "$_stage$_prefix/lib/libEGL.so.1"
     test -f "$_stage$_prefix/lib/libGLESv2.so.2"
     printf '%s\n' 'PASS target UAPI equality, ION mapping failure paths, context timestamps' \
         > "$srcdir/graphics-build-checks.txt"
-    python3 - "$srcdir" <<'PY'
-import json, os, struct, sys
+    python3 - "$srcdir" "$sha512sums" <<'PY'
+import hashlib, json, os, struct, sys
 from pathlib import Path
 path = Path(sys.argv[1])
 assert struct.calcsize("P") == 4
+local_sources = {}
+for line in sys.argv[2].splitlines():
+    if not line.strip():
+        continue
+    expected, name = line.split(None, 1)
+    if name.endswith((".tar.xz", ".tar.bz2", ".tar.gz")):
+        continue
+    actual = hashlib.sha512((path / name).read_bytes()).hexdigest()
+    assert actual == expected, name
+    local_sources[name] = actual
 proof = {
     "mesa_version": "17.3.9", "libdrm_version": "2.4.89",
     "target_architecture": "armv7", "target_pointer_bytes": struct.calcsize("P"),
@@ -144,6 +165,9 @@ proof = {
     "mesa_configure_flags": (path / "mesa-configure-flags.txt").read_text(),
     "target_uapi_match": True, "ion_map_regressions": True,
     "context_timestamp_regressions": True, "a305b_identity_regressions": True,
+    "resource_failure_regressions": True, "ndebug_invalid_gpu_address_regression": True,
+    "native_libdrm_tests_before_mesa": True, "native_libdrm_test_executions": 1,
+    "local_source_sha512": local_sources,
     "physical_gpu_render_verified": False,
 }
 (path / "GRAPHICS-BUILD-CHECKS.json").write_text(json.dumps(proof, indent=2) + "\n")
@@ -168,10 +192,10 @@ sha512sums="
 a7bb62b51f48ff0b6df0b18f5b0312a523e3110f49c3237936bfe56ed0e26838c0274ff5401bda6fc21bf24337477ccac49e8026c5d651e4b4cafb5eb5086f6c  Python-2.7.18.tar.xz
 762affad80f804a7d71030deba65e8153e3c7fcd26c34cfb2f546804ec12e092a3eabdb8b0d12430e35b15220c39653be57ed80e3cbb314067d8b35f39834c63  Mako-0.9.1.tar.gz
 f3014e6131a3ab866914c5635b5397ef71906bffb1b6f8c5f2ed2acf167429ff7914236d38943e872683a57a9be9669f4c5aace6274f3307ab21ef25373db0b6  MarkupSafe-1.1.1.tar.gz
-7859dd097538de732d7b7f228bfbc520936a45cd45b917eec8097b050d08c8c1f81b962d550f88410f47e9fb1b1982b8642c2d908cba3ee9486604159e0724a9  0001-libdrm-dior-kgsl-compat.patch
+242bdaadd006eb2d87d8b92bb9b2a05c60c29248246df6db32b27766c530e35c7973a1d9ec42ba4d8c1ec24e8c40cbb58de3abe1c480f225b6a7b199dd1acca1  0001-libdrm-dior-kgsl-compat.patch
 38e1767be68654cff1f29a4d9e81776dcac768ce4feeed189faf495c5b0663d0c2c0394090a9c30fa940faa970aabb7fb024c049e252c346ed7d7016714095d7  test-kgsl-abi.c
-f309925bd828e0f9ce7b7ca7e31fa0899a2d113155ed435820a654309aa2cc8ee5c9bdf444d8a11f69a382e534596e817db161af539707be2e4b795913d79ee8  test-kgsl-map.c
-5fd72e7a291627e4d6494a97c0a43a927980eb7f22b4fd572e62b64abf69a7c81f41993eff5957a18e5936cebfd8eac27eac8c8751e96646c55f2aab689eafda  test-kgsl-timestamps.c
+92aad3096c0bef8ff8bf7b3d746662a1741f3256b9881bea3e765b93ab94cf65dcf8fd9fdfb70d35116b6406d4a47d3574e953d17db90a6a756ebb3982f4f479  test-kgsl-map.c
+b5f93dbbe92b76638855855ecd77170f0dad0f9312936d33f6a6fc36932ee11688e7fb5eff215b0710f546053a6c89411053d4c439a4058bbc5417bae034ebce  test-kgsl-timestamps.c
 870e381b9c1b986a15ee03a1c6501d1fc01ad52f70370937b7527789640e5ed39a357e9b17d69f1d42f778f073f50187a85932959f5a33032e10df2f72e09e6a  kernel-kgsl-drm-uapi.h
 7c0967fb2580065bb9e0c7628c3e5433e27e5c1aca1e93f514e4dd044e54a6dcce26b620d9b42f258c36c609cd1aa320043681ad3e4de71abfda03b4b21b1e08  dior-gles-check
 072bdfb18275457a0cbe7f02e48c014534b9b1c3e31de966250e7b4cd5a3e50e24f7435a80e20317d30743118a6e493a7f86140bd3ea7a6c2e598a110c29bb5c  dior-gles-probe.py

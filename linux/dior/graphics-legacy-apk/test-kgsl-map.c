@@ -4,6 +4,8 @@
  */
 #include "freedreno/kgsl/kgsl_priv.h"
 #include <sys/mman.h>
+#include <setjmp.h>
+#include "freedreno_ringbuffer.h"
 static int mode, alloc_calls, export_calls, map_calls, close_calls;
 static char mapped[4096];
 static int dior_test_command(int, unsigned long, void *, unsigned long);
@@ -17,6 +19,36 @@ static int dior_test_close(int);
 #undef drmCommandWriteRead
 #undef close
 
+/* Keep the actual relocation source in release mode while test assertions
+ * remain active. Abort is substituted only to inspect the pre-submit state. */
+static jmp_buf relocation_failure;
+static int abort_calls, submit_calls;
+static void dior_test_abort(void);
+static void dior_test_add_submit(struct kgsl_pipe *, struct kgsl_bo *);
+#define NDEBUG
+#define funcs dior_test_ringbuffer_funcs
+#define abort dior_test_abort
+#define kgsl_pipe_add_submit dior_test_add_submit
+#include "freedreno/kgsl/kgsl_ringbuffer.c"
+#undef kgsl_pipe_add_submit
+#undef abort
+#undef funcs
+#undef NDEBUG
+#include <assert.h>
+
+static void dior_test_abort(void)
+{
+    abort_calls++;
+    longjmp(relocation_failure, 1);
+}
+
+static void dior_test_add_submit(struct kgsl_pipe *pipe, struct kgsl_bo *bo)
+{
+    (void)pipe;
+    (void)bo;
+    submit_calls++;
+}
+
 static int dior_test_command(int fd, unsigned long command, void *data, unsigned long size)
 {
     assert(fd == 13);
@@ -26,6 +58,14 @@ static int dior_test_command(int fd, unsigned long command, void *data, unsigned
         alloc_calls++;
         value->offset = 0; /* Deliberately reproduce the target shim's ABI. */
         if (mode == 2) { errno = ENOMEM; return -1; }
+        return 0;
+    }
+    if (command == DRM_KGSL_GEM_GET_BUFINFO) {
+        struct drm_kgsl_gem_bufinfo *value = data;
+        assert(size == sizeof(*value) && value->handle == 99);
+        export_calls++;
+        if (mode == 5) { errno = EIO; return -1; }
+        value->gpuaddr[0] = 0x12000000;
         return 0;
     }
     assert(command == DRM_KGSL_GEM_GET_ION_FD);
@@ -68,6 +108,40 @@ int main(void)
         assert(value == (mode == 0 ? mapped : NULL));
         if (mode == 3) assert(errno == EIO);
     }
+    /* Compile the real GPU-address helper: an allocation errno cannot be
+     * reinterpreted as a valid high unsigned GPU address by relocations. */
+    mode = 2;
+    alloc_calls = export_calls = 0;
+    assert(kgsl_bo_gpuaddr(&object, 16) == 0);
+    assert(alloc_calls == 1 && export_calls == 0);
+    assert(object.gpuaddr == 0);
+    mode = 5;
+    alloc_calls = export_calls = 0;
+    assert(kgsl_bo_gpuaddr(&object, 16) == 0);
+    assert(alloc_calls == 1 && export_calls == 1);
+    assert(object.gpuaddr == 0);
+    mode = 6;
+    alloc_calls = export_calls = 0;
+    assert(kgsl_bo_gpuaddr(&object, 16) == 0x12000010);
+    assert(alloc_calls == 1 && export_calls == 1);
+    assert(object.gpuaddr == 0x12000000);
+    uint32_t command = 0xfeedface;
+    struct kgsl_pipe pipe = { 0 };
+    struct fd_ringbuffer ring = { .pipe = &pipe.base, .cur = &command };
+    struct fd_reloc relocation = { .bo = &object.base, .offset = 16, .shift = 0, .or = 0 };
+    object.gpuaddr = 0;
+    mode = 2;
+    if (setjmp(relocation_failure) == 0) {
+        kgsl_ringbuffer_emit_reloc(&ring, &relocation);
+        assert(!"allocation failure must abort before emitting GPU commands");
+    }
+    assert(abort_calls == 1 && submit_calls == 0);
+    assert(command == 0xfeedface && ring.cur == &command);
+    mode = 6;
+    kgsl_ringbuffer_emit_reloc(&ring, &relocation);
+    assert(command == 0x12000010 && ring.cur == &command + 1 && submit_calls == 1);
     puts("PASS ION mapping: correct FD/offset, allocation/export failures, mmap cleanup and errno");
+    puts("PASS GPU address: allocation/BUFINFO failures return zero; success preserves byte offset");
+    puts("PASS NDEBUG relocation: abort before command emission/submission; valid addresses still emit");
     return 0;
 }

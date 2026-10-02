@@ -2,10 +2,54 @@
 #include "freedreno/kgsl/kgsl_priv.h"
 #include <stdarg.h>
 static int calls, interrupted, op;
+static int failure_mode, open_calls, create_calls, allocation_calls;
+static int version_calls, device_calls, destroy_calls, close_calls, pipe_del_calls;
 static int dior_test_ioctl(int, unsigned long, ...);
+static int dior_test_open(const char *, int, ...);
+static int dior_test_close(int);
+static void *dior_test_calloc(size_t, size_t);
+static void dior_test_pipe_del(struct fd_pipe *);
 #define ioctl dior_test_ioctl
+#define open dior_test_open
+#define close dior_test_close
+#define calloc dior_test_calloc
+#define fd_pipe_del dior_test_pipe_del
 #include "freedreno/kgsl/kgsl_pipe.c"
 #undef ioctl
+#undef open
+#undef close
+#undef calloc
+#undef fd_pipe_del
+
+static int dior_test_open(const char *path, int flags, ...)
+{
+    assert(strcmp(path, "/dev/kgsl-3d0") == 0 && flags == O_RDWR);
+    open_calls++;
+    if (failure_mode == 0) { errno = ENODEV; return -1; }
+    return 13;
+}
+
+static int dior_test_close(int fd)
+{
+    assert(fd == 13);
+    close_calls++;
+    return 0;
+}
+
+static void *dior_test_calloc(size_t count, size_t size)
+{
+    assert(count == 1 && size == sizeof(struct kgsl_pipe));
+    allocation_calls++;
+    if (failure_mode == 2) { errno = ENOMEM; return NULL; }
+    return calloc(count, size);
+}
+
+static void dior_test_pipe_del(struct fd_pipe *pipe)
+{
+    pipe_del_calls++;
+    /* The actual destructor owns and releases the fd/context after calloc. */
+    kgsl_pipe_destroy(pipe);
+}
 
 static int dior_test_ioctl(int fd, unsigned long command, ...)
 {
@@ -15,7 +59,39 @@ static int dior_test_ioctl(int fd, unsigned long command, ...)
     va_end(args);
     assert(fd == 13);
     calls++;
-    if (op == 0) {
+    if (op == 2) {
+        if (command == IOCTL_KGSL_DRAWCTXT_CREATE) {
+            struct kgsl_drawctxt_create *value = data;
+            assert(value->flags == KGSL_CONTEXT_PER_CONTEXT_TS);
+            create_calls++;
+            value->drawctxt_id = 41;
+            if (failure_mode == 1) { errno = ENOMEM; return -1; }
+            return 0;
+        }
+        if (command == IOCTL_KGSL_DRAWCTXT_DESTROY) {
+            struct kgsl_drawctxt_destroy *value = data;
+            assert(value->drawctxt_id == 41);
+            destroy_calls++;
+            return 0;
+        }
+        assert(command == IOCTL_KGSL_DEVICE_GETPROPERTY);
+        struct kgsl_device_getproperty *value = data;
+        if (value->type == KGSL_PROP_VERSION) {
+            version_calls++;
+            assert(value->sizebytes == sizeof(struct kgsl_version));
+            if (failure_mode == 3) { errno = EIO; return -1; }
+            memset(value->value, 0, value->sizebytes);
+        } else {
+            assert(value->type == KGSL_PROP_DEVICE_INFO);
+            device_calls++;
+            assert(value->sizebytes == sizeof(struct kgsl_devinfo));
+            if (failure_mode == 4) { errno = EIO; return -1; }
+            struct kgsl_devinfo *info = value->value;
+            memset(info, 0, sizeof(*info));
+            info->gpu_id = failure_mode == 5 ? 530 : 335;
+            info->chip_id = 0x03000512;
+        }
+    } else if (op == 0) {
         struct kgsl_device_waittimestamp_ctxtid *value = data;
         assert(command == IOCTL_KGSL_DEVICE_WAITTIMESTAMP_CTXTID);
         assert(value->context_id == 41 && value->timestamp == 17);
@@ -52,6 +128,29 @@ int main(void)
     uint32_t timestamp = 0;
     assert(kgsl_pipe_timestamp(&pipe, &timestamp) == 0);
     assert(timestamp == 17 && calls == 1);
+    op = 2;
+    for (failure_mode = 0; failure_mode <= 6; failure_mode++) {
+        open_calls = create_calls = allocation_calls = version_calls = device_calls = 0;
+        destroy_calls = close_calls = pipe_del_calls = 0;
+        struct fd_pipe *created = kgsl_pipe_new(NULL, FD_PIPE_3D, 0);
+        assert(open_calls == 1);
+        assert(create_calls == (failure_mode == 0 ? 0 : 1));
+        assert(allocation_calls == (failure_mode <= 1 ? 0 : 1));
+        assert(version_calls == (failure_mode <= 2 ? 0 : 1));
+        assert(device_calls == (failure_mode <= 3 ? 0 : 1));
+        if (failure_mode == 6) {
+            assert(created != NULL && close_calls == 0 && destroy_calls == 0);
+            kgsl_pipe_destroy(created);
+        } else {
+            assert(created == NULL);
+        }
+        assert(close_calls == (failure_mode == 0 ? 0 : 1));
+        /* A failed CREATE must not destroy a context even if its input/output
+         * structure was changed; ownership begins only on ioctl success. */
+        assert(destroy_calls == (failure_mode <= 1 ? 0 : 1));
+        assert(pipe_del_calls == ((failure_mode >= 3 && failure_mode <= 5) ? 1 : 0));
+    }
     puts("PASS context timestamps and exact A305B identity mapping with unchanged CHIP_ID");
+    puts("PASS pipe ownership: open/create/calloc/property failures and success release fd/context once");
     return 0;
 }
