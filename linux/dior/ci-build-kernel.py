@@ -20,6 +20,10 @@ SPEC = importlib.util.spec_from_file_location("dior_image_ci", HERE / "ci-build-
 CI = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(CI)
 KERNEL_COMMIT = "12f40d54ab4e34dabaeb8dd7979bedc3cc8fa064"
+# Reuse the exact upstream build inputs from the physically verified r8/#9
+# kernel. A new device patch must not silently change the build machinery.
+PMBOOTSTRAP_COMMIT = "39e9c17c1439b25f7aced54e03f19b0515cdb029"
+PMAPORTS_COMMIT = "67b30715d970bcaccce61522d90e6a57d0848350"
 
 
 def verify_zimage(path: Path, destination: Path) -> dict:
@@ -40,6 +44,8 @@ def verify_zimage(path: Path, destination: Path) -> dict:
         raise ValueError("compiled kernel is not GCC4")
     if b"Dior prima driver NV default version=%d" not in image:
         raise ValueError("compiled kernel has no Dior NV compatibility marker")
+    if b"Dior KGSL legacy shadow save: trusted PMODE bracket" not in image:
+        raise ValueError("compiled kernel has no trusted legacy shadow-save marker")
     if b"thermal_mc_grp\0" not in image or b"thermal_mc_group" in image:
         raise ValueError("compiled kernel lacks the thermal netlink name fix")
     begin = image.index(b"IKCFG_ST") + 8
@@ -55,7 +61,8 @@ def verify_zimage(path: Path, destination: Path) -> dict:
         raise ValueError("KGSL DRM requires global page tables")
     (destination / "kernel.config").write_bytes(config.encode("ascii"))
     return {"linux_banner": banner.group().decode().strip(), "gcc4_verified": True,
-            "nv_patch_marker_present": True, "thermal_netlink_fix_verified": True,
+            "nv_patch_marker_present": True, "kgsl_legacy_shadow_marker_present": True,
+            "thermal_netlink_fix_verified": True,
             "effective_config_verified": True}
 
 
@@ -76,10 +83,13 @@ def build() -> None:
         "kernel_repository": "msfkonsole/android_kernel_xiaomi_dior",
         "kernel_commit": KERNEL_COMMIT,
         "pmbootstrap_revision": CI.checkout("https://gitlab.postmarketos.org/postmarketOS/pmbootstrap.git",
-                                              "HEAD", state / "pmbootstrap"),
+                                              PMBOOTSTRAP_COMMIT, state / "pmbootstrap"),
         "pmaports_revision": CI.checkout("https://gitlab.postmarketos.org/postmarketOS/pmaports.git",
-                                          "HEAD", state / "pmaports"),
+                                          PMAPORTS_COMMIT, state / "pmaports"),
     }
+    if (revisions["pmbootstrap_revision"] != PMBOOTSTRAP_COMMIT
+            or revisions["pmaports_revision"] != PMAPORTS_COMMIT):
+        raise ValueError("upstream build inputs differ from the verified r8 pins")
     snapshot = state / "snapshot"
     shutil.copytree(HERE / "pmaports-snapshot", snapshot)
     CI.run(["sh", str(snapshot / "hydrate-snapshot.sh")])

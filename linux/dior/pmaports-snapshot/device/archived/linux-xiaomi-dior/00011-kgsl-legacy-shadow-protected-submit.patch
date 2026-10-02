@@ -1,0 +1,29 @@
+Subject: [PATCH] kgsl: bracket trusted A3xx legacy shadow saves
+
+The kernel-generated register/constant save IB reads HLSQ shadow RAM at
+dword 0x6100 and related addresses. These overlap the protected SMMU address
+window on Dior. Submit this internal IB through the existing PMODE bracket,
+as the shader-save IB already does. User IB validation and protection ranges
+are unchanged.
+
+diff --git a/drivers/gpu/msm/adreno_a3xx.c b/drivers/gpu/msm/adreno_a3xx.c
+--- a/drivers/gpu/msm/adreno_a3xx.c
++++ b/drivers/gpu/msm/adreno_a3xx.c
+@@ -2424,9 +2424,15 @@ static int a3xx_drawctxt_save(struct adreno_device *adreno_dev,
+ 		if (ret)
+ 			return ret;
+ 
+-		/* save registers and constants. */
++		/*
++		 * This kernel-built IB saves HLSQ shadow RAM, including texture
++		 * objects at dword 0x6100 in the protected address window. Use
++		 * the trusted internal bracket, as shader_save does below; user
++		 * IBs retain protected mode before and after this submission.
++		 */
++		pr_info_once("Dior KGSL legacy shadow save: trusted PMODE bracket\n");
+ 		ret = adreno_ringbuffer_issuecmds(device, context,
+-			KGSL_CMD_FLAGS_NONE,
++			KGSL_CMD_FLAGS_PMODE,
+ 			context->regconstant_save, 3);
+ 		if (ret)
+ 			return ret;
