@@ -65,6 +65,6 @@ python3 /opt/dior-android/run-native.py \
 
 已有 `GPU-LIVE-OPENCL.json`、`NATIVE-opencl-50.json` 和 `NATIVE-opencl-million.json` 记录分别验证 4096 元素×3 轮、4096 元素×50 轮及 1,048,576 元素×3 轮的整型 GPU 计算，返回 `PASS_GPU_COMPUTE` 且全部结果与 CPU 参考一致。当前 `run-native.py` 只启动随 runtime 登记的固定 worker；自定义计算需要自己的 native worker、结果协议和独立验证。构建及安装说明见 `../graphics-android/README.md`。
 
-本 GLES 应用示例的 `opencl_verified` 和 `compute_shader_verified` 始终为 false；OpenCL 结果由上述独立计算记录证明。新的 FP32 matrix 应用验证另行记录，本文不把待执行项目算作通过。当前路径没有提供 Vulkan 或 GLES 3.1 compute shader 的验证。
+本 GLES 应用示例的 `opencl_verified` 和 `compute_shader_verified` 始终为 false；OpenCL 结果由上述独立计算记录证明。本轮另行实测了普通用户的自定义 FP32 matrix worker：16×16、32×32 各 3 轮，共 3,840 个输出元素与 CPU 参考完全一致，内核 taint 前后均为 0；源码与构建方式见 `../graphics-android/examples/README.md`。另外两个独立 GLES 进程的并发测试完成 12 帧、491,520 个像素比较，清理通过且新内核日志未见 GPU fault。当前路径没有提供 Vulkan 或 GLES 3.1 compute shader 的验证。
 
 FlowBoard 的网页 Canvas 绘制由访问者浏览器执行。要让手机 GPU 处理服务器端图像或计算任务，后端需要显式调用经过验证的 worker，并测量端到端收益；选择手机 runtime 不会自动改变所有应用的渲染方式。
