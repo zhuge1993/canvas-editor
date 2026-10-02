@@ -167,14 +167,86 @@ def inventory():
     return result
 
 
+def cleanup_resources(egl, gl, gbm, *, display=None, surface=None, context=None,
+                      display_initialized=False, context_current=False,
+                      programs=(), shaders=(), framebuffers=(), textures=(),
+                      gbm_device=None, fd=-1):
+    """Release every owned resource, retaining failures without skipping peers."""
+    errors = []
+
+    def record(operation, message):
+        errors.append({"operation": operation, "error": str(message)})
+
+    def attempt(operation, callback, egl_boolean=False):
+        try:
+            value = callback()
+            if egl_boolean and not value:
+                try:
+                    code = api(egl, "eglGetError", C.c_int)()
+                    record(operation, "returned EGL_FALSE; EGL error=0x%04x" % code)
+                except Exception as exc:
+                    record(operation, "returned EGL_FALSE; error query failed: %s" % exc)
+        except Exception as exc:
+            record(operation, exc)
+
+    # A created context can exist even when eglMakeCurrent failed. GL deletion
+    # is valid only after make-current succeeded; context destruction below
+    # still releases resources owned by an unbound context.
+    if context_current:
+        for value in programs:
+            attempt("glDeleteProgram", lambda value=value:
+                    api(gl, "glDeleteProgram", None, C.c_uint)(value))
+        for value in shaders:
+            attempt("glDeleteShader", lambda value=value:
+                    api(gl, "glDeleteShader", None, C.c_uint)(value))
+        for name, objects in (("glDeleteFramebuffers", framebuffers), ("glDeleteTextures", textures)):
+            for value in objects:
+                attempt(name, lambda name=name, value=value:
+                        api(gl, name, None, C.c_int, C.POINTER(C.c_uint))(1, C.byref(value)))
+        try:
+            get_gl_error = api(gl, "glGetError", C.c_uint)
+            for _ in range(64):
+                code = get_gl_error()
+                if code == 0:
+                    break
+                record("GL object cleanup", "GL error=0x%04x" % code)
+            else:
+                record("GL object cleanup", "GL error queue exceeded diagnostic bound")
+        except Exception as exc:
+            record("glGetError after cleanup", exc)
+
+    if display:
+        if context_current:
+            attempt("eglMakeCurrent detach", lambda:
+                    api(egl, "eglMakeCurrent", C.c_uint, C.c_void_p, C.c_void_p, C.c_void_p, C.c_void_p)
+                    (display, None, None, None), egl_boolean=True)
+        if context:
+            attempt("eglDestroyContext", lambda:
+                    api(egl, "eglDestroyContext", C.c_uint, C.c_void_p, C.c_void_p)(display, context), egl_boolean=True)
+        if surface:
+            attempt("eglDestroySurface", lambda:
+                    api(egl, "eglDestroySurface", C.c_uint, C.c_void_p, C.c_void_p)(display, surface), egl_boolean=True)
+        if display_initialized:
+            attempt("eglTerminate", lambda:
+                    api(egl, "eglTerminate", C.c_uint, C.c_void_p)(display), egl_boolean=True)
+    if gbm_device:
+        attempt("gbm_device_destroy", lambda:
+                api(gbm, "gbm_device_destroy", None, C.c_void_p)(gbm_device))
+    if fd >= 0:
+        attempt("os.close", lambda: os.close(fd))
+    return {"cleanup_pass": not errors, "cleanup_errors": errors,
+            "cleanup_error": "; ".join(item["operation"] + ": " + item["error"] for item in errors)}
+
+
 def render(route, node, repeat=1):
     start = time.monotonic()
     result = {"route": route, "node": node, "status": "FAIL", "render_pass": False,
               "hardware_render_pass": False, "software_renderer": None,
               "shader_arithmetic_pass": False, "hardware_shader_arithmetic_pass": False,
               "stability_pass": False, "requested_iterations": repeat,
-              "completed_iterations": 0}
+              "completed_iterations": 0, "cleanup_pass": False}
     display, surface, context = None, None, None
+    display_initialized, context_current = False, False
     fd, gbm_device, gbm = -1, None, None
     egl = library("EGL")
     gl = library("GLESv2")
@@ -190,9 +262,6 @@ def render(route, node, repeat=1):
     create_context = api(egl, "eglCreateContext", ptr, ptr, ptr, ptr, C.POINTER(integer))
     create_pbuffer = api(egl, "eglCreatePbufferSurface", ptr, ptr, ptr, C.POINTER(integer))
     make_current = api(egl, "eglMakeCurrent", boolean, ptr, ptr, ptr, ptr)
-    destroy_context = api(egl, "eglDestroyContext", boolean, ptr, ptr)
-    destroy_surface = api(egl, "eglDestroySurface", boolean, ptr, ptr)
-    terminate = api(egl, "eglTerminate", boolean, ptr)
 
     def require(ok, operation):
         if not ok:
@@ -220,6 +289,7 @@ def render(route, node, repeat=1):
         require(display, "eglGetPlatformDisplayEXT")
         major, minor = integer(), integer()
         require(initialize(display, C.byref(major), C.byref(minor)), "eglInitialize")
+        display_initialized = True
         result["egl_version"] = [major.value, minor.value]
         result["egl_vendor"] = decode(query(display, EGL_VENDOR))
         result["egl_version_string"] = decode(query(display, EGL_VERSION))
@@ -247,6 +317,7 @@ def render(route, node, repeat=1):
         context = create_context(display, config, None, context_attributes)
         require(context, "eglCreateContext ES2")
         require(make_current(display, surface, surface, context), "eglMakeCurrent")
+        context_current = True
         get_string = api(gl, "glGetString", C.c_char_p, uint)
         result["gl_vendor"] = decode(get_string(GL_VENDOR))
         result["gl_renderer"] = decode(get_string(GL_RENDERER))
@@ -458,31 +529,10 @@ void main() {
     except (OSError, AttributeError, ProbeError) as exc:
         result["error"] = str(exc)
     finally:
-        if display:
-            if context:
-                # Cleanup occurs with the context current; terminate also frees
-                # resources after a driver error. Never change device mode/owner.
-                try:
-                    for value in programs:
-                        api(gl, "glDeleteProgram", None, uint)(value)
-                    for value in shaders:
-                        api(gl, "glDeleteShader", None, uint)(value)
-                    for value in framebuffers:
-                        api(gl, "glDeleteFramebuffers", None, integer, C.POINTER(uint))(1, C.byref(value))
-                    for value in textures:
-                        api(gl, "glDeleteTextures", None, integer, C.POINTER(uint))(1, C.byref(value))
-                except (OSError, AttributeError) as exc:
-                    result["cleanup_error"] = str(exc)
-            make_current(display, None, None, None)
-            if context:
-                destroy_context(display, context)
-            if surface:
-                destroy_surface(display, surface)
-            terminate(display)
-        if gbm_device:
-            api(gbm, "gbm_device_destroy", None, ptr)(gbm_device)
-        if fd >= 0:
-            os.close(fd)
+        result.update(cleanup_resources(egl, gl, gbm, display=display, surface=surface,
+            context=context, display_initialized=display_initialized, context_current=context_current,
+            programs=programs, shaders=shaders, framebuffers=framebuffers, textures=textures,
+            gbm_device=gbm_device, fd=fd))
         result["elapsed_ms"] = round((time.monotonic() - start) * 1000)
     return result
 
@@ -492,6 +542,7 @@ def validation_pass(result):
             result.get("hardware_render_pass") is True and
             result.get("hardware_shader_arithmetic_pass") is True and
             result.get("stability_pass") is True and
+            result.get("cleanup_pass") is True and not result.get("cleanup_error") and
             result.get("completed_iterations", 0) == result.get("requested_iterations", -1) and
             result.get("completed_iterations", 0) > 0)
 
