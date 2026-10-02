@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: MIT
- * Compile the actual patched implementation and substitute only syscalls.
+ * Compile the actual patched ION/GPU-address implementation with syscall
+ * injection. Unexercised shared-library entrypoints use fail-fast traps.
  * This exercises positive and failed ION export / mmap paths without a GPU.
  */
 #include "freedreno/kgsl/kgsl_priv.h"
@@ -18,6 +19,16 @@ static int dior_test_close(int);
 #include "freedreno/kgsl/kgsl_bo.c"
 #undef drmCommandWriteRead
 #undef close
+
+/* Including bo.c retains the public fd_bo_from_fbdev API when its shared
+ * library exports the same symbol. Its private pipe discriminator cannot be
+ * resolved from that library and is outside this fixture's exercised paths. */
+int is_kgsl_pipe(struct fd_pipe *pipe)
+{
+    (void)pipe;
+    assert(!"unexpected fd_bo_from_fbdev path in ION/GPU-address fixture");
+    return 0;
+}
 
 /* The release-mode relocation implementation is compiled in its own source
  * unit, keeping its static function table independent of kgsl_bo.c's table. */

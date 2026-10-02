@@ -21,6 +21,16 @@ static void dior_test_pipe_del(struct fd_pipe *);
 #undef calloc
 #undef fd_pipe_del
 
+/* The real constructor's function table references this private callback.
+ * Command-stream construction is outside the timestamp/ownership fixture. */
+struct fd_ringbuffer *kgsl_ringbuffer_new(struct fd_pipe *pipe, uint32_t size)
+{
+    (void)pipe;
+    (void)size;
+    assert(!"unexpected ringbuffer creation in timestamp/pipe-ownership fixture");
+    return NULL;
+}
+
 static int dior_test_open(const char *path, int flags, ...)
 {
     assert(strcmp(path, "/dev/kgsl-3d0") == 0 && flags == O_RDWR);
