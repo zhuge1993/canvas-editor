@@ -31,6 +31,14 @@ struct fd_ringbuffer *kgsl_ringbuffer_new(struct fd_pipe *pipe, uint32_t size)
     return NULL;
 }
 
+/* Timestamp waits use an empty pending list in this fixture. Any attempted
+ * buffer deletion is a failure, never a successful simulated release. */
+void fd_bo_del(struct fd_bo *bo)
+{
+    (void)bo;
+    assert(!"unexpected buffer deletion from empty pending list");
+}
+
 static int dior_test_open(const char *path, int flags, ...)
 {
     assert(strcmp(path, "/dev/kgsl-3d0") == 0 && flags == O_RDWR);
@@ -102,6 +110,7 @@ static int dior_test_ioctl(int fd, unsigned long command, ...)
             info->chip_id = 0x03000512;
         }
     } else if (op == 0) {
+        fprintf(stderr, "TRACE wait ioctl: call=%d interrupted=%d\n", calls, interrupted);
         struct kgsl_device_waittimestamp_ctxtid *value = data;
         assert(command == IOCTL_KGSL_DEVICE_WAITTIMESTAMP_CTXTID);
         assert(value->context_id == 41 && value->timestamp == 17);
@@ -118,7 +127,7 @@ static int dior_test_ioctl(int fd, unsigned long command, ...)
 int main(void)
 {
     fprintf(stderr, "TRACE timestamps: identity parameters\n");
-    struct kgsl_pipe pipe = { .fd = 13, .drawctxt_id = 41 };
+    struct kgsl_pipe pipe = { .base = { .id = FD_PIPE_3D }, .fd = 13, .drawctxt_id = 41 };
     uint64_t value;
     pipe.devinfo.gpu_id = 335;
     pipe.devinfo.chip_id = 0x03000512;
@@ -132,6 +141,12 @@ int main(void)
     pipe.devinfo.chip_id = 0x03000512;
     assert(kgsl_pipe_get_param(&pipe.base, FD_GPU_ID, &value) == 0 && value == 330);
     list_inithead(&pipe.pending_list);
+    fprintf(stderr, "TRACE pending state: id=%d head=%p next=%p prev=%p\n", pipe.base.id,
+            (void *)&pipe.pending_list, (void *)pipe.pending_list.next,
+            (void *)pipe.pending_list.prev);
+    fprintf(stderr, "TRACE timestamps: empty pending-list processing\n");
+    kgsl_pipe_process_pending(&pipe, 17);
+    fprintf(stderr, "TRACE timestamps: empty pending-list returned\n");
     interrupted = 1;
     fprintf(stderr, "TRACE timestamps: context wait and EINTR\n");
     assert(kgsl_pipe_wait(&pipe.base, 17, 1000000000) == 0);
