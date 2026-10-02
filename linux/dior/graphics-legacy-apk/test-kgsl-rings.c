@@ -51,8 +51,15 @@ static int allocation_calls, fail_calloc, fail_realloc, fail_fcntl, fail_gpu_all
 static int wait_error, abort_expected;
 static uint32_t expected[8], next_timestamp;
 static unsigned expected_count;
+static uint32_t expected_actual_gpuaddr, expected_actual_sizedwords, last_preamble_gpuaddr;
+static void *expected_actual_hostptr;
+static int active_context, preamble_executions, actual_executions;
+static struct kgsl_ibdesc last_wire_ibs[2];
 static struct kgsl_pipe pipes[2];
 static int context_destroyed[2];
+static int pending_calls, pending_expected;
+static unsigned pending_owner;
+static uint32_t pending_timestamp, pending_last[2];
 static jmp_buf abort_jump;
 static const struct fd_pipe_funcs test_pipe_funcs = { .ringbuffer_new = kgsl_ringbuffer_new };
 
@@ -154,7 +161,35 @@ static int test_ioctl(int fd, unsigned long command, ...)
 	if (command == IOCTL_KGSL_RINGBUFFER_ISSUEIBCMDS) {
 		struct kgsl_ringbuffer_issueibcmds *value = data;
 		assert(value->drawctxt_id == pipes[owner].drawctxt_id);
-		assert(value->numibs == 1 && value->flags == KGSL_CONTEXT_SUBMIT_IB_LIST);
+		struct kgsl_ibdesc *wire = (void *)(uintptr_t)value->ibdesc_addr;
+		struct allocation *nop;
+		unsigned start_index, descriptor;
+		assert(value->numibs == 2 && value->flags == KGSL_CONTEXT_SUBMIT_IB_LIST);
+		assert(wire && wire[0].ctrl == 0 && wire[1].ctrl == 0);
+		assert(wire[0].sizedwords == 2 && wire[0].gpuaddr != expected_actual_gpuaddr);
+		nop = allocation(wire[0].gpuaddr);
+		assert(!nop->freed && wire[0].hostptr == nop->memory);
+		/* Independent packet decoding: type3, CP_NOP=0x10, one payload. */
+		assert(((uint32_t *)nop->memory)[0] == 0xc0001000U);
+		assert((((uint32_t *)nop->memory)[0] >> 30) == 3);
+		assert(((((uint32_t *)nop->memory)[0] >> 8) & 0xff) == 0x10);
+		assert((((uint32_t *)nop->memory)[0] >> 16 & 0x3fff) + 1 == 1);
+		assert(((uint32_t *)nop->memory)[1] == 0);
+		assert(wire[1].gpuaddr == expected_actual_gpuaddr);
+		assert(wire[1].hostptr == expected_actual_hostptr);
+		assert(wire[1].sizedwords == expected_actual_sizedwords && wire[1].sizedwords > 0);
+		memcpy(last_wire_ibs, wire, sizeof(last_wire_ibs));
+		last_preamble_gpuaddr = wire[0].gpuaddr;
+		/* The locked kernel skips only first IB for an already-active
+		 * PREAMBLE context. In either branch actual batch must execute. */
+		start_index = active_context == (int)value->drawctxt_id ? 1 : 0;
+		for (descriptor = start_index; descriptor < value->numibs; descriptor++) {
+			if (descriptor == 0) preamble_executions++;
+			else { assert(descriptor == 1); actual_executions++; }
+		}
+		active_context = value->drawctxt_id;
+		nop->busy[owner] = 1;
+		nop->timestamp[owner] = next_timestamp;
 		submit_calls++;
 		for (index = 0; index < expected_count; index++) {
 			struct allocation *item = allocation(expected[index]);
@@ -175,6 +210,7 @@ static int test_ioctl(int fd, unsigned long command, ...)
 			if (allocations[index].busy[owner] &&
 			    (int32_t)(value->timestamp - allocations[index].timestamp[owner]) >= 0)
 				allocations[index].busy[owner] = 0;
+		pending_expected=1;pending_owner=owner;pending_timestamp=value->timestamp;
 		return 0;
 	}
 	if (command == IOCTL_KGSL_SHAREDMEM_FREE) {
@@ -198,6 +234,14 @@ static void test_abort(void)
 }
 
 /* External GEM/pipe dependencies are not the ring lifetime targets. */
+void kgsl_pipe_process_pending(struct kgsl_pipe *pipe, uint32_t timestamp)
+{
+	assert(pending_expected && pipe==&pipes[pending_owner]);
+	assert(timestamp==pending_timestamp && atomic_read(&pipe->cmd_refs)>0);
+	assert(!context_destroyed[pending_owner]);
+	pending_last[pending_owner]=timestamp;
+	pending_calls++;pending_expected=0;
+}
 void kgsl_pipe_pre_submit(struct kgsl_pipe *pipe) { (void)pipe; }
 void kgsl_pipe_post_submit(struct kgsl_pipe *pipe, uint32_t timestamp) { (void)pipe; (void)timestamp; }
 void kgsl_pipe_add_submit(struct kgsl_pipe *pipe, struct kgsl_bo *bo) { (void)pipe; (void)bo; assert(!"unexpected GEM relocation"); }
@@ -231,6 +275,11 @@ static void reset_test(void)
 	next_fd = 32;
 	next_timestamp = 1;
 	expected_count = 0;
+	active_context = -1;
+	preamble_executions = actual_executions = 0;
+	last_preamble_gpuaddr = 0;
+	pending_calls=pending_expected=0;
+	memset(pending_last,0,sizeof(pending_last));
 }
 
 static struct fd_ringbuffer *new_ring(unsigned owner)
@@ -259,7 +308,13 @@ static void flush(struct fd_ringbuffer *ring, const uint32_t *addresses, unsigne
 	memcpy(expected, addresses, count * sizeof(*addresses));
 	expected_count = count;
 	next_timestamp = timestamp;
+	expected_actual_gpuaddr = address(ring) + (uint32_t)((char *)ring->last_start - (char *)ring->start);
+	expected_actual_hostptr = ring->last_start;
+	expected_actual_sizedwords = ring->cur - ring->last_start;
 	assert(fd_ringbuffer_flush(ring) == 0);
+	assert(to_kgsl_ringbuffer(ring)->bo->preamble);
+	assert(to_kgsl_ringbuffer(ring)->bo->preamble->gpuaddr == last_preamble_gpuaddr);
+	assert(to_kgsl_ringbuffer(ring)->bo->preamble->fences);
 }
 
 static void basic_order(int child_first)
@@ -349,6 +404,7 @@ static void timestamp_wrap_and_reset(void)
 	assert(to_kgsl_ringbuffer(child)->bo->fences->timestamp == 0);
 	fd_ringbuffer_del(child);
 	fd_ringbuffer_reset(parent);
+	assert(pending_calls>0 && pending_last[0]==0);
 	assert(allocation(addresses[1])->freed && !to_kgsl_ringbuffer(parent)->bo->dependencies);
 	fd_ringbuffer_del(parent);
 	assert(allocation(addresses[0])->freed && allocation(addresses[1])->freed);
@@ -385,18 +441,19 @@ static void wait_failure_does_not_free(void)
 	struct fd_ringbuffer *parent,*child;
 	struct kgsl_rb_bo *saved;
 	uint32_t addresses[2];
-	int freed,unmapped,closed;
+	int freed,unmapped,closed,pending;
 	reset_test(); parent=new_ring(0); child=new_ring(0);
 	addresses[0]=address(parent);addresses[1]=address(child);nested(parent,child);
 	flush(parent,addresses,2,1);fd_ringbuffer_del(child);
 	saved=to_kgsl_ringbuffer(parent)->bo;
-	freed=free_calls;unmapped=unmap_calls;closed=close_calls;
+	freed=free_calls;unmapped=unmap_calls;closed=close_calls;pending=pending_calls;
 	wait_error=ETIMEDOUT;abort_expected=1;
 	if(setjmp(abort_jump)==0) {
 		fd_ringbuffer_del(parent);
 		assert(!"unretired command BO destruction must fail closed");
 	}
 	assert(free_calls==freed && unmap_calls==unmapped && close_calls==closed);
+	assert(pending_calls==pending && !pending_expected);
 	assert(allocation(addresses[0])->busy[0] && allocation(addresses[1])->busy[0]);
 	/* Test-only repair after the substituted abort: production terminates. */
 	abort_expected=0;wait_error=0;atomic_set(&saved->references,1);
@@ -404,13 +461,95 @@ static void wait_failure_does_not_free(void)
 	assert(allocation(addresses[0])->freed && allocation(addresses[1])->freed);
 }
 
+static void shared_reset_failure_keeps_original_graph(void)
+{
+	struct fd_ringbuffer *parent,*child,*leaf;
+	struct kgsl_rb_bo *original;
+	uint32_t addresses[3];
+	int freed,closed;
+	reset_test();parent=new_ring(0);child=new_ring(0);leaf=new_ring(0);
+	addresses[0]=address(parent);addresses[1]=address(child);addresses[2]=address(leaf);
+	nested(parent,child);nested(child,leaf);original=to_kgsl_ringbuffer(child)->bo;
+	freed=free_calls;closed=close_calls;fail_calloc=1;abort_expected=1;
+	if(setjmp(abort_jump)==0) {
+		fd_ringbuffer_reset(child);
+		assert(!"shared storage replacement failure must abort before releasing old BO");
+	}
+	assert(to_kgsl_ringbuffer(child)->bo==original && original->dependencies);
+	assert(free_calls==freed && close_calls==closed);
+	assert(!allocation(addresses[1])->freed && !allocation(addresses[2])->freed);
+	abort_expected=0;fail_calloc=0;
+	fd_ringbuffer_del(child);fd_ringbuffer_del(leaf);
+	flush(parent,addresses,3,1);fd_ringbuffer_del(parent);
+}
+
+static void preamble_repeat_and_context_switch(void)
+{
+	struct fd_ringbuffer *ring, *child;
+	uint32_t addresses[2], nop_address, saved_words[2];
+	reset_test(); ring=new_ring(0); child=new_ring(0);
+	addresses[0]=address(ring); addresses[1]=address(child); nested(ring,child);
+	flush(ring,addresses,2,1);
+	nop_address=last_preamble_gpuaddr;
+	memcpy(saved_words,allocation(nop_address)->memory,sizeof(saved_words));
+	assert(preamble_executions==1 && actual_executions==1);
+	*ring->cur++=0x11223344;
+	flush(ring,addresses,2,2); /* Same context skips only the NOP descriptor. */
+	assert(last_preamble_gpuaddr==nop_address);
+	assert(preamble_executions==1 && actual_executions==2);
+	assert(last_wire_ibs[1].gpuaddr==addresses[0]+8 && last_wire_ibs[1].sizedwords==1);
+	ring->pipe=&pipes[1].base;
+	*ring->cur++=0x55667788;
+	flush(ring,addresses,2,7); /* Context switch executes NOP then actual. */
+	assert(last_preamble_gpuaddr==nop_address);
+	assert(preamble_executions==2 && actual_executions==3);
+	assert(!memcmp(saved_words,allocation(nop_address)->memory,sizeof(saved_words)));
+	assert(allocation(nop_address)->busy[0] && allocation(nop_address)->busy[1]);
+	assert(to_kgsl_ringbuffer(ring)->bo->preamble->fences->next);
+	fd_ringbuffer_del(child); fd_ringbuffer_del(ring);
+	assert(allocation(nop_address)->freed && allocation(addresses[0])->freed && allocation(addresses[1])->freed);
+	assert(atomic_read(&pipes[0].cmd_refs)==1 && atomic_read(&pipes[1].cmd_refs)==1);
+}
+
+static void preamble_allocation_rollback(void)
+{
+	struct fd_ringbuffer *ring, *child;
+	struct kgsl_rb_bo *original;
+	struct kgsl_rb_dependency *dependency;
+	uint32_t addresses[2];
+	int mode, attempt, last_attempt;
+	for (mode=0;mode<5;mode++) {
+		last_attempt=mode==0 ? 6 : mode==1 ? 4 : 1;
+		for(attempt=1;attempt<=last_attempt;attempt++) {
+			reset_test();ring=new_ring(0);child=new_ring(0);nested(ring,child);
+			original=to_kgsl_ringbuffer(ring)->bo;dependency=original->dependencies;
+			addresses[0]=address(ring);addresses[1]=address(child);
+			if(mode==0) fail_calloc=attempt;
+			else if(mode==1) fail_fcntl=attempt;
+			else if(mode==2) fail_gpu_alloc=1;
+			else if(mode==3) fail_map=1;
+			else fail_realloc=1;
+			assert(fd_ringbuffer_flush(ring)==-ENOMEM && submit_calls==0);
+			assert(original->preamble==NULL && original->dependencies==dependency);
+			assert(original->fences==NULL && atomic_read(&pipes[0].cmd_refs)==1);
+			assert(!allocation(addresses[0])->freed && !allocation(addresses[1])->freed);
+			for(int index=2;index<allocation_count;index++) assert(allocations[index].freed);
+			fail_calloc=fail_fcntl=fail_gpu_alloc=fail_map=fail_realloc=0;
+			flush(ring,addresses,2,1); /* Rollback left a usable original graph. */
+			fd_ringbuffer_del(child);fd_ringbuffer_del(ring);
+		}
+	}
+}
+
 int main(void)
 {
 	basic_order(1);basic_order(0);
 	transitive_and_early_wrapper_delete();multiple_parents_and_repeat();
 	shared_reset_preserves_old_commands();
-	timestamp_wrap_and_reset();allocation_rollback();wait_failure_does_not_free();
+	timestamp_wrap_and_reset();allocation_rollback();shared_reset_failure_keeps_original_graph();wait_failure_does_not_free();
+	preamble_repeat_and_context_switch();preamble_allocation_rollback();
 	reset_test();
+	puts("PASS Dior A3xx preamble protocol: context flags PER_CONTEXT_TS|PREAMBLE|NO_GMEM_ALLOC; two IBs with owned 2-word NOP before actual batch; context switch/same-context preserve actual IB");
 	puts("PASS KGSL command BO lifetime: child-first/parent-first, transitive nested, duplicate/multiple-parent fences, wrap-zero, rollback, wait-failure no FREE");
 	return 0;
 }

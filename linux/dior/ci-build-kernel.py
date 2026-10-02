@@ -44,8 +44,6 @@ def verify_zimage(path: Path, destination: Path) -> dict:
         raise ValueError("compiled kernel is not GCC4")
     if b"Dior prima driver NV default version=%d" not in image:
         raise ValueError("compiled kernel has no Dior NV compatibility marker")
-    if b"Dior KGSL legacy shadow save: trusted PMODE bracket" not in image:
-        raise ValueError("compiled kernel has no trusted legacy shadow-save marker")
     if b"thermal_mc_grp\0" not in image or b"thermal_mc_group" in image:
         raise ValueError("compiled kernel lacks the thermal netlink name fix")
     begin = image.index(b"IKCFG_ST") + 8
@@ -61,7 +59,7 @@ def verify_zimage(path: Path, destination: Path) -> dict:
         raise ValueError("KGSL DRM requires global page tables")
     (destination / "kernel.config").write_bytes(config.encode("ascii"))
     return {"linux_banner": banner.group().decode().strip(), "gcc4_verified": True,
-            "nv_patch_marker_present": True, "kgsl_legacy_shadow_marker_present": True,
+            "nv_patch_marker_present": True,
             "thermal_netlink_fix_verified": True,
             "effective_config_verified": True}
 

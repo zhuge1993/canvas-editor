@@ -158,7 +158,7 @@ static int dior_test_ioctl(int fd, unsigned long command, ...)
     if (op == 2) {
         if (command == IOCTL_KGSL_DRAWCTXT_CREATE) {
             struct kgsl_drawctxt_create *value = data;
-            assert(value->flags == KGSL_CONTEXT_PER_CONTEXT_TS);
+            assert(value->flags == (KGSL_CONTEXT_PER_CONTEXT_TS | KGSL_CONTEXT_PREAMBLE | KGSL_CONTEXT_NO_GMEM_ALLOC));
             create_calls++;
             value->drawctxt_id = 41;
             if (failure_mode == 1) { errno = ENOMEM; return -1; }

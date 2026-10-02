@@ -82,8 +82,8 @@ def generated_aport(target, payload, base_manifest, source_commit):
     source = HERE / "graphics-legacy-apk"
     text = (source / "APKBUILD").read_text(encoding="ascii")
     version = dict(re.findall(r"^(pkgname|pkgver|pkgrel)=([^\s]+)$", text, re.MULTILINE))
-    if version != {"pkgname": "dior-graphics", "pkgver": "17.3.9", "pkgrel": "5"}:
-        raise ValueError("Hotfix requires reviewed dior-graphics 17.3.9-r5 source")
+    if version != {"pkgname": "dior-graphics", "pkgver": "17.3.9", "pkgrel": "6"}:
+        raise ValueError("Hotfix requires reviewed dior-graphics 17.3.9-r6 source")
     if 'sonameprefix="$pkgname:"' not in text:
         raise ValueError("Isolated SONAME provider namespace is mandatory")
     target.mkdir(parents=True)
@@ -156,6 +156,9 @@ assert list_marker in (source / "test-kgsl-timestamps-O2-results.txt").read_text
 ring_marker = "PASS KGSL command BO lifetime: child-first/parent-first, transitive nested, duplicate/multiple-parent fences, wrap-zero, rollback, wait-failure no FREE"
 assert ring_marker in (source / "test-kgsl-rings-results.txt").read_text()
 assert ring_marker in (source / "test-kgsl-rings-O2-results.txt").read_text()
+preamble_marker = "PASS Dior A3xx preamble protocol: context flags PER_CONTEXT_TS|PREAMBLE|NO_GMEM_ALLOC; two IBs with owned 2-word NOP before actual batch; context switch/same-context preserve actual IB"
+assert preamble_marker in (source / "test-kgsl-rings-results.txt").read_text()
+assert preamble_marker in (source / "test-kgsl-rings-O2-results.txt").read_text()
 proof["base_source_manifest_sha512"] = proof["local_source_sha512"].pop("base-payload-manifest.json")
 assert len(proof["local_source_sha512"]) == 9
 assert set(proof["local_source_sha512"]) == {
@@ -170,6 +173,8 @@ proof.update({"build_mode": "libdrm_only_hotfix", "mesa_recompiled": False,
     "ion_wire_offsets_verified": True, "ion_wire_raw_word_mock": True,
     "production_list_termination_regressions": True, "timestamp_optimization_runs": ["-Os", "-O2"],
     "nested_command_buffer_lifetime_regressions": True, "ring_optimization_runs": ["-Os", "-O2"],
+    "preamble_two_ib_regressions": True, "preamble_optimization_runs": ["-Os", "-O2"],
+    "preamble_protocol_scope": "Dior A3xx full-restoring Mesa batches",
     "mesa_and_script_bytes_preserved": True, "preserved_files_sha256": preserved,
     "rebuilt_libdrm_sha256": libraries, "physical_gpu_render_verified": False})
 proof_path.write_text(json.dumps(proof, indent=2) + "\\n")
@@ -194,7 +199,7 @@ def verified_hotfix_package(package, origin, source_commit):
         raise ValueError("Expected newly signed APK v2")
     with tarfile.open(fileobj=io.BytesIO(parts[1][1]), mode="r:") as control:
         lines = control.extractfile(".PKGINFO").read().decode("utf-8").splitlines()
-    for setting in ("pkgname = dior-graphics", "pkgver = 17.3.9-r5", "arch = armv7",
+    for setting in ("pkgname = dior-graphics", "pkgver = 17.3.9-r6", "arch = armv7",
                     "datahash = " + sha(parts[2][0])):
         if setting not in lines:
             raise ValueError("Unexpected candidate metadata: " + setting)
@@ -209,8 +214,10 @@ def verified_hotfix_package(package, origin, source_commit):
             raise ValueError("Hotfix proof must contain all nine reviewed local source pins")
         if (not proof["nested_command_buffer_lifetime_regressions"] or
                 proof["ring_optimization_runs"] != ["-Os", "-O2"] or
+                not proof["preamble_two_ib_regressions"] or
+                proof["preamble_optimization_runs"] != ["-Os", "-O2"] or
                 proof["physical_gpu_render_verified"] is not False):
-            raise ValueError("Missing native ring lifetime checks or invalid physical GPU claim")
+            raise ValueError("Missing native ring lifetime/preamble checks or invalid physical GPU claim")
         for name, expected in proof["preserved_files_sha256"].items():
             if sha(payload.extractfile("opt/dior-graphics/" + name).read()) != expected:
                 raise ValueError("Packaged Mesa/script coherence mismatch: " + name)
@@ -262,7 +269,7 @@ def build():
     try:
         command("init", input_text="\n" * 80, timeout=600)
         command("build", "dior-graphics")
-        packages = list((state / "work/packages").glob("*/armv7/dior-graphics-17.3.9-r5.apk"))
+        packages = list((state / "work/packages").glob("*/armv7/dior-graphics-17.3.9-r6.apk"))
         if len(packages) != 1:
             raise RuntimeError("Expected exactly one hotfix APK")
         package = packages[0]

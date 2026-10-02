@@ -193,7 +193,7 @@
  }
  
  static const struct fd_pipe_funcs funcs = {
-@@ -218,11 +244,11 @@
+@@ -218,11 +244,16 @@
  			[FD_PIPE_2D] = "/dev/kgsl-2d0",
  	};
  	struct kgsl_drawctxt_create req = {
@@ -204,10 +204,15 @@
  	struct fd_pipe *pipe = NULL;
 -	int ret, fd;
 +	int ret, fd = -1, context_created = 0;
++
++	/* Dior Mesa A3xx emits a complete restore in every batch. Its first
++	 * submitted IB is an owned NOP; the actual batch is always second. */
++	if (id == FD_PIPE_3D)
++		req.flags |= KGSL_CONTEXT_PREAMBLE | KGSL_CONTEXT_NO_GMEM_ALLOC;
  
  	fd = open(paths[id], O_RDWR);
  	if (fd < 0) {
-@@ -238,6 +264,8 @@
+@@ -238,6 +269,8 @@
  		goto fail;
  	}
  
@@ -216,7 +221,7 @@
  	kgsl_pipe = calloc(1, sizeof(*kgsl_pipe));
  	if (!kgsl_pipe) {
  		ERROR_MSG("allocation failed");
-@@ -249,6 +277,7 @@
+@@ -249,6 +282,7 @@
  
  	kgsl_pipe->fd = fd;
  	kgsl_pipe->drawctxt_id = req.drawctxt_id;
@@ -224,7 +229,7 @@
  
  	list_inithead(&kgsl_pipe->submit_list);
  	list_inithead(&kgsl_pipe->pending_list);
-@@ -280,7 +309,17 @@
+@@ -280,7 +314,17 @@
  
  	return pipe;
  fail:
@@ -245,7 +250,7 @@
  }
 --- a/freedreno/kgsl/kgsl_ringbuffer.c
 +++ b/freedreno/kgsl/kgsl_ringbuffer.c
-@@ -36,15 +36,30 @@
+@@ -36,15 +36,32 @@
  #include "kgsl_priv.h"
  
  
@@ -279,10 +284,12 @@
 +	atomic_t references;
 +	struct kgsl_rb_fence *fences;
 +	struct kgsl_rb_dependency *dependencies;
++	/* Alias owned by dependencies, never by the context itself. */
++	struct kgsl_rb_bo *preamble;
  };
  
  struct kgsl_ringbuffer {
-@@ -52,123 +67,301 @@
+@@ -52,123 +69,344 @@
  	struct kgsl_rb_bo *bo;
  };
  
@@ -335,6 +342,9 @@
 +			ERROR_MSG("Dior command BO retirement failed: %s", strerror(errno));
 +			abort();
 +		}
++		/* Preserve the successful fd_pipe_wait retirement side effect.
++		 * The fence still owns this context, including timestamp zero. */
++		kgsl_pipe_process_pending(fence->owner, fence->timestamp);
 +	}
 +}
 +
@@ -344,6 +354,7 @@
 +	pthread_mutex_lock(&kgsl_rb_lock);
 +	item = bo->dependencies;
 +	bo->dependencies = NULL;
++	bo->preamble = NULL;
 +	pthread_mutex_unlock(&kgsl_rb_lock);
 +	while (item) {
 +		struct kgsl_rb_dependency *next = item->next;
@@ -440,6 +451,8 @@
 -{
 -	struct kgsl_ringbuffer *kgsl_ring = to_kgsl_ringbuffer(ring);
 -	return kgsl_ring->bo->hostptr;
+-}
+-
 +/* Called with the metadata lock held. Collect unique BOs before ioctl;
 + * dependency insertion below rejects cycles before any address is emitted. */
 +static int kgsl_rb_collect(struct kgsl_rb_submission *submit,
@@ -548,61 +561,99 @@
 +static void *kgsl_ringbuffer_hostptr(struct fd_ringbuffer *ring)
 +{
 +	return to_kgsl_ringbuffer(ring)->bo->hostptr;
- }
- 
++}
++
++/* This Dior runtime pairs with Mesa A3xx, which restores all state in each
++ * actual batch. KGSL may skip only the first IB on a same-context submission.
++ * Keep the actual batch second and always executed; partial raw streams do not
++ * satisfy this protocol. The immutable NOP has independent GPU storage. */
  static int kgsl_ringbuffer_flush(struct fd_ringbuffer *ring, uint32_t *last_start,
 -		int in_fence_fd, int *out_fence_fd)
 +			       int in_fence_fd, int *out_fence_fd)
  {
  	struct kgsl_ringbuffer *kgsl_ring = to_kgsl_ringbuffer(ring);
  	struct kgsl_pipe *kgsl_pipe = to_kgsl_pipe(ring->pipe);
++	struct kgsl_rb_bo *preamble = kgsl_ring->bo->preamble;
++	struct kgsl_rb_dependency *new_preamble = NULL;
  	uint32_t offset = (uint8_t *)last_start - (uint8_t *)ring->start;
- 	struct kgsl_ibdesc ibdesc = {
+-	struct kgsl_ibdesc ibdesc = {
 -			.gpuaddr     = kgsl_ring->bo->gpuaddr + offset,
 -			.hostptr     = last_start,
 -			.sizedwords  = ring->cur - last_start,
++	struct kgsl_ibdesc ibdescs[2] = { { 0 }, {
 +		.gpuaddr = kgsl_ring->bo->gpuaddr + offset,
 +		.hostptr = last_start,
 +		.sizedwords = ring->cur - last_start,
++	} };
++	struct kgsl_ringbuffer_issueibcmds req = {
++		.drawctxt_id = kgsl_pipe->drawctxt_id,
++		.ibdesc_addr = (unsigned long)ibdescs,
++		.numibs = 2,
++		.flags = KGSL_CONTEXT_SUBMIT_IB_LIST,
  	};
- 	struct kgsl_ringbuffer_issueibcmds req = {
+-	struct kgsl_ringbuffer_issueibcmds req = {
 -			.drawctxt_id = kgsl_pipe->drawctxt_id,
 -			.ibdesc_addr = (unsigned long)&ibdesc,
 -			.numibs      = 1,
 -			.flags       = KGSL_CONTEXT_SUBMIT_IB_LIST,
-+		.drawctxt_id = kgsl_pipe->drawctxt_id,
-+		.ibdesc_addr = (unsigned long)&ibdesc,
-+		.numibs = 1,
-+		.flags = KGSL_CONTEXT_SUBMIT_IB_LIST,
- 	};
+-	};
 +	struct kgsl_rb_submission submit = { 0 };
  	int ret;
 -
  	assert(in_fence_fd == -1);
  	assert(out_fence_fd == NULL);
 -
++	if (ring->pipe->id == FD_PIPE_3D) {
++		if (!preamble) {
++			preamble = kgsl_rb_bo_new(kgsl_pipe, 4096);
++			if (!preamble)
++				return -ENOMEM;
++			new_preamble = calloc(1, sizeof(*new_preamble));
++			if (!new_preamble) {
++				kgsl_rb_bo_put(preamble);
++				return -ENOMEM;
++			}
++			/* CP_NOP, type 3, one payload word; no protected registers. */
++			((uint32_t *)preamble->hostptr)[0] = 0xc0001000;
++			((uint32_t *)preamble->hostptr)[1] = 0;
++			new_preamble->target = preamble;
++		}
++		ibdescs[0].gpuaddr = preamble->gpuaddr;
++		ibdescs[0].hostptr = preamble->hostptr;
++		ibdescs[0].sizedwords = 2;
++	}
  	kgsl_pipe_pre_submit(kgsl_pipe);
 -
 -	/* z180_cmdstream_issueibcmds() is made of fail: */
-+	/* Keep the legacy 2D packet fixup unchanged. */
++	/* Keep the legacy 2D packet fixup and one-IB protocol unchanged. */
  	if (ring->pipe->id == FD_PIPE_2D) {
 -		/* fix up size field in last cmd packet */
  		uint32_t last_size = (uint32_t)(ring->cur - last_start);
 -		/* 5 is length of first packet, 2 for the two 7f000000's */
  		last_start[2] = last_size - (5 + 2);
- 		ibdesc.gpuaddr = kgsl_ring->bo->gpuaddr;
- 		ibdesc.hostptr = kgsl_ring->bo->hostptr;
- 		ibdesc.sizedwords = 0x145;
+-		ibdesc.gpuaddr = kgsl_ring->bo->gpuaddr;
+-		ibdesc.hostptr = kgsl_ring->bo->hostptr;
+-		ibdesc.sizedwords = 0x145;
++		ibdescs[0].gpuaddr = kgsl_ring->bo->gpuaddr;
++		ibdescs[0].hostptr = kgsl_ring->bo->hostptr;
++		ibdescs[0].sizedwords = 0x145;
++		req.numibs = 1;
  		req.timestamp = (uintptr_t)kgsl_ring->bo->hostptr;
  	}
 -
 +	pthread_mutex_lock(&kgsl_rb_lock);
 +	ret = kgsl_rb_collect(&submit, kgsl_ring->bo, 0);
++	if (!ret && preamble)
++		ret = kgsl_rb_collect(&submit, preamble, 0);
 +	if (!ret)
 +		ret = kgsl_rb_prepare(&submit, kgsl_pipe);
 +	if (ret) {
 +		free(submit.objects);
 +		pthread_mutex_unlock(&kgsl_rb_lock);
++		if (new_preamble) {
++			kgsl_rb_bo_put(preamble);
++			free(new_preamble);
++		}
 +		return ret;
 +	}
  	do {
@@ -620,6 +671,13 @@
 +		abort();
 +	}
 +	kgsl_rb_commit(&submit, kgsl_pipe, req.timestamp);
++	if (new_preamble) {
++		/* Adopt the creation reference only after a successful submission;
++		 * fences and the graph keep this IB alive through GPU retirement. */
++		new_preamble->next = kgsl_ring->bo->dependencies;
++		kgsl_ring->bo->dependencies = new_preamble;
++		kgsl_ring->bo->preamble = preamble;
++	}
 +	kgsl_rb_cancel_prepared(&submit);
 +	free(submit.objects);
 +	pthread_mutex_unlock(&kgsl_rb_lock);
@@ -646,7 +704,7 @@
  	if (r->shift < 0)
  		addr >>= -r->shift;
  	else
-@@ -181,55 +374,102 @@
+@@ -181,55 +419,102 @@
  		struct fd_ringbuffer *target, uint32_t cmd_idx,
  		uint32_t submit_offset, uint32_t size)
  {
@@ -735,18 +793,16 @@
 -		.emit_reloc = kgsl_ringbuffer_emit_reloc,
 -		.emit_reloc_ring = kgsl_ringbuffer_emit_reloc_ring,
 -		.destroy = kgsl_ringbuffer_destroy,
--};
--
--drm_private struct fd_ringbuffer * kgsl_ringbuffer_new(struct fd_pipe *pipe,
--		uint32_t size)
 +	.hostptr = kgsl_ringbuffer_hostptr,
 +	.flush = kgsl_ringbuffer_flush,
 +	.reset = kgsl_ringbuffer_reset,
 +	.emit_reloc = kgsl_ringbuffer_emit_reloc,
 +	.emit_reloc_ring = kgsl_ringbuffer_emit_reloc_ring,
 +	.destroy = kgsl_ringbuffer_destroy,
-+};
-+
+ };
+
+-drm_private struct fd_ringbuffer * kgsl_ringbuffer_new(struct fd_pipe *pipe,
+-		uint32_t size)
 +drm_private struct fd_ringbuffer *kgsl_ringbuffer_new(struct fd_pipe *pipe,
 +						    uint32_t size)
  {

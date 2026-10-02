@@ -61,7 +61,7 @@ verify_source "$DEVICE_DIR" "$DEVICE_APKBUILD" "deviceinfo"
 verify_source "$DEVICE_DIR" "$DEVICE_APKBUILD" "kernel-cmdline.conf"
 
 echo
-echo "校验 dior kernel config + 17 patches..."
+echo "校验 dior kernel config + 16 patches..."
 for name in \
 	config-xiaomi-dior.armv7 \
 	gcc10-extern_YYLOC_global_declaration.patch \
@@ -79,8 +79,7 @@ for name in \
 	0007-kgsl-drm-initialization-safety.patch \
 	0008-qdsp6-pcm-complete-transfers.patch \
 	0009-ipc-socket-subsystem-reference.patch \
-	00010-rtnetlink-forward-compatible-attributes.patch \
-	00011-kgsl-legacy-shadow-protected-submit.patch
+	00010-rtnetlink-forward-compatible-attributes.patch
 do
 	verify_source "$KERNEL_DIR" "$KERNEL_APKBUILD" "$name"
 done
