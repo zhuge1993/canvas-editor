@@ -69,6 +69,7 @@ def build():
         manifest={'source_commit':source_sha,'pmbootstrap_commit':pmb_sha,'pmaports_commit':aport_sha,
                   'package':package.name,'package_sha256':CI.sha256(package),
                   'install_prefix':'/opt/dior-graphics','kernel_source_changed':False,
+                  'build_mode':'full_graphics_build','mesa_recompiled':True,
                   'physical_gpu_render_verified':False}
         (output/'GRAPHICS-BUILD-VERIFICATION.json').write_text(json.dumps(manifest,indent=2)+'\n',encoding='utf-8')
         (output/'SHA256SUMS').write_text(''.join(CI.sha256(p)+'  '+p.name+'\n'

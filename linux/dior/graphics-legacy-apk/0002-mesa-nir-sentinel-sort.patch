@@ -1,0 +1,34 @@
+--- a/src/mesa/state_tracker/st_glsl_to_nir.cpp
++++ b/src/mesa/state_tracker/st_glsl_to_nir.cpp
+@@ -295,9 +295,13 @@
+ static void
+ insert_sorted(struct exec_list *var_list, nir_variable *new_var)
+ {
+-   nir_foreach_variable(var, var_list) {
++   /* The tail is an exec_node, never a nir_variable. Check its identity
++    * before converting a real node, including for an empty stack list. */
++   for (struct exec_node *node = var_list->head_sentinel.next;
++        node != &var_list->tail_sentinel; node = node->next) {
++      nir_variable *var = exec_node_data(nir_variable, node, node);
+       if (var->data.location > new_var->data.location) {
+-         exec_node_insert_node_before(&var->node, &new_var->node);
++         exec_node_insert_node_before(node, &new_var->node);
+          return;
+       }
+    }
+@@ -309,9 +313,13 @@
+ {
+    struct exec_list new_list;
+    exec_list_make_empty(&new_list);
+-   nir_foreach_variable_safe(var, var_list) {
+-      exec_node_remove(&var->node);
++   struct exec_node *node = var_list->head_sentinel.next;
++   while (node != &var_list->tail_sentinel) {
++      struct exec_node *next = node->next;
++      nir_variable *var = exec_node_data(nir_variable, node, node);
++      exec_node_remove(node);
+       insert_sorted(&new_list, var);
++      node = next;
+    }
+    exec_list_move_nodes_to(&new_list, var_list);
+ }
