@@ -79,7 +79,7 @@ for name in \
 	0007-kgsl-drm-initialization-safety.patch \
 	0008-qdsp6-pcm-complete-transfers.patch \
 	0009-ipc-socket-subsystem-reference.patch \
-	00010-rtnetlink-forward-compatible-attributes.patch
+	00010-rtnetlink-forward-compatible-attributes.patch \
 	00011-kgsl-legacy-shadow-protected-submit.patch
 do
 	verify_source "$KERNEL_DIR" "$KERNEL_APKBUILD" "$name"
