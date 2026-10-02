@@ -117,6 +117,7 @@ static int dior_test_ioctl(int fd, unsigned long command, ...)
 
 int main(void)
 {
+    fprintf(stderr, "TRACE timestamps: identity parameters\n");
     struct kgsl_pipe pipe = { .fd = 13, .drawctxt_id = 41 };
     uint64_t value;
     pipe.devinfo.gpu_id = 335;
@@ -132,17 +133,21 @@ int main(void)
     assert(kgsl_pipe_get_param(&pipe.base, FD_GPU_ID, &value) == 0 && value == 330);
     list_inithead(&pipe.pending_list);
     interrupted = 1;
+    fprintf(stderr, "TRACE timestamps: context wait and EINTR\n");
     assert(kgsl_pipe_wait(&pipe.base, 17, 1000000000) == 0);
     assert(calls == 2);
     op = 1; calls = 0;
     uint32_t timestamp = 0;
+    fprintf(stderr, "TRACE timestamps: context timestamp read\n");
     assert(kgsl_pipe_timestamp(&pipe, &timestamp) == 0);
     assert(timestamp == 17 && calls == 1);
     op = 2;
     for (failure_mode = 0; failure_mode <= 6; failure_mode++) {
+        fprintf(stderr, "TRACE pipe ownership: constructor mode=%d\n", failure_mode);
         open_calls = create_calls = allocation_calls = version_calls = device_calls = 0;
         destroy_calls = close_calls = pipe_del_calls = 0;
         struct fd_pipe *created = kgsl_pipe_new(NULL, FD_PIPE_3D, 0);
+        fprintf(stderr, "TRACE pipe ownership: mode=%d constructor returned\n", failure_mode);
         assert(open_calls == 1);
         assert(create_calls == (failure_mode == 0 ? 0 : 1));
         assert(allocation_calls == (failure_mode <= 1 ? 0 : 1));
