@@ -1,0 +1,3 @@
+# Restrict the GPU and its shared buffer allocator to the trusted video group.
+KERNEL=="kgsl-3d0", GROUP="video", MODE="0660"
+SUBSYSTEM=="misc", KERNEL=="ion", GROUP="video", MODE="0660"
