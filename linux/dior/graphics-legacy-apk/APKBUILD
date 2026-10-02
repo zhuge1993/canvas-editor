@@ -39,9 +39,32 @@ prepare() {
     patch -d "$srcdir/libdrm-2.4.89" -p1 -i "$srcdir/0001-libdrm-dior-kgsl-compat.patch"
 }
 
+_set_compilers() {
+    # GCC 15 derives cc1 search paths from argv[0]. The crossdirect link
+    # fallback preserves its wrapper name; use the absolute target gcc for
+    # those calls while keeping crossdirect's host-speed -c compilation.
+    _compiler_dir="$srcdir/dior-compiler-wrappers"
+    mkdir -p "$_compiler_dir"
+    for _compiler in gcc g++; do
+        cat > "$_compiler_dir/$_compiler" <<EOF
+#!/bin/sh
+for argument in "\$@"; do
+    if [ "\$argument" = -c ]; then
+        exec /native/usr/lib/crossdirect/armv7/$_compiler "\$@"
+    fi
+done
+exec /usr/bin/$_compiler "\$@"
+EOF
+        chmod 755 "$_compiler_dir/$_compiler"
+    done
+    export CC="$_compiler_dir/gcc"
+    export CXX="$_compiler_dir/g++"
+}
+
 build() {
     # The armv7 chroot runs helpers/checks through QEMU. Default crossdirect
     # accelerates -c compiler calls and leaves target linking in that chroot.
+    _set_compilers
     printf '%s\n' '#include <stddef.h>' \
         '_Static_assert(sizeof(void *) == 4, "ARM32 compiler required");' \
         'int main(void) { return 0; }' > "$srcdir/compiler-preflight.c"
@@ -87,6 +110,7 @@ build() {
 }
 
 check() {
+    _set_compilers
     cd "$srcdir/libdrm-2.4.89"
     export LD_LIBRARY_PATH="$_stage$_prefix/lib"
     _includes="-DHAVE_CONFIG_H -I. -Iinclude/drm -Ifreedreno -I$srcdir"
@@ -116,6 +140,7 @@ proof = {
     "mesa_version": "17.3.9", "libdrm_version": "2.4.89",
     "target_architecture": "armv7", "target_pointer_bytes": struct.calcsize("P"),
     "pmbootstrap_cross_mode": os.environ.get("PMB_CROSS"),
+    "compiler_dispatch": "crossdirect for -c; absolute target /usr/bin/gcc,g++ for linking and checks",
     "mesa_configure_flags": (path / "mesa-configure-flags.txt").read_text(),
     "target_uapi_match": True, "ion_map_regressions": True,
     "context_timestamp_regressions": True, "a305b_identity_regressions": True,
@@ -143,11 +168,11 @@ sha512sums="
 a7bb62b51f48ff0b6df0b18f5b0312a523e3110f49c3237936bfe56ed0e26838c0274ff5401bda6fc21bf24337477ccac49e8026c5d651e4b4cafb5eb5086f6c  Python-2.7.18.tar.xz
 762affad80f804a7d71030deba65e8153e3c7fcd26c34cfb2f546804ec12e092a3eabdb8b0d12430e35b15220c39653be57ed80e3cbb314067d8b35f39834c63  Mako-0.9.1.tar.gz
 f3014e6131a3ab866914c5635b5397ef71906bffb1b6f8c5f2ed2acf167429ff7914236d38943e872683a57a9be9669f4c5aace6274f3307ab21ef25373db0b6  MarkupSafe-1.1.1.tar.gz
-96802b9cf1868276ee72a0bbf0cb95e156f9e1fc6b0dd731b28d1e6dad165890f154a2317b51c49718a21b148825bdead5a92b79c634c1850d013cb2d3ce991c  0001-libdrm-dior-kgsl-compat.patch
+7859dd097538de732d7b7f228bfbc520936a45cd45b917eec8097b050d08c8c1f81b962d550f88410f47e9fb1b1982b8642c2d908cba3ee9486604159e0724a9  0001-libdrm-dior-kgsl-compat.patch
 38e1767be68654cff1f29a4d9e81776dcac768ce4feeed189faf495c5b0663d0c2c0394090a9c30fa940faa970aabb7fb024c049e252c346ed7d7016714095d7  test-kgsl-abi.c
 f309925bd828e0f9ce7b7ca7e31fa0899a2d113155ed435820a654309aa2cc8ee5c9bdf444d8a11f69a382e534596e817db161af539707be2e4b795913d79ee8  test-kgsl-map.c
 5fd72e7a291627e4d6494a97c0a43a927980eb7f22b4fd572e62b64abf69a7c81f41993eff5957a18e5936cebfd8eac27eac8c8751e96646c55f2aab689eafda  test-kgsl-timestamps.c
 870e381b9c1b986a15ee03a1c6501d1fc01ad52f70370937b7527789640e5ed39a357e9b17d69f1d42f778f073f50187a85932959f5a33032e10df2f72e09e6a  kernel-kgsl-drm-uapi.h
 7c0967fb2580065bb9e0c7628c3e5433e27e5c1aca1e93f514e4dd044e54a6dcce26b620d9b42f258c36c609cd1aa320043681ad3e4de71abfda03b4b21b1e08  dior-gles-check
-b13107df11777bfa90f9c8dd63f1dbdfb6a03256f739d1abe30080ea124ab93aa404e337a7e49889c1ad7061bedd97a6ef62636d4f23cfd29eda364c0ae0ae7a  dior-gles-probe.py
+072bdfb18275457a0cbe7f02e48c014534b9b1c3e31de966250e7b4cd5a3e50e24f7435a80e20317d30743118a6e493a7f86140bd3ea7a6c2e598a110c29bb5c  dior-gles-probe.py
 "

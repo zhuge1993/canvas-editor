@@ -72,6 +72,16 @@
  		.offset = kgsl_bo_offset,
  		.cpu_prep = kgsl_bo_cpu_prep,
  		.cpu_fini = kgsl_bo_cpu_fini,
+@@ -235,7 +269,8 @@
+ 
+ 		ret = bo_alloc(kgsl_bo);
+ 		if (ret) {
+-			return ret;
++			/* GPU addresses use zero as failure, never a negative errno. */
++			return 0;
+ 		}
+ 
+ 		ret = drmCommandWriteRead(bo->dev->fd, DRM_KGSL_GEM_GET_BUFINFO,
 --- a/freedreno/kgsl/kgsl_drm.h
 +++ b/freedreno/kgsl/kgsl_drm.h
 @@ -19,6 +19,7 @@
@@ -150,7 +160,7 @@
  	if (ret) {
  		ERROR_MSG("readtimestamp failed! %d (%s)",
  				ret, strerror(errno));
-@@ -218,7 +227,7 @@
+@@ -218,11 +227,11 @@
  			[FD_PIPE_2D] = "/dev/kgsl-2d0",
  	};
  	struct kgsl_drawctxt_create req = {
@@ -159,6 +169,39 @@
  	};
  	struct kgsl_pipe *kgsl_pipe = NULL;
  	struct fd_pipe *pipe = NULL;
+-	int ret, fd;
++	int ret, fd = -1, context_created = 0;
+ 
+ 	fd = open(paths[id], O_RDWR);
+ 	if (fd < 0) {
+@@ -237,6 +246,8 @@
+ 				ret, strerror(errno));
+ 		goto fail;
+ 	}
++
++	context_created = 1;
+ 
+ 	kgsl_pipe = calloc(1, sizeof(*kgsl_pipe));
+ 	if (!kgsl_pipe) {
+@@ -280,7 +291,17 @@
+ 
+ 	return pipe;
+ fail:
+-	if (pipe)
++	if (pipe) {
+ 		fd_pipe_del(pipe);
++	} else if (fd >= 0) {
++		/* No pipe owns the fd/context before successful allocation. */
++		if (context_created) {
++			struct kgsl_drawctxt_destroy destroy = {
++				.drawctxt_id = req.drawctxt_id,
++			};
++			ioctl(fd, IOCTL_KGSL_DRAWCTXT_DESTROY, &destroy);
++		}
++		close(fd);
++	}
+ 	return NULL;
+ }
 --- a/freedreno/kgsl/kgsl_ringbuffer.c
 +++ b/freedreno/kgsl/kgsl_ringbuffer.c
 @@ -64,9 +64,11 @@
