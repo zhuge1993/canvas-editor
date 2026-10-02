@@ -17,7 +17,13 @@ _Static_assert(DRM_KGSL_GEM_MAX_BUFFERS == 3, "Dior has three buffer entries");
 _Static_assert(sizeof(struct drm_kgsl_gem_bufinfo) == 36, "BUFINFO size");
 _Static_assert(offsetof(struct drm_kgsl_gem_bufinfo, gpuaddr) == 24, "BUFINFO GPU addresses");
 _Static_assert(sizeof(struct drm_kgsl_gem_get_ion_fd) == 8, "ION export size");
+_Static_assert(offsetof(struct drm_kgsl_gem_get_ion_fd, ion_fd) == 0, "ION output FD offset");
+_Static_assert(offsetof(struct drm_kgsl_gem_get_ion_fd, handle) == 4, "ION input GEM handle offset");
+_Static_assert(sizeof(((struct drm_kgsl_gem_get_ion_fd *)0)->ion_fd) == 4, "ION output FD wire width");
+_Static_assert(sizeof(((struct drm_kgsl_gem_get_ion_fd *)0)->handle) == 4, "ION input handle wire width");
 _Static_assert(DRM_KGSL_GEM_GET_ION_FD == 0x0f, "ION export command");
+_Static_assert(DRM_IOWR(DRM_COMMAND_BASE + DRM_KGSL_GEM_GET_ION_FD,
+                      struct drm_kgsl_gem_get_ion_fd) == 0xc008644fU, "ION export ioctl");
 _Static_assert(DRM_IOCTL_KGSL_GEM_GET_BUFINFO == 0xc0246448U, "BUFINFO ioctl");
 _Static_assert(IOCTL_KGSL_DEVICE_WAITTIMESTAMP_CTXTID == 0x400c0907U, "context wait ioctl");
 _Static_assert(IOCTL_KGSL_CMDSTREAM_READTIMESTAMP_CTXTID == 0xc00c0916U, "context read ioctl");
@@ -25,9 +31,11 @@ _Static_assert(IOCTL_KGSL_RINGBUFFER_ISSUEIBCMDS == 0xc0140910U, "legacy submiss
 
 int main(void)
 {
-    printf("BUFINFO=%zu gpuaddr=%zu ION=%zu/%u wait=%lx read=%lx issue=%lx\n",
+    printf("BUFINFO=%zu gpuaddr=%zu ION=%zu/%u ion_fd=%zu handle=%zu wait=%lx read=%lx issue=%lx\n",
         sizeof(struct drm_kgsl_gem_bufinfo), offsetof(struct drm_kgsl_gem_bufinfo, gpuaddr),
         sizeof(struct drm_kgsl_gem_get_ion_fd), DRM_KGSL_GEM_GET_ION_FD,
+        offsetof(struct drm_kgsl_gem_get_ion_fd, ion_fd),
+        offsetof(struct drm_kgsl_gem_get_ion_fd, handle),
         (unsigned long)IOCTL_KGSL_DEVICE_WAITTIMESTAMP_CTXTID,
         (unsigned long)IOCTL_KGSL_CMDSTREAM_READTIMESTAMP_CTXTID,
         (unsigned long)IOCTL_KGSL_RINGBUFFER_ISSUEIBCMDS);

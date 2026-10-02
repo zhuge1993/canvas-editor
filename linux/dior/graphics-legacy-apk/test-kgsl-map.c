@@ -71,11 +71,17 @@ static int dior_test_command(int fd, unsigned long command, void *data, unsigned
         return 0;
     }
     assert(command == DRM_KGSL_GEM_GET_ION_FD);
-    struct drm_kgsl_gem_get_ion_fd *value = data;
-    assert(size == sizeof(*value) && value->handle == 99);
+    /* Decode the fixed kernel wire ABI independently of the userspace
+     * declaration, so two matching-but-wrong structs cannot pass this test. */
+    uint32_t wire[2];
+    assert(size == sizeof(wire));
+    memcpy(wire, data, sizeof(wire));
+    assert(wire[0] == UINT32_MAX && wire[1] == 99);
     export_calls++;
     if (mode == 1) { errno = ENODEV; return -1; }
-    value->ion_fd = mode == 4 ? -1 : 38;
+    if (mode == 4) return 0; /* Kernel failed to update the -1 sentinel. */
+    wire[0] = mode == 7 ? (uint32_t)(int32_t)-ENOMEM : UINT32_C(38);
+    memcpy(data, wire, sizeof(wire));
     return 0;
 }
 
@@ -100,7 +106,10 @@ int main(void)
 {
     struct fd_device device = { .fd = 13 };
     struct kgsl_bo object = { .base = { .dev = &device, .handle = 99, .size = 4096 } };
-    for (mode = 0; mode < 5; mode++) {
+    const int mapping_modes[] = {0, 1, 2, 3, 4, 7};
+    unsigned case_number;
+    for (case_number = 0; case_number < sizeof(mapping_modes)/sizeof(mapping_modes[0]); case_number++) {
+        mode = mapping_modes[case_number];
         alloc_calls = export_calls = map_calls = close_calls = 0;
         void *value = kgsl_bo_map(&object.base);
         assert(alloc_calls == 1);
@@ -143,6 +152,7 @@ int main(void)
     dior_test_emit_reloc(&ring, &relocation);
     assert(command == 0x12000010 && ring.cur == &command + 1 && submit_calls == 1);
     puts("PASS ION mapping: correct FD/offset, allocation/export failures, mmap cleanup and errno");
+    puts("PASS ION kernel wire order: FD word 0, handle word 1; ioctl-success negative FD and untouched sentinel rejected");
     puts("PASS GPU address: allocation/BUFINFO failures return zero; success preserves byte offset");
     puts("PASS NDEBUG relocation: abort before command emission/submission; valid addresses still emit");
     return 0;
