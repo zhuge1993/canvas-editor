@@ -90,6 +90,11 @@ def build() -> None:
     if (revisions["pmbootstrap_revision"] != PMBOOTSTRAP_COMMIT
             or revisions["pmaports_revision"] != PMAPORTS_COMMIT):
         raise ValueError("upstream build inputs differ from the verified r8 pins")
+    # pmbootstrap reads channels.cfg from origin/main. Fetching an immutable
+    # SHA creates only FETCH_HEAD; expose that same pinned commit under the
+    # expected ref without fetching a moving branch or changing detached HEAD.
+    CI.run(["git", "-C", str(state / "pmaports"), "update-ref",
+            "refs/remotes/origin/main", PMAPORTS_COMMIT])
     snapshot = state / "snapshot"
     shutil.copytree(HERE / "pmaports-snapshot", snapshot)
     CI.run(["sh", str(snapshot / "hydrate-snapshot.sh")])
