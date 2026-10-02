@@ -1,7 +1,7 @@
 # Isolated legacy KGSL/Freedreno userspace for the frozen Dior 3.4 kernel.
 pkgname=dior-graphics
 pkgver=17.3.9
-pkgrel=3
+pkgrel=4
 pkgdesc="Isolated Dior Adreno 305 legacy GLES compatibility and rendering probe"
 url="https://docs.mesa3d.org/drivers/freedreno.html"
 arch="armv7"
@@ -76,13 +76,22 @@ _check_libdrm() {
         if [ "$_test" = test-kgsl-map ]; then
             set -- "$@" "$srcdir/test-kgsl-reloc.c"
         fi
-        $CC $CFLAGS -UNDEBUG -std=gnu11 -ffunction-sections -fdata-sections $_includes \
+        $CC $CFLAGS -Os -UNDEBUG -std=gnu11 -ffunction-sections -fdata-sections $_includes \
             "$@" -Wl,--gc-sections $_links -o "$srcdir/$_test"
         if ! "$srcdir/$_test" > "$srcdir/$_test-results.txt"; then
             cat "$srcdir/$_test-results.txt" >&2
             return 1
         fi
         cat "$srcdir/$_test-results.txt"
+        if [ "$_test" = test-kgsl-timestamps ]; then
+            $CC $CFLAGS -O2 -UNDEBUG -std=gnu11 -ffunction-sections -fdata-sections $_includes \
+                "$@" -Wl,--gc-sections $_links -o "$srcdir/$_test-O2"
+            if ! "$srcdir/$_test-O2" > "$srcdir/$_test-O2-results.txt"; then
+                cat "$srcdir/$_test-O2-results.txt" >&2
+                return 1
+            fi
+            cat "$srcdir/$_test-O2-results.txt"
+        fi
     done
     $CC $CFLAGS -UNDEBUG -std=gnu11 $_includes \
         '-DDIOR_DRM_HEADER="kernel-kgsl-drm-uapi.h"' \
@@ -204,11 +213,11 @@ sha512sums="
 a7bb62b51f48ff0b6df0b18f5b0312a523e3110f49c3237936bfe56ed0e26838c0274ff5401bda6fc21bf24337477ccac49e8026c5d651e4b4cafb5eb5086f6c  Python-2.7.18.tar.xz
 762affad80f804a7d71030deba65e8153e3c7fcd26c34cfb2f546804ec12e092a3eabdb8b0d12430e35b15220c39653be57ed80e3cbb314067d8b35f39834c63  Mako-0.9.1.tar.gz
 f3014e6131a3ab866914c5635b5397ef71906bffb1b6f8c5f2ed2acf167429ff7914236d38943e872683a57a9be9669f4c5aace6274f3307ab21ef25373db0b6  MarkupSafe-1.1.1.tar.gz
-f1544ccaf1286c0756472626c8355c885e8e9e9caf487c14684ea9e5446b4cebd5c6c405dff7a4314ec2226549a8ed8ca790acfae080170052c4fc5ab8d1fee5  0001-libdrm-dior-kgsl-compat.patch
+1b9f463564b8f56273e0a70bc32e4019baa144df8fb6e07a06506d5e0fd9ca56cda93c7d06bb3cbd603694b47c8b271803708e5caaeab9316f878e736dd808d7  0001-libdrm-dior-kgsl-compat.patch
 1fd17e920af4e976a80f5b76259bc0337fea5de8dc39fe507066da5e8b7d7d215187d145d788bcfcc639262fa50786a7c7a6a8cc4c754ce7961abab0dbaae498  test-kgsl-abi.c
 b65acad80afa9c148e08fa095ed6e361fd6b95c1a3cb919996ac82cf42553adea5ae00c72a483526e619e4aad573aa62d6269a6b87d22552ae772c60d9574933  test-kgsl-map.c
 1ab47f299853b02599375ef77d077a27d6b29216e4e99a1693c9b2105525253cb4eabcc9313e7957bdf4347ce5856d27b9c0dafc2d089ca542eb3e59f910364c  test-kgsl-reloc.c
-be18ae9e715705f922ccc8dd76f69d9ba4e54290d25a0f38965bbf24d40982063bbd923b1084cde46ebd13d5e64fb6d5635bb6132d7869f2f50426ed1a5c3536  test-kgsl-timestamps.c
+6619eb58d1d3d9d2a611163d4d7948b85ab9c5abe204e81d996ae6d3e0ffedba7598db87df3f61dc6340820b89837e82a49e826eb66a8851b615806f22c4f97e  test-kgsl-timestamps.c
 870e381b9c1b986a15ee03a1c6501d1fc01ad52f70370937b7527789640e5ed39a357e9b17d69f1d42f778f073f50187a85932959f5a33032e10df2f72e09e6a  kernel-kgsl-drm-uapi.h
 7c0967fb2580065bb9e0c7628c3e5433e27e5c1aca1e93f514e4dd044e54a6dcce26b620d9b42f258c36c609cd1aa320043681ad3e4de71abfda03b4b21b1e08  dior-gles-check
 6e754c98c5be32a8780ac32bca1478951b5dff1e59cacb6f2c04e723a18195530941cb6cab259103ddb2a8ac3aee4ab362fbfb4454b929de969ed45048f0f0fd  dior-gles-probe.py

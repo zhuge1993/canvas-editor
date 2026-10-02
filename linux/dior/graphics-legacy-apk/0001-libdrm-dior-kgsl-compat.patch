@@ -253,3 +253,14 @@
  	if (r->shift < 0)
  		addr >>= -r->shift;
  	else
+--- a/util_double_list.h
++++ b/util_double_list.h
+@@ -110,7 +110,7 @@
+ #ifndef container_of
+ #define container_of(ptr, sample, member)				\
+     (void *)((char *)(ptr)						\
+-	     - ((char *)&((typeof(sample))0)->member))
++	     - offsetof(typeof(*(sample)), member))
+ #endif
+ 
+ #define LIST_FOR_EACH_ENTRY(pos, head, member)				\

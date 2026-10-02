@@ -82,8 +82,8 @@ def generated_aport(target, payload, base_manifest, source_commit):
     source = HERE / "graphics-legacy-apk"
     text = (source / "APKBUILD").read_text(encoding="ascii")
     version = dict(re.findall(r"^(pkgname|pkgver|pkgrel)=([^\s]+)$", text, re.MULTILINE))
-    if version != {"pkgname": "dior-graphics", "pkgver": "17.3.9", "pkgrel": "3"}:
-        raise ValueError("Hotfix requires reviewed dior-graphics 17.3.9-r3 source")
+    if version != {"pkgname": "dior-graphics", "pkgver": "17.3.9", "pkgrel": "4"}:
+        raise ValueError("Hotfix requires reviewed dior-graphics 17.3.9-r4 source")
     if 'sonameprefix="$pkgname:"' not in text:
         raise ValueError("Isolated SONAME provider namespace is mandatory")
     target.mkdir(parents=True)
@@ -150,6 +150,9 @@ for name in sorted(changes):
     libraries[name] = hashlib.sha256(data).hexdigest()
 proof_path = source / "GRAPHICS-BUILD-CHECKS.json"
 proof = json.loads(proof_path.read_text())
+list_marker = "PASS production KGSL list termination: runtime pipe IDs 1/2; empty and 1/2 real BOs; pre/post/retire stop at head"
+assert list_marker in (source / "test-kgsl-timestamps-results.txt").read_text()
+assert list_marker in (source / "test-kgsl-timestamps-O2-results.txt").read_text()
 proof["base_source_manifest_sha512"] = proof["local_source_sha512"].pop("base-payload-manifest.json")
 assert len(proof["local_source_sha512"]) == 8
 assert set(proof["local_source_sha512"]) == {
@@ -161,6 +164,7 @@ proof.update({"build_mode": "libdrm_only_hotfix", "mesa_recompiled": False,
     "libdrm_source_commit": origin["hotfix_source_commit"],
     "base_apk_sha256": origin["apk_sha256"], "base_payload_gzip_sha256": origin["payload_gzip_sha256"],
     "ion_wire_offsets_verified": True, "ion_wire_raw_word_mock": True,
+    "production_list_termination_regressions": True, "timestamp_optimization_runs": ["-Os", "-O2"],
     "mesa_and_script_bytes_preserved": True, "preserved_files_sha256": preserved,
     "rebuilt_libdrm_sha256": libraries, "physical_gpu_render_verified": False})
 proof_path.write_text(json.dumps(proof, indent=2) + "\\n")
@@ -185,7 +189,7 @@ def verified_hotfix_package(package, origin, source_commit):
         raise ValueError("Expected newly signed APK v2")
     with tarfile.open(fileobj=io.BytesIO(parts[1][1]), mode="r:") as control:
         lines = control.extractfile(".PKGINFO").read().decode("utf-8").splitlines()
-    for setting in ("pkgname = dior-graphics", "pkgver = 17.3.9-r3", "arch = armv7",
+    for setting in ("pkgname = dior-graphics", "pkgver = 17.3.9-r4", "arch = armv7",
                     "datahash = " + sha(parts[2][0])):
         if setting not in lines:
             raise ValueError("Unexpected candidate metadata: " + setting)
@@ -247,7 +251,7 @@ def build():
     try:
         command("init", input_text="\n" * 80, timeout=600)
         command("build", "dior-graphics")
-        packages = list((state / "work/packages").glob("*/armv7/dior-graphics-17.3.9-r3.apk"))
+        packages = list((state / "work/packages").glob("*/armv7/dior-graphics-17.3.9-r4.apk"))
         if len(packages) != 1:
             raise RuntimeError("Expected exactly one hotfix APK")
         package = packages[0]
