@@ -70,7 +70,8 @@ def install(args):
             raise RuntimeError('Existing SDK ownership/manifest is unexpected')
     mount = next((line.split() for line in Path('/proc/mounts').read_text().splitlines()
                   if line.split()[1] == str(SOURCE)), None)
-    if not mount or mount[2] != 'ext4' or 'ro' not in mount[3].split(','):
+    if (not mount or mount[2] != 'ext4' or 'ro' not in mount[3].split(',') or
+            not {'noload', 'norecovery'}.intersection(mount[3].split(','))):
         raise RuntimeError('Mount original Android system at the source path read-only with noload')
     build = Path(args.build).resolve()
     proof = json.loads((build/'NATIVE-GPU-BUILD.json').read_text())
@@ -92,12 +93,17 @@ def install(args):
                    for name in ('run-native.py', 'verify-native.py'))
     stage = PREFIX.with_name(PREFIX.name+'.stage-'+str(os.getpid()))
     stage.mkdir(mode=0o755)
+    stage.chmod(0o755)
     manifest = {'origin': 'this phone original Android 4.4.4 API19 system',
                 'system_partition_written': False, 'vendor_binaries_uploaded': False,
                 'global_libraries_replaced': False, 'files': []}
     for original, relative, mode in sources:
         target = stage/relative
         target.parent.mkdir(parents=True, exist_ok=True)
+        parent = target.parent
+        while parent != stage:
+            parent.chmod(0o755)
+            parent = parent.parent
         shutil.copyfile(original, target)
         target.chmod(mode)
         expected = digest(original)
@@ -115,6 +121,7 @@ def install(args):
     area.chmod(0o444)
     aliases = stage/'aliases'
     aliases.mkdir(mode=0o755)
+    aliases.chmod(0o755)
     (aliases/'system').symlink_to('../system')
     (aliases/'vendor').symlink_to('../system/vendor')
     manifest['build_sha256'] = digest(build/'NATIVE-GPU-BUILD.json')
@@ -122,6 +129,7 @@ def install(args):
         stream.write(json.dumps(manifest, indent=2)+'\n')
         stream.flush()
         os.fsync(stream.fileno())
+    (stage/'SOURCE-MANIFEST.json').chmod(0o644)
     for directory in sorted((path for path in stage.rglob('*') if path.is_dir() and not path.is_symlink()),
                             key=lambda path: len(path.parts), reverse=True):
         sync_directory(directory)
