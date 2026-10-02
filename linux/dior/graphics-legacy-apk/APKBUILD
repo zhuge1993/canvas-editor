@@ -8,7 +8,7 @@ arch="armv7"
 license="MIT AND LGPL-2.1-or-later"
 options="!strip"
 depends="musl libgcc libstdc++ zlib python3"
-makedepends="build-base pkgconf linux-headers zlib-dev expat-dev bison flex libatomic_ops-dev"
+makedepends="build-base pkgconf linux-headers zlib-dev expat-dev bison flex libatomic_ops-dev python3"
 source="
 	https://archive.mesa3d.org/older-versions/17.x/mesa-17.3.9.tar.xz
 	https://dri.freedesktop.org/libdrm/libdrm-2.4.89.tar.bz2
