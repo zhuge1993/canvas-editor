@@ -6,7 +6,9 @@ pkgdesc="Isolated Dior Adreno 305 legacy GLES compatibility and rendering probe"
 url="https://docs.mesa3d.org/drivers/freedreno.html"
 arch="armv7"
 license="MIT AND LGPL-2.1-or-later"
-options="!strip"
+# This compatibility runtime uses its own /opt prefix; keep normal check()
+# and architecture/dependency validation while allowing that layout.
+options="!strip !fhs"
 depends="musl libgcc libstdc++ zlib python3"
 makedepends="build-base pkgconf linux-headers zlib-dev expat-dev bison flex libatomic_ops-dev python3"
 source="
