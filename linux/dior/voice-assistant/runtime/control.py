@@ -34,6 +34,12 @@ class StatusServer:
         self.thread=threading.Thread(target=self._serve,daemon=True);self.thread.start()
     def _send(self,connection,value):
         data=(json.dumps(value,ensure_ascii=False,separators=(',',':'))+'\n').encode()
+        if len(data)>4096 and isinstance(value.get('status'),dict) and 'diagnostic_turns' in value['status']:
+            # Optional text diagnostics never displace live readiness, model
+            # errors or the numeric microphone/deadline evidence.
+            snapshot=dict(value['status']);snapshot.pop('diagnostic_turns',None);snapshot.pop('diagnostic_expires_in',None)
+            snapshot['diagnostic_omitted']=True
+            data=(json.dumps({**value,'status':snapshot},ensure_ascii=False,separators=(',',':'))+'\n').encode()
         if len(data)>4096:data=b'{"error":"status_response_limit"}\n'
         connection.sendall(data)
     def _serve(self):

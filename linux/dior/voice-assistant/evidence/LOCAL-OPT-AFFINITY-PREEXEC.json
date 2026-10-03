@@ -1,0 +1,382 @@
+{
+  "status": "FAIL",
+  "scope": "generated_text_only_exclusive_tts_candidate",
+  "playback": false,
+  "microphone": false,
+  "pcm_saved": false,
+  "services_controlled": false,
+  "max_cpus": 2,
+  "uid": 108,
+  "cases": [
+    {
+      "generated_text": "我叫二狗。",
+      "thermal_before_c": 48.0,
+      "status": "PASS",
+      "wall_seconds": 2.99676213299972,
+      "pid": 9216,
+      "same_pid_as_previous": null,
+      "pcm_bytes": 39680,
+      "sample_rate": 16000,
+      "audio_seconds": 1.24,
+      "cpu_ticks_before": 0,
+      "cpu_ticks_after": 648,
+      "cpu_ticks_delta": 648,
+      "cpu_seconds": 6.48,
+      "cpu_seconds_per_wall": 2.162333783066594,
+      "rss_kib": 42228,
+      "threads": [
+        {
+          "tid": 9216,
+          "cpus_allowed_list": "0-1"
+        },
+        {
+          "tid": 9219,
+          "cpus_allowed_list": "1"
+        },
+        {
+          "tid": 9220,
+          "cpus_allowed_list": "2"
+        },
+        {
+          "tid": 9221,
+          "cpus_allowed_list": "3"
+        }
+      ],
+      "thermal_after_c": 61.0,
+      "metrics": {
+        "request_wall_seconds": 2.9720994509989396,
+        "completion_ack_seconds": 2.9712434529938037,
+        "voice_load_seconds_reported": 1.726239928,
+        "onnx_infer_cumulative_seconds_reported": 1.134870391,
+        "onnx_audio_cumulative_seconds_reported": 1.04,
+        "onnx_cumulative_real_time_factor_reported": 1.0912215298076922,
+        "onnx_infer_seconds_delta": 1.134870391,
+        "onnx_audio_seconds_delta": 1.04,
+        "onnx_delta_from_adjacent_reported_counters": true,
+        "piper_initialized_wall_seconds_observed": 1.8280265759967733,
+        "model_load_this_call": true,
+        "model_load_count_this_process": 1,
+        "process_pid": 9216,
+        "cpu_affinity_preexec_applied": true,
+        "cpu_affinity_requested_max": 2,
+        "cpu_affinity_preexec_count": 2,
+        "audio_file_kind": "single_unlinked_tmpfs_inode",
+        "audio_file_persisted": false,
+        "cloud_used": false,
+        "synthesis_wall_seconds": 2.9943176830129232,
+        "audio_seconds": 1.24,
+        "model_inference_this_call": true,
+        "cache_hit": false,
+        "worker_start_count": 1,
+        "same_voice_assets": true
+      }
+    },
+    {
+      "generated_text": "网页语音服务已经连接。",
+      "thermal_before_c": 61.0,
+      "status": "PASS",
+      "wall_seconds": 2.5732308059959905,
+      "pid": 9216,
+      "same_pid_as_previous": true,
+      "pcm_bytes": 85248,
+      "sample_rate": 16000,
+      "audio_seconds": 2.664,
+      "cpu_ticks_before": 653,
+      "cpu_ticks_after": 1574,
+      "cpu_ticks_delta": 921,
+      "cpu_seconds": 9.21,
+      "cpu_seconds_per_wall": 3.5791581456818418,
+      "rss_kib": 42804,
+      "threads": [
+        {
+          "tid": 9216,
+          "cpus_allowed_list": "0-1"
+        },
+        {
+          "tid": 9219,
+          "cpus_allowed_list": "1"
+        },
+        {
+          "tid": 9220,
+          "cpus_allowed_list": "2"
+        },
+        {
+          "tid": 9221,
+          "cpus_allowed_list": "3"
+        }
+      ],
+      "thermal_after_c": 65.0,
+      "metrics": {
+        "request_wall_seconds": 2.5682973740040325,
+        "completion_ack_seconds": 2.5674127820093418,
+        "voice_load_seconds_reported": 1.726239928,
+        "onnx_infer_cumulative_seconds_reported": 3.6856468700000002,
+        "onnx_audio_cumulative_seconds_reported": 3.504,
+        "onnx_cumulative_real_time_factor_reported": 1.0518398601598173,
+        "onnx_infer_seconds_delta": 2.5507764790000005,
+        "onnx_audio_seconds_delta": 2.464,
+        "onnx_delta_from_adjacent_reported_counters": true,
+        "piper_initialized_wall_seconds_observed": 1.8280265759967733,
+        "model_load_this_call": false,
+        "model_load_count_this_process": 1,
+        "process_pid": 9216,
+        "cpu_affinity_preexec_applied": true,
+        "cpu_affinity_requested_max": 2,
+        "cpu_affinity_preexec_count": 2,
+        "audio_file_kind": "single_unlinked_tmpfs_inode",
+        "audio_file_persisted": false,
+        "cloud_used": false,
+        "synthesis_wall_seconds": 2.568607533001341,
+        "audio_seconds": 2.664,
+        "model_inference_this_call": true,
+        "cache_hit": false,
+        "worker_start_count": 1,
+        "same_voice_assets": true
+      }
+    }
+  ],
+  "initial_thermal_c": 49.0,
+  "parent_allowed_cpus_before": [
+    0,
+    1
+  ],
+  "installed_offline_sha256": "5ef18b6177bd19b074e9919a2cd2a154bb75dad61bcfffe3e4ded158d712e4a7",
+  "candidate_sha256": "8435895ea52a6baec934b5fcc0e65235e0f4853ca5e2cab4768c46c6ba50b0de",
+  "parent_allowed_cpus_after": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "error_type": "RuntimeError",
+  "error": "parent_affinity_changed",
+  "monitor": {
+    "sample_interval_seconds": 0.05,
+    "samples": 86,
+    "all_observed_threads_within_preexec_mask": false,
+    "observed_thread_masks": {
+      "0-1": 86,
+      "1": 85,
+      "2": 85,
+      "3": 85
+    },
+    "mask_violations": [
+      {
+        "tid": 9220,
+        "cpus_allowed_list": "2",
+        "pid": 9216,
+        "selected": [
+          0,
+          1
+        ]
+      },
+      {
+        "tid": 9221,
+        "cpus_allowed_list": "3",
+        "pid": 9216,
+        "selected": [
+          0,
+          1
+        ]
+      },
+      {
+        "tid": 9220,
+        "cpus_allowed_list": "2",
+        "pid": 9216,
+        "selected": [
+          0,
+          1
+        ]
+      },
+      {
+        "tid": 9221,
+        "cpus_allowed_list": "3",
+        "pid": 9216,
+        "selected": [
+          0,
+          1
+        ]
+      },
+      {
+        "tid": 9220,
+        "cpus_allowed_list": "2",
+        "pid": 9216,
+        "selected": [
+          0,
+          1
+        ]
+      },
+      {
+        "tid": 9221,
+        "cpus_allowed_list": "3",
+        "pid": 9216,
+        "selected": [
+          0,
+          1
+        ]
+      },
+      {
+        "tid": 9220,
+        "cpus_allowed_list": "2",
+        "pid": 9216,
+        "selected": [
+          0,
+          1
+        ]
+      },
+      {
+        "tid": 9221,
+        "cpus_allowed_list": "3",
+        "pid": 9216,
+        "selected": [
+          0,
+          1
+        ]
+      },
+      {
+        "tid": 9220,
+        "cpus_allowed_list": "2",
+        "pid": 9216,
+        "selected": [
+          0,
+          1
+        ]
+      },
+      {
+        "tid": 9221,
+        "cpus_allowed_list": "3",
+        "pid": 9216,
+        "selected": [
+          0,
+          1
+        ]
+      },
+      {
+        "tid": 9220,
+        "cpus_allowed_list": "2",
+        "pid": 9216,
+        "selected": [
+          0,
+          1
+        ]
+      },
+      {
+        "tid": 9221,
+        "cpus_allowed_list": "3",
+        "pid": 9216,
+        "selected": [
+          0,
+          1
+        ]
+      },
+      {
+        "tid": 9220,
+        "cpus_allowed_list": "2",
+        "pid": 9216,
+        "selected": [
+          0,
+          1
+        ]
+      },
+      {
+        "tid": 9221,
+        "cpus_allowed_list": "3",
+        "pid": 9216,
+        "selected": [
+          0,
+          1
+        ]
+      },
+      {
+        "tid": 9220,
+        "cpus_allowed_list": "2",
+        "pid": 9216,
+        "selected": [
+          0,
+          1
+        ]
+      },
+      {
+        "tid": 9221,
+        "cpus_allowed_list": "3",
+        "pid": 9216,
+        "selected": [
+          0,
+          1
+        ]
+      }
+    ],
+    "errors": [],
+    "max_threads": 4,
+    "max_rss_kib": 71512,
+    "thermal_min_c": 48.0,
+    "thermal_max_c": 65.0,
+    "first_snapshot": {
+      "pid": 9216,
+      "cpu_ticks": 5,
+      "rss_kib": 5104,
+      "threads": [
+        {
+          "tid": 9216,
+          "cpus_allowed_list": "0-1"
+        }
+      ],
+      "thermal_c": 48.0,
+      "selected": [
+        0,
+        1
+      ]
+    },
+    "last_snapshot": {
+      "pid": 9216,
+      "cpu_ticks": 1566,
+      "rss_kib": 47736,
+      "threads": [
+        {
+          "tid": 9216,
+          "cpus_allowed_list": "0-1"
+        },
+        {
+          "tid": 9219,
+          "cpus_allowed_list": "1"
+        },
+        {
+          "tid": 9220,
+          "cpus_allowed_list": "2"
+        },
+        {
+          "tid": 9221,
+          "cpus_allowed_list": "3"
+        }
+      ],
+      "thermal_c": 65.0,
+      "selected": [
+        0,
+        1
+      ]
+    }
+  },
+  "tts_before_close": {
+    "alive": true,
+    "initialized": true,
+    "process_pid": 9216,
+    "request_count": 2,
+    "anonymous_audio_bytes": 0,
+    "cpu_affinity_preexec_applied": true,
+    "cpu_affinity_requested_max": 2,
+    "cpu_affinity_preexec_count": 2,
+    "reader_threads": 2,
+    "stderr_buffer_bytes": 934,
+    "statistics_entries": 2,
+    "persistent": true,
+    "lazy_started": true,
+    "state": "idle",
+    "closed": false,
+    "worker_start_count": 1,
+    "last_error": "none",
+    "cloud_used": false,
+    "audio_file_persisted": false
+  },
+  "closed": true,
+  "final_thermal_c": 65.0
+}

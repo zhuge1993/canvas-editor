@@ -21,14 +21,17 @@ sys.dont_write_bytecode=True
 class Job:
     def __init__(self,request,role):
         self.request=request;self.role=role;self.cancel=threading.Event();self.done=threading.Event()
-        self.deadline=time.monotonic()+request.get('deadline_ms',25000)/1000
-        self.result=None;self.reason=None;self.state='queued'
+        self.deadline=time.monotonic()+request.get('deadline_ms',20000 if request.get('op')=='prepare_system' else 25000)/1000
+        self.result=None;self.reason=None;self.state='queued';self.thermal_admit_c=None
 
 class InferenceBridge:
-    def __init__(self,provider,peers,temperature_reader=lambda:40,thermal_admit_c=52):
-        if type(thermal_admit_c) is not int or not 50<=thermal_admit_c<=52:raise BridgeError('invalid_config')
+    def __init__(self,provider,peers,temperature_reader=lambda:40,thermal_admit_c=52,tts_thermal_admit_c=None):
+        from providers import thermal_limits
+        limits={'thermal_admit_c':thermal_admit_c}
+        if tts_thermal_admit_c is not None:limits['tts_thermal_admit_c']=tts_thermal_admit_c
+        thermal_admit_c,tts_thermal_admit_c=thermal_limits(limits)
         self.provider=provider;self.peers=peers;self.temperature_reader=temperature_reader
-        self.thermal_admit_c=thermal_admit_c
+        self.thermal_admit_c=thermal_admit_c;self.tts_thermal_admit_c=tts_thermal_admit_c
         self.condition=threading.Condition();self.pending=collections.deque();self.active=None
         self.voice_history=collections.deque(maxlen=2);self.history_epoch=0
         self.pending_clear_epoch=0;self.cleared_epoch=0;self.cache_clearing=False;self.cache_clear_error=False
@@ -52,42 +55,47 @@ class InferenceBridge:
         if self.active is job and job.request['op']=='transcribe':self.provider.abort_asr()
     def submit(self,request,role):
         validate(request,role)
-        job=Job(request,role)
+        job=Job(request,role);preparing=request['op']=='prepare_system'
         with self.condition:
             if role=='web' and time.monotonic()<self.voice_asr_until:raise BridgeError('busy')
-            if role=='voice':
+            if role=='voice' and not preparing:
                 if self.active and self.active.role=='web':self._cancel(self.active,'preempted')
-                if len(self.pending)+(1 if self.active else 0)>=4:
-                    victim=next((j for j in self.pending if j.role=='web'),None)
-                    if victim:
-                        self.pending.remove(victim);self._cancel(victim,'preempted')
-                        victim.result={'ok':False,'error_code':'preempted'};victim.done.set()
+            if not preparing and len(self.pending)+(1 if self.active else 0)>=4:
+                victim=next((j for j in self.pending if j.request['op']=='prepare_system'),None)
+                if victim is None and role=='voice':victim=next((j for j in self.pending if j.role=='web'),None)
+                if victim:
+                    self.pending.remove(victim);self._cancel(victim,'preempted')
+                    victim.result={'ok':False,'error_code':'preempted'};victim.done.set()
             if len(self.pending)+(1 if self.active else 0)>=4:raise BridgeError('busy')
+            if not preparing and self.active and self.active.request['op']=='prepare_system':self._cancel(self.active,'preempted')
             self.pending.append(job);self.condition.notify_all()
         return job
     def control(self,request,role):
         op=request['op']
         if op=='status':
             with self.condition:
+                active_admit=self.active.thermal_admit_c if self.active else None
                 return {'ok':True,'ready':self.provider.alive() and not self.stopping.is_set(),
                     'active':self.active.request['op'] if self.active else None,'queue_length':len(self.pending),
                     'active_state':self.active.state if self.active else None,
                     'thermal_waiting':bool(self.active and self.active.state=='cooling'),
-                    'cooling':self.temperature is not None and self.temperature>self.thermal_admit_c,
+                    'cooling':self.temperature is not None and self.temperature>(active_admit if active_admit is not None else self.thermal_admit_c),
                     'thermal_admit_c':self.thermal_admit_c,
+                    'tts_thermal_admit_c':self.tts_thermal_admit_c,'active_thermal_admit_c':active_admit,
                     'voice_asr_active':time.monotonic()<self.voice_asr_until,'thermal_c':self.temperature,
                     'voice_cache_clear_pending':self.pending_clear_epoch>self.cleared_epoch,
                     'voice_cache_clearing':self.cache_clearing,'voice_cache_clear_error':self.cache_clear_error,
                     'limits':{'connections':8,'jobs':4,'stt_seconds':20,'chat_model_bytes':768,
-                              'voice_messages_bytes':8192,'voice_messages':12,'chat_frame_bytes':16384,'tts_chars':120},
+                              'voice_messages_bytes':8192,'voice_messages':12,'chat_frame_bytes':16384,'tts_chars':120,
+                              'prepare_system_bytes':4096,'prepare_seconds':20},
                     **self.provider.summary()}
         if role!='voice':raise BridgeError('forbidden')
         if op=='clear_history':
             with self.condition:
                 self.voice_history.clear();self.history_epoch+=1;self.pending_clear_epoch=self.history_epoch
-                if self.active and self.active.role=='voice' and self.active.request['op']=='chat':self._cancel(self.active,'cancelled')
+                if self.active and self.active.role=='voice' and self.active.request['op'] in ('chat','prepare_system'):self._cancel(self.active,'cancelled')
                 for job in list(self.pending):
-                    if job.role=='voice' and job.request['op']=='chat':
+                    if job.role=='voice' and job.request['op'] in ('chat','prepare_system'):
                         self.pending.remove(job);self._cancel(job,'cancelled')
                         job.result={'ok':False,'error_code':'cancelled'};job.done.set()
                 self.condition.notify_all()
@@ -96,7 +104,7 @@ class InferenceBridge:
             with self.condition:
                 self.voice_lease=request['lease_id'];self.voice_asr_until=time.monotonic()+request.get('ttl_ms',20000)/1000
                 active=self.active
-                if active and active.role=='web':self._cancel(active,'preempted')
+                if active and (active.role=='web' or active.request['op']=='prepare_system'):self._cancel(active,'preempted')
                 self.condition.notify_all()
             if active and active.role=='web' and active.request['op']=='transcribe' and not active.done.wait(1):raise BridgeError('busy')
             return {'ok':True,'voice_asr_ttl_ms':request.get('ttl_ms',20000)}
@@ -108,6 +116,13 @@ class InferenceBridge:
     def _prompt(self,job):
         request=job.request;original=request['text'];text=utf8_clip(original,480)
         context=request.get('context','');epoch=self.history_epoch
+        if job.role=='web':
+            # Preserve the old net context allowance: 224 minus its 44-byte
+            # static heading. Read-only instructions now live in fixed system.
+            data=utf8_clip(context,180)
+            prompt=('资料：'+data+'\n问：' if context else '')+text
+            return prompt,epoch,{'text_truncated':text!=original,'context_truncated':data!=context,
+                                'model_prompt_bytes':len(prompt.encode()),'web_stateless':True}
         if job.role=='voice':
             with self.condition:history=list(self.voice_history);epoch=self.history_epoch
             prefix='前文：'+''.join('问：'+q+' 答：'+a+'\n' for q,a in history)
@@ -122,14 +137,15 @@ class InferenceBridge:
         with self.condition:
             if cached:
                 job.state='running';return
-            if job.request['op'] in ('chat','tts'):
+            if job.request['op'] in ('chat','tts','prepare_system'):
+                job.thermal_admit_c=self.tts_thermal_admit_c if job.request['op']=='tts' else self.thermal_admit_c
                 job.state='cooling'
                 while True:
                     if self.stopping.is_set() or job.cancel.is_set():raise BridgeError(job.reason or 'cancelled')
                     left=job.deadline-time.monotonic()
                     if left<=0:raise BridgeError('deadline')
                     if self.temperature is None:raise BridgeError('thermal_unavailable')
-                    if self.temperature<=self.thermal_admit_c:break
+                    if self.temperature<=job.thermal_admit_c:break
                     self.condition.wait(timeout=min(.1,left))
             elif self.temperature is None:raise BridgeError('thermal_unavailable')
             elif self.temperature>65:raise BridgeError('thermal')
@@ -138,6 +154,11 @@ class InferenceBridge:
         request=job.request;op=request['op']
         cached=op=='tts' and self.provider.cached(request['text'])
         self._admit(job,cached)
+        if op=='prepare_system':
+            result=self.provider.prepare_system(request['system'],job.cancel,job.deadline)
+            count=result.get('prefix_tokens');generated=result.get('generated_tokens')
+            if result.get('status')!='complete' or result.get('initialized') is not True or type(count) is not int or not 1<=count<=512 or type(generated) is not int or generated!=0 or type(result.get('cache_hit')) is not bool:raise BridgeError('invalid_prepare_result')
+            return {'ok':True,**{key:result[key] for key in ('status','initialized','prefix_tokens','generated_tokens','cache_hit')}}
         if op=='chat':
             if 'messages' in request:
                 if self.cache_clear_error:raise BridgeError('unavailable')
@@ -170,8 +191,10 @@ class InferenceBridge:
                     clear_epoch=self.pending_clear_epoch;self.cache_clearing=True
                 else:
                     if not self.pending:continue
-                    job=next((j for j in self.pending if j.role=='voice'),self.pending[0])
-                    if job.role=='web' and time.monotonic()<self.voice_asr_until:self.condition.wait(timeout=.1);continue
+                    normal=next((j for j in self.pending if j.request['op']!='prepare_system'),self.pending[0])
+                    job=next((j for j in self.pending if j.role=='voice' and j.request['op']!='prepare_system'),normal)
+                    if (job.role=='web' or job.request['op']=='prepare_system') and time.monotonic()<self.voice_asr_until and not job.cancel.is_set() and time.monotonic()<job.deadline:
+                        self.condition.wait(timeout=.1);continue
                     self.pending.remove(job);self.active=job
             if clear_epoch is not None:
                 failed=False
@@ -296,7 +319,8 @@ def main():
     peers={}
     for user,role in [('dior-voice','voice'),('flowboard','web')]:
         account=pwd.getpwnam(user);peers[account.pw_uid]={'gid':account.pw_gid,'role':role}
-    bridge=InferenceBridge(Providers(config),peers,temperature,thermal_admit_c=thermal_admit_c)
+    bridge=InferenceBridge(Providers(config),peers,temperature,thermal_admit_c=thermal_admit_c,
+                           tts_thermal_admit_c=config.get('tts_thermal_admit_c',thermal_admit_c))
     signal.signal(signal.SIGTERM,lambda *_:bridge.close());signal.signal(signal.SIGINT,lambda *_:bridge.close())
     bridge.serve(config.get('socket','/run/dior-inference/inference.sock'),'dior-inference')
 if __name__=='__main__':main()

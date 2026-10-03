@@ -125,6 +125,16 @@ class Contracts(unittest.TestCase):
         with self.assertRaises(TimeoutError):tts.synthesize_failure(cancel)
         tts.fixed=None
         with self.assertRaisesRegex(RuntimeError,'failure_cache_unavailable'):tts.synthesize_failure(threading.Event())
+    def test_hearing_notice_is_fixed_local_only_and_never_a_dynamic_text_bypass(self):
+        from client import BridgeTTS
+        phrase='我还没听清，请再说一遍。';clip=SimpleNamespace(pcm16=bytes(640),sample_rate=16000)
+        class NoIPC:
+            def request(self,*args,**kwargs):raise AssertionError('notice must not call shared inference')
+        tts=BridgeTTS.__new__(BridgeTTS);tts.ipc=NoIPC();tts.fixed=SimpleNamespace(audio={phrase:clip})
+        self.assertIs(tts.synthesize_notice(phrase,threading.Event()),clip)
+        with self.assertRaisesRegex(ValueError,'notice_phrase_forbidden'):tts.synthesize_notice('任意模型回答',threading.Event())
+        canceled=threading.Event();canceled.set()
+        with self.assertRaises(TimeoutError):tts.synthesize_notice(phrase,canceled)
     def test_explicit_message_adapter_keeps_checkpoint_across_voice_and_web_calls(self):
         provider=self.provider();clears=[];calls=[];provider.model.explicit_messages=True
         provider.model.clear_history=lambda:clears.append(threading.current_thread().name)

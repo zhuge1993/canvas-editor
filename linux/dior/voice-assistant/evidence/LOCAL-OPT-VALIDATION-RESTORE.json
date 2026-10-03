@@ -1,0 +1,30 @@
+{
+  "status": "COMPLETED",
+  "scope": "isolated local optimization validation",
+  "human_microphone_tested": false,
+  "initial_voice_warmup": {
+    "scope": "startup_only",
+    "attempted": true,
+    "initialized": true,
+    "warmup_skipped": false,
+    "status": "complete",
+    "prefix_tokens": 38,
+    "generated_tokens": 0,
+    "elapsed_seconds": 9.319
+  },
+  "MODEL-TTS_exit_code": 0,
+  "FOLLOWUP-FIRST_exit_code": 0,
+  "FOLLOWUP-WARM_exit_code": 0,
+  "voice_restored": true,
+  "voice_phase": "IDLE",
+  "restored_warmup": {
+    "scope": "startup_only",
+    "attempted": true,
+    "initialized": true,
+    "warmup_skipped": false,
+    "status": "complete",
+    "prefix_tokens": 38,
+    "generated_tokens": 0,
+    "elapsed_seconds": 0.009
+  }
+}

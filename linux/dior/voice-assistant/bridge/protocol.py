@@ -10,7 +10,7 @@ MAX_RESPONSE=1280*1024
 MAX_CHAT_FRAME=16384
 MAX_MESSAGES_BYTES=8192
 MAX_MESSAGES=12
-OPS={'status','chat','tts','transcribe','clear_history','begin_voice_asr','end_voice_asr'}
+OPS={'status','chat','tts','transcribe','clear_history','prepare_system','begin_voice_asr','end_voice_asr'}
 class BridgeError(Exception):
     def __init__(self,code):self.code=code;super().__init__(code)
 def utf8_clip(text,limit):return text.encode('utf8')[:limit].decode('utf8','ignore')
@@ -75,10 +75,17 @@ def validate(request,role):
     op=request.get('op')
     if op not in OPS:raise BridgeError('invalid_request')
     if role=='operator' and op!='status':raise BridgeError('forbidden')
-    if op in ('clear_history','begin_voice_asr','end_voice_asr') and role!='voice':raise BridgeError('forbidden')
-    timeout=request.get('deadline_ms',25000)
+    if op in ('clear_history','prepare_system','begin_voice_asr','end_voice_asr') and role!='voice':raise BridgeError('forbidden')
+    timeout=request.get('deadline_ms',20000 if op=='prepare_system' else 25000)
     if type(timeout) is not int or not 1000<=timeout<=30000:raise BridgeError('invalid_request')
     allowed={'v','id','op','deadline_ms'}
+    if op=='prepare_system':
+        allowed.add('system');system=request.get('system')
+        if timeout>20000 or not isinstance(system,str) or not system.strip():raise BridgeError('invalid_request')
+        try:size=len(system.encode('utf8'))
+        except UnicodeError:raise BridgeError('invalid_request')
+        if size>4096 or any(ord(char)<32 and char not in ('\n','\t') for char in system) or any(marker in system for marker in ('<|im_start|>','<|im_end|>','<think>','</think>')):
+            raise BridgeError('invalid_request')
     if op=='chat':
         try:encode(request,MAX_CHAT_FRAME)
         except BridgeError:raise BridgeError('frame_limit')

@@ -15,6 +15,11 @@ args=parser.parse_args()
 NDK=args.ndk.resolve(strict=True);PREV=args.support.resolve(strict=True);SRC=args.source.resolve(strict=True);OUT=args.output.resolve()
 if OUT==HERE or OUT in HERE.parents or OUT==SRC or SRC in OUT.parents or OUT==NDK or NDK in OUT.parents:raise ValueError('Output must be separate from source/NDK')
 OUT.mkdir(parents=True,exist_ok=True)
+wrapper=json.loads((HERE/'WRAPPER.json').read_text(encoding='utf8'))
+if wrapper.get('format')!='dior-qwen25-role-wrapper-v1' or {entry['path'] for entry in wrapper['local_files']}!={'llm-worker.cpp','adapter.py','api19-compat.h'}:raise ValueError('Invalid local wrapper qualification')
+for entry in wrapper['local_files']:
+ path=HERE/entry['path'];data=path.read_bytes()
+ if len(data)!=entry['bytes'] or hashlib.sha256(data).hexdigest()!=entry['sha256']:raise ValueError('Pinned local wrapper differs: '+entry['path'])
 for entry in json.loads((HERE/'SOURCE.json').read_text())['files']:
  path=SRC/entry['path']
  if hashlib.sha256(path.read_bytes()).hexdigest()!=entry['sha256']:raise ValueError('Pinned source differs: '+entry['path'])
@@ -48,4 +53,8 @@ run([TOOLS/'arm-linux-androideabi-gcc.exe',*flags,'-pie','-Wl,--hash-style=sysv'
 run([TOOLS/'arm-linux-androideabi-strip.exe','--strip-debug',binary],OUT/'strip.log')
 proof=subprocess.check_output([str(TOOLS/'arm-linux-androideabi-readelf.exe'),'-h','-l','-d',str(binary)],text=True,encoding='utf8');(OUT/'ELF-PROOF.txt').write_text(proof,encoding='utf8')
 manifest={'engine':'llama.cpp b3927','commit':'10433e8b457c4cfd759cbb41fc55fc398db4a5da','binary':str(binary),'bytes':binary.stat().st_size,'sha256':hashlib.sha256(binary.read_bytes()).hexdigest(),'backend':'CPU_ARMV7_NEON','gpu_used':False,'interpreter':'/opt/dior-android/system/bin/linker','phone_verified':False,'model_weights_not_in_git':True}
+manifest.update(wrapper_source_sha256=hashlib.sha256((HERE/'llm-worker.cpp').read_bytes()).hexdigest(),
+ adapter_sha256=hashlib.sha256((HERE/'adapter.py').read_bytes()).hexdigest(),context_tokens=1024,max_generated_tokens=96,
+ explicit_messages_supported=True,semantic_history_owner='caller',
+ matches_qualified_binary=manifest['sha256']==wrapper['qualified_worker']['sha256'])
 (OUT/'BUILD.json').write_text(json.dumps(manifest,indent=2)+'\n',encoding='utf8');print(json.dumps(manifest,indent=2))

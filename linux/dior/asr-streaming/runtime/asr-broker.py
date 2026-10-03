@@ -295,6 +295,10 @@ class Broker:
             self.thermal_pauses+=1;raise FrameError('thermal_pause')
         return value
 
+    def _manual_endpoint_supported(self):
+        ready=getattr(self.worker,'ready',None)
+        return isinstance(ready,dict) and ready.get('manual_endpoint_supported') is True
+
     def _reset(self):
         try:
             response=self.worker.rpc({'op':'reset'})
@@ -321,7 +325,7 @@ class Broker:
                 'backend':'CPU_NEON_OPENMP','gpu_used':False,'threads':self.config['threads'],
                 'max_audio_seconds':30,'max_chunk_samples':16000,'idle_seconds':IDLE_SECONDS,
                 'session_wall_limit_seconds':SESSION_SECONDS,'temperature_c':self.temperature_reader(),
-                **self.worker.summary()})
+                **self.worker.summary(),'manual_endpoint_supported':self._manual_endpoint_supported()})
             while not self.stopping.is_set():
                 self._temperature()
                 request=self._frame(connection,buffer,min(session_deadline,time.monotonic()+IDLE_SECONDS))
@@ -334,9 +338,13 @@ class Broker:
                 client_id=candidate_id
                 op=request.get('op')
                 if op not in ('feed','finish','reset','ping'):raise FrameError('forbidden_operation')
-                allowed={'op','id','pcm16_base64'} if op=='feed' else {'op','id'}
+                allowed={'op','id','pcm16_base64'} if op=='feed' else {'op','id','manual_endpoint'} if op=='reset' else {'op','id'}
                 if set(request)-allowed:raise FrameError('unexpected_fields')
                 command={'op':op}
+                if op=='reset' and 'manual_endpoint' in request:
+                    if type(request['manual_endpoint']) is not bool:raise FrameError('invalid_manual_endpoint')
+                    if not self._manual_endpoint_supported():raise FrameError('manual_endpoint_unsupported')
+                    command['manual_endpoint']=request['manual_endpoint']
                 if op=='feed':
                     data=request.get('pcm16_base64')
                     if not isinstance(data,str) or not 0<len(data)<=42668:raise FrameError('invalid_pcm16')

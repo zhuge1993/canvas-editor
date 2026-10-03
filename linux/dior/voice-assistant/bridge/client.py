@@ -84,6 +84,19 @@ class BridgeLanguageModel:
         # A failed clear is an error, never permission to reuse stale answers.
         self.ipc.request('clear_history',cancel,min(deadline,time.monotonic()+1.5))
         return self.generate(text,cancel=cancel,deadline=deadline)
+    def prepare_system(self,system,*,cancel,deadline):
+        if not isinstance(system,str) or not system.strip() or len(system.encode('utf8'))>4096:raise ValueError('prepare_system_limit')
+        if any(ord(char)<32 and char not in ('\n','\t') for char in system) or any(marker in system for marker in ('<|im_start|>','<|im_end|>','<think>','</think>')):raise ValueError('prepare_system_content')
+        deadline=min(deadline,time.monotonic()+20)
+        status=self.ipc.request('status',cancel,min(deadline,time.monotonic()+.75))
+        capabilities=status.get('capabilities')
+        if not isinstance(capabilities,dict) or capabilities.get('prepare_system') is not True:
+            raise BridgeResponseError('prepare_system_unsupported')
+        result=self.ipc.request('prepare_system',cancel,deadline,system=system)
+        count=result.get('prefix_tokens');generated=result.get('generated_tokens')
+        if result.get('status')!='complete' or result.get('initialized') is not True or type(count) is not int or not 1<=count<=512 or type(generated) is not int or generated!=0 or type(result.get('cache_hit')) is not bool:
+            raise RuntimeError('invalid_prepare_ack')
+        return {key:result[key] for key in ('status','initialized','prefix_tokens','generated_tokens','cache_hit')}
     def clear_history(self):
         try:self.ipc.request('clear_history',deadline=time.monotonic()+1.5)
         except (OSError,RuntimeError,TimeoutError):pass
@@ -104,10 +117,12 @@ class BridgeTTS:
     def synthesize_failure(self,cancel):
         # This exact recovery phrase is already root-owned/hash-verified by
         # FixedCache. Never wait for a busy/failed model service to say it.
+        return self.synthesize_notice('这次没有及时回答，请再问一次。',cancel)
+    def synthesize_notice(self,text,cancel):
+        if text not in ('我还没听清，请再说一遍。','这次没有及时回答，请再问一次。'):raise ValueError('notice_phrase_forbidden')
         if cancel.is_set():raise TimeoutError('cancelled')
-        phrase='这次没有及时回答，请再问一次。'
-        if self.fixed is None or phrase not in self.fixed.audio:raise RuntimeError('failure_cache_unavailable')
-        return self.fixed.audio[phrase]
+        if self.fixed is None or text not in self.fixed.audio:raise RuntimeError('failure_cache_unavailable')
+        return self.fixed.audio[text]
     def close(self):pass
 
 class VoiceASRLease:

@@ -23,11 +23,13 @@ spec=importlib.util.spec_from_file_location('broker_under_test',Path(__file__).r
 broker=importlib.util.module_from_spec(spec);spec.loader.exec_module(broker)
 
 class FakeWorker:
-    def __init__(self):self.text='';self.calls=[];self.stopped=False
+    def __init__(self):self.text='';self.calls=[];self.commands=[];self.stopped=False;self.ready={};self.manual_endpoint=False
     def rpc(self,message):
-        self.calls.append(message['op'])
+        self.calls.append(message['op']);self.commands.append(dict(message))
         op=message['op']
-        if op=='reset':self.text='';return {'type':'reset'}
+        if op=='reset':
+            self.text='';self.manual_endpoint=message.get('manual_endpoint',False)
+            return {'type':'reset','manual_endpoint':self.manual_endpoint}
         if op=='ping':return {'type':'pong','max_rss_kib':1}
         if op=='feed':
             raw=base64.b64decode(message['pcm16_base64']);self.text+=chr(raw[0])
@@ -121,5 +123,47 @@ class Contracts(unittest.TestCase):
         self.assertEqual(self.feed(one,'A')['text'],'A');one.close()
         self.assertEqual(two.read()['type'],'ready_session');self.assertEqual(self.feed(two,'B')['text'],'B');two.close()
         self.assertEqual(three.read()['type'],'ready_session');self.assertEqual(self.feed(three,'C')['text'],'C')
+    def test_manual_capability_and_strict_flag_forward_without_leaking_to_next_client(self):
+        self.backend.ready={'manual_endpoint_supported':True}
+        first=self.peer(False);self.assertIs(first.read()['manual_endpoint_supported'],True)
+        self.assertEqual(self.backend.commands[-1],{'op':'reset'})
+        first.send({'op':'reset','id':'manual','manual_endpoint':True})
+        result=first.read();self.assertEqual(result['type'],'reset');self.assertIs(result['manual_endpoint'],True)
+        self.assertEqual(self.backend.commands[-1],{'op':'reset','manual_endpoint':True})
+        self.assertEqual(self.feed(first,'A')['text'],'A')
+        first.send({'op':'finish','id':'finish'});self.assertEqual(first.read()['type'],'final');first.close()
+        self.assertFalse(self.backend.manual_endpoint);self.assertEqual(self.backend.commands[-1],{'op':'reset'})
+        webpage=self.peer();self.assertFalse(self.backend.manual_endpoint)
+        self.assertEqual(self.feed(webpage,'W')['text'],'W');self.assertFalse(self.backend.manual_endpoint)
+    def test_disconnect_resets_manual_session_to_automatic(self):
+        self.backend.ready={'manual_endpoint_supported':True};voice=self.peer()
+        voice.send({'op':'reset','manual_endpoint':True});voice.read();self.assertTrue(self.backend.manual_endpoint)
+        voice.close();self.assertFalse(self.backend.manual_endpoint)
+        self.assertEqual(self.backend.commands[-1],{'op':'reset'})
+    def test_missing_or_non_boolean_native_capability_does_not_advertise_support(self):
+        for value in (None,False,0,1,'true'):
+            self.backend.ready={} if value is None else {'manual_endpoint_supported':value}
+            peer=self.peer(False);self.assertIs(peer.read()['manual_endpoint_supported'],False);peer.close()
+    def test_unsupported_manual_request_never_reaches_old_worker_or_kills_service(self):
+        peer=self.peer(False);self.assertIs(peer.read()['manual_endpoint_supported'],False)
+        peer.send({'op':'reset','manual_endpoint':True});self.assertEqual(peer.read()['code'],'manual_endpoint_unsupported');peer.close()
+        self.assertFalse(any('manual_endpoint' in command for command in self.backend.commands));self.assertFalse(self.backend.stopped)
+        good=self.peer();self.assertEqual(self.feed(good,'B')['text'],'B')
+    def test_manual_endpoint_requires_boolean_and_is_allowed_only_on_reset(self):
+        self.backend.ready={'manual_endpoint_supported':True}
+        for value in (0,1,None,'true',[],{}):
+            bad=self.peer();bad.send({'op':'reset','manual_endpoint':value})
+            self.assertEqual(bad.read()['code'],'invalid_manual_endpoint');bad.close()
+        for operation in ('feed','finish','ping'):
+            bad=self.peer();bad.send({'op':operation,'manual_endpoint':True})
+            self.assertEqual(bad.read()['code'],'unexpected_fields');bad.close()
+        self.assertFalse(any('manual_endpoint' in command for command in self.backend.commands))
+    def test_explicit_false_is_forwarded_and_reset_does_not_refill_audio_budget(self):
+        self.backend.ready={'manual_endpoint_supported':True};peer=self.peer()
+        peer.send({'op':'reset','manual_endpoint':True});peer.read()
+        for _ in range(30):self.assertEqual(self.feed(peer,samples=16000)['type'],'partial')
+        peer.send({'op':'reset','manual_endpoint':False});self.assertIs(peer.read()['manual_endpoint'],False)
+        self.assertEqual(self.backend.commands[-1],{'op':'reset','manual_endpoint':False})
+        self.assertEqual(self.feed(peer,samples=1)['code'],'audio_limit')
 
 if __name__=='__main__':unittest.main(verbosity=2)

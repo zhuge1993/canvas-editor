@@ -22,11 +22,14 @@ class Model:
 
 
 class RecoveryTTS(TTS):
-    def __init__(self,missing=False):self.fallback_calls=0;self.synthesis_calls=0;self.missing=missing
+    def __init__(self,missing=False):self.fallback_calls=0;self.synthesis_calls=0;self.missing=missing;self.notice_texts=[]
     def synthesize(self,text,cancel):self.synthesis_calls+=1;return super().synthesize(text,cancel)
     def synthesize_failure(self,cancel):
+        return self.synthesize_notice(MODEL_FAILURE_PHRASE,cancel)
+    def synthesize_notice(self,text,cancel):
         self.fallback_calls+=1
         if self.missing:raise RuntimeError('missing qualified cache')
+        self.notice_texts.append(text)
         return AudioClip(bytes(640),16000)
 
 
@@ -54,7 +57,7 @@ class Wiring(unittest.TestCase):
         self.assertEqual([m['role'] for m in self.model.calls[-1]],['system','user'])
         self.assertEqual(self.model.calls[-1][-1]['content'],'第二句话')
     def test_synthesis_failure_discards_turn_without_stopping_worker(self):
-        class FailedTTS:
+        class FailedTTS(RecoveryTTS):
             def synthesize(self,*args):raise OSError('synthetic hardware failure')
         self.core.tts=FailedTTS();self.core.handle_text('第一个问题',mode='dialog')
         wait(self,lambda:self.core.counters['response_failures']==1)
@@ -180,7 +183,7 @@ class Wiring(unittest.TestCase):
         class Recognized:
             def recognize(self,*args):return '音量调到60'
         def broken_volume(value):raise OSError('mixer unavailable')
-        self.core.asr=Recognized();self.audio.set_volume=broken_volume
+        self.core.asr=Recognized();self.audio.set_volume=broken_volume;self.core.tts=RecoveryTTS()
         with self.core.condition:
             span=Span(self.core.generation,'dialog',self.clock(),[],5)
             self.core.span=span;self.core.asr_job=span;self.core.condition.notify_all()

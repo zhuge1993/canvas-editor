@@ -1,0 +1,187 @@
+{
+  "schema": 1,
+  "date": "2026-10-03",
+  "scope": "Three isolated real-weight operator candidates on dior; no whole-model GPU qualification",
+  "production_model_backend": "CPU_ARMv7_NEON",
+  "hardware": {
+    "device": "Adreno 305",
+    "api": "OpenCL C 1.1 Embedded",
+    "runtime_library": "/opt/dior-android/system/vendor/lib/libOpenCL.so",
+    "launcher": "/opt/dior-android/run-native.py"
+  },
+  "model": {
+    "repo": "Qwen/Qwen2.5-0.5B-Instruct-GGUF",
+    "revision": "9217f5db79a29953eb74d5343926648285ec7e67",
+    "bytes": 428730208,
+    "sha256": "7671c0c304e6ce5a7fc577bcb12aba01e2c155cc2efd29b2213c95b18edaf6ed",
+    "tensor": "blk.0.attn_q.weight",
+    "ggml_type": "Q4_0",
+    "ggml_ne": [
+      896,
+      896
+    ],
+    "tensor_absolute_offset": 235048288,
+    "tensor_bytes": 451584,
+    "activation_inputs": "Synthetic exact binary fractions, not actual model-state capture"
+  },
+  "cpu_engine": {
+    "repo": "ggml-org/llama.cpp",
+    "tag": "b3927",
+    "commit": "10433e8b457c4cfd759cbb41fc55fc398db4a5da",
+    "qualified_existing_libggml_a_sha256": "d551d365e90639487b82de56fe0b5594310d01a2ae9d3f9e7945176066818a8d",
+    "source_lock": "../llm/SOURCE.json",
+    "cpu_threads": 2,
+    "math": "Q4_0 x F32 GGML MUL_MAT; internal Q8 activation dot path"
+  },
+  "dependencies": {
+    "ndk": "r17c Clang6.0.2 / GCC4.9 linker; API19 ARMv7 softfp NEON",
+    "OpenCL_headers": {
+      "repo": "KhronosGroup/OpenCL-Headers",
+      "commit": "4fdcfb0ae675f2f63a9add9552e0af62c2b4ed30",
+      "target_version": 110
+    },
+    "json_header": {
+      "project": "nlohmann/json",
+      "version": "v3.12.0",
+      "source": "https://raw.githubusercontent.com/nlohmann/json/v3.12.0/single_include/nlohmann/json.hpp",
+      "bytes": 953436,
+      "sha256": "aaf127c04cb31c406e5b04a63f1ae89369fccde6d8fa7cdda1ed4f32dfc5de63"
+    }
+  },
+  "measurement": {
+    "batches": [
+      1,
+      32
+    ],
+    "gpu_rounds_per_case": 3,
+    "gpu_warm_wall_definition": "mean of round2 and round3 input upload+dispatch+readback wall time",
+    "cpu_definition": "second existing GGML graph compute, two threads",
+    "cold_excludes_cpu_q4_preprocessing": true,
+    "reference": "Independent PC binary64 accumulation of dequantized Q4 weights and original F32 inputs; F32 output cast",
+    "cpu_gpu_math_paths_identical": false,
+    "explicit_buffers_limit_MiB": 64,
+    "isolated_child_RSS_limit_MiB": 128,
+    "case_deadline_seconds": 10,
+    "thermal_cutoff_c": 65
+  },
+  "candidates": [
+    {
+      "source": "buffer-fp32.cpp",
+      "source_sha256": "79333d4de581958c5c56cb04dd8cb3104371f373318451e48f85715bafc8588d",
+      "source_bytes": 13323,
+      "report": "GPU-QWEN-OPERATOR.json",
+      "report_sha256": "8c446be1270229339fddf48c4cda2a4c9cd1ee8b4eb51ae902008a1acfa9cdaa",
+      "qualified_native_sha256": "ec1b813571cca498fb9dc845019abc604fb57cad33401bb96e07c64020f1efc3",
+      "qualified_native_bytes": 1559852,
+      "qualified_private_stage_manifest_sha256": "c0afd4c2ed2b016f0ffd67f9b02c6a08205a2c4ffd15e36dbeb31bf48305dc3e",
+      "source_mathematics_unchanged_from_device_candidate": true,
+      "measurements": [
+        {
+          "batch": 1,
+          "cpu_second_graph_ms": 0.7018819887889549,
+          "gpu_warm_wall_mean_ms": 14.000708004459739,
+          "gpu_warm_kernel_mean_ms": 13.584,
+          "gpu_to_cpu_wall_ratio": 19.947381793650123,
+          "gpu_cold_setup_upload_dispatch_readback_ms": 105.98456200386863,
+          "max_gpu_reference_absolute_error": 0.0,
+          "peak_child_rss_kib": 14896,
+          "maximum_thermal_c": 50.0
+        },
+        {
+          "batch": 32,
+          "cpu_second_graph_ms": 17.971734996535815,
+          "gpu_warm_wall_mean_ms": 422.33821349509526,
+          "gpu_warm_kernel_mean_ms": 420.084,
+          "gpu_to_cpu_wall_ratio": 23.50013582865005,
+          "gpu_cold_setup_upload_dispatch_readback_ms": 505.03997500345577,
+          "max_gpu_reference_absolute_error": 1.1920928955078125e-07,
+          "peak_child_rss_kib": 17128,
+          "maximum_thermal_c": 50.0
+        }
+      ]
+    },
+    {
+      "source": "packed-q4.cpp",
+      "source_sha256": "d9d3cb4ac74b180f3186b984346b7c440aab485f83e1ec6b4565692f1a8a402b",
+      "source_bytes": 16810,
+      "report": "GPU-QWEN-OPT1.json",
+      "report_sha256": "3d67cd5dc651b360a7899bda5134816b89f4430e398d8632f9db82180126255c",
+      "qualified_native_sha256": "dec72c375a75b5f5b553ef89969f971d7769f57134ab08725580328d6a299ee5",
+      "qualified_native_bytes": 1569112,
+      "qualified_private_stage_manifest_sha256": "4f804e07eea22c00378478a95fa56bba8d481b0321b52f61a799dbae48ed84a3",
+      "source_mathematics_unchanged_from_device_candidate": true,
+      "measurements": [
+        {
+          "batch": 1,
+          "cpu_second_graph_ms": 0.6987050001043826,
+          "gpu_warm_wall_mean_ms": 18.06571400084067,
+          "gpu_warm_kernel_mean_ms": 17.185499999999998,
+          "gpu_to_cpu_wall_ratio": 25.855996447916866,
+          "gpu_cold_setup_upload_dispatch_readback_ms": 217.8180560003966,
+          "max_gpu_reference_absolute_error": 0.0,
+          "peak_child_rss_kib": 11212,
+          "maximum_thermal_c": 48.0
+        },
+        {
+          "batch": 32,
+          "cpu_second_graph_ms": 17.810085992095992,
+          "gpu_warm_wall_mean_ms": 255.6378615045105,
+          "gpu_warm_kernel_mean_ms": 253.6325,
+          "gpu_to_cpu_wall_ratio": 14.353544481366404,
+          "gpu_cold_setup_upload_dispatch_readback_ms": 392.18825299758464,
+          "max_gpu_reference_absolute_error": 1.1920928955078125e-07,
+          "peak_child_rss_kib": 11868,
+          "maximum_thermal_c": 48.0
+        }
+      ]
+    },
+    {
+      "source": "image-float4.cpp",
+      "source_sha256": "7e0035e8d07810ea33c53b209f4275b6323727569d0f90fdbad32eaf2238a282",
+      "source_bytes": 17204,
+      "report": "GPU-QWEN-OPT2.json",
+      "report_sha256": "9168a805f363337417828f556266549ef9c5293b7a3e2e6c4e14b3d22e7d3cdb",
+      "qualified_native_sha256": "5b8319ac9272669558c01a07b52d24c058d471db03c67e04e17c11909602693d",
+      "qualified_native_bytes": 1575604,
+      "qualified_private_stage_manifest_sha256": "d70c1215d99e7c3dc6d08de09da006641bbd8f93e26c2085fce9b175769e54b6",
+      "source_mathematics_unchanged_from_device_candidate": true,
+      "measurements": [
+        {
+          "batch": 1,
+          "cpu_second_graph_ms": 0.7109969883458689,
+          "gpu_warm_wall_mean_ms": 4.093249997822568,
+          "gpu_warm_kernel_mean_ms": 3.67,
+          "gpu_to_cpu_wall_ratio": 5.7570567314855925,
+          "gpu_cold_setup_upload_dispatch_readback_ms": 163.5901020054007,
+          "max_gpu_reference_absolute_error": 0.0,
+          "peak_child_rss_kib": 13236,
+          "maximum_thermal_c": 49.0
+        },
+        {
+          "batch": 32,
+          "cpu_second_graph_ms": 17.791247009881772,
+          "gpu_warm_wall_mean_ms": 55.669934998149984,
+          "gpu_warm_kernel_mean_ms": 53.417500000000004,
+          "gpu_to_cpu_wall_ratio": 3.1290631267852835,
+          "gpu_cold_setup_upload_dispatch_readback_ms": 140.19144800840877,
+          "max_gpu_reference_absolute_error": 1.1920928955078125e-07,
+          "peak_child_rss_kib": 17328,
+          "maximum_thermal_c": 48.0
+        }
+      ]
+    }
+  ],
+  "conclusion": "No speed advantage for these three tested candidates; production remains CPU. Does not prove GPU acceleration impossible for all operators, shapes, quantizations or implementations.",
+  "exclusions": [
+    "model_weights",
+    "weights.q4",
+    "inputs.f32",
+    "reference.f32",
+    "native_binaries",
+    "static_libraries",
+    "SDK_or_vendor_libraries",
+    "credentials",
+    "recordings"
+  ],
+  "publication_does_not_rebuild_or_requalify_native": true
+}

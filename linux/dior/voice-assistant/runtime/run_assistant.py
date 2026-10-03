@@ -3,8 +3,10 @@
 import argparse
 import importlib.util
 import json
+import os
 from pathlib import Path
 import signal
+import stat
 import sys
 import threading
 import time
@@ -15,7 +17,10 @@ from control import StatusServer
 sys.dont_write_bytecode=True
 
 def load(path,name):
-    path=Path(path).resolve(strict=True)
+    original=Path(path).absolute();info=original.lstat();path=original.resolve(strict=True)
+    if not stat.S_ISREG(info.st_mode) or original.is_symlink() or path!=original or info.st_size>2*1024*1024:
+        raise RuntimeError('untrusted_provider_module')
+    if os.name=='posix' and (info.st_uid!=0 or info.st_mode&0o022):raise RuntimeError('provider_requires_root_owned_immutable_source')
     # Providers are immutable installed modules; their sibling helpers must
     # resolve from that same trusted directory rather than the runtime cwd.
     if str(path.parent) not in sys.path:sys.path.insert(0,str(path.parent))
@@ -31,6 +36,33 @@ def temperature():
             if -20<=value<=150:values.append(value)
         except (ValueError,OSError):pass
     return max(values) if values else None
+
+def prepare_startup(llm,conversation,cancel,clock=time.monotonic):
+    """One synchronous startup attempt, before capture; never a dialogue turn."""
+    started=clock();result={'scope':'startup_only','attempted':False,'initialized':False,'warmup_skipped':True,
+        'status':'unsupported','prefix_tokens':0,'generated_tokens':0,'elapsed_seconds':0}
+    prepare=getattr(llm,'prepare_system',None)
+    if not callable(prepare):return result
+    if cancel.is_set():result['status']='cancelled';return result
+    result['attempted']=True
+    try:
+        snapshot=conversation.messages()
+        if len(snapshot)!=1 or snapshot[0].get('role')!='system':raise ValueError('startup_conversation_not_fresh')
+        value=prepare(snapshot[0]['content'],cancel=cancel,deadline=started+20)
+        count=value.get('prefix_tokens');generated=value.get('generated_tokens')
+        if cancel.is_set() or clock()>started+20:raise TimeoutError('startup_cancelled_or_deadline')
+        if value.get('status')!='complete' or value.get('initialized') is not True or type(count) is not int or not 1<=count<=512 or type(generated) is not int or generated!=0:raise ValueError('invalid_prepare_ack')
+        result.update(initialized=True,warmup_skipped=False,status='complete',prefix_tokens=count)
+    except Exception as error:
+        code=getattr(error,'code',None)
+        if cancel.is_set():result['status']='cancelled'
+        elif isinstance(error,TimeoutError) or code=='deadline':result['status']='deadline'
+        elif code=='cancelled':result['status']='cancelled'
+        elif code=='prepare_system_unsupported' or str(error)=='prepare_system_unsupported':result['status']='unsupported'
+        elif code in ('busy','preempted','thermal','thermal_unavailable'):result['status']=code
+        else:result['status']='unavailable'
+    result['elapsed_seconds']=round(max(0,clock()-started),3)
+    return result
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
@@ -71,7 +103,7 @@ def main():
         lease_hooks=proxy.VoiceASRLease(args.inference_socket)
         availability=proxy.Availability(args.inference_socket)
     else:
-        tts=load(args.tts_module,'dior_voice_tts').OfflineTTS(base=Path(args.tts_root),engine=args.tts_engine)
+        tts=load(args.tts_module,'dior_voice_tts').create_persistent(base=Path(args.tts_root),engine=args.tts_engine)
         llm=None
         if args.llm_module:
             llm=load(args.llm_module,'dior_voice_llm').LocalLanguageModel(args.llm_binary,args.llm_model,threads=args.llm_threads)
@@ -84,8 +116,11 @@ def main():
     core=Assistant(audio,StreamingASR(args.asr_socket,lease_hooks),tts,settings,llm=llm,wake_detector=wake,
                    config=Config(network_enabled=args.network,llm_seconds=args.llm_seconds,
                                  vad_rms=args.vad_rms,progress_cue=args.progress_cue,diagnostic_seconds=args.diagnostic_seconds),temperature=temperature)
+    warmup={'scope':'startup_only','attempted':False,'initialized':False,'warmup_skipped':True,
+        'status':'not_started','prefix_tokens':0,'generated_tokens':0,'elapsed_seconds':0}
     def snapshot():
         status=core.status()
+        status['warmup']=dict(warmup)
         if availability:
             status['shared_inference']=availability.snapshot
             status['model_ready']=bool(availability.snapshot.get('ready'))
@@ -98,6 +133,8 @@ def main():
     signal.signal(signal.SIGTERM,stop);signal.signal(signal.SIGINT,stop)
     control=StatusServer(snapshot,args.control_socket);last_inference_check=0
     try:
+        warmup=prepare_startup(llm,core.conversation,stopped)
+        if stopped.is_set():return
         core.start();control.start()
         # No transcription/log stream. Workers block on bounded conditions;
         # only this shutdown wait wakes periodically.

@@ -1,0 +1,327 @@
+{
+  "status": "PASS_RESPONSE_RECOVERY_SYNTHETIC",
+  "scope": "generated Piper digital PCM through installed controller/ASR/BridgeTTS/physical speaker",
+  "human_microphone_or_wake_tested": false,
+  "microphone_frames_discarded": true,
+  "audio_recorded": false,
+  "keyword_bypassed": true,
+  "cases": [
+    {
+      "name": "ack_then_name",
+      "status": "PASS",
+      "start_seconds": 2.5634571270056767,
+      "ack_seconds": 1.5402827590005472,
+      "ack_wake_entry": "internal_declared_wake_fixture",
+      "post_ack_pause_seconds": 0.8000751109939301,
+      "injection": {
+        "seconds": 2.7003570789966034,
+        "frames": 136,
+        "max_pacing_late_seconds": 0.004316875012591481
+      },
+      "response_text": "我叫二狗。",
+      "response_kind": "say",
+      "response_seconds": 9.520041242998559,
+      "response_from_ack_seconds": 10.32011635399249,
+      "outcome": "identity_reply",
+      "identity_reply_source": "controller_reply",
+      "asr": [
+        {
+          "mode": "dialog",
+          "partials": [
+            {
+              "text": "你",
+              "seconds": 0.3933737859915709
+            },
+            {
+              "text": "你",
+              "seconds": 0.6695386119972682
+            },
+            {
+              "text": "你",
+              "seconds": 0.7015876009972999
+            },
+            {
+              "text": "你叫",
+              "seconds": 0.9977063370024553
+            },
+            {
+              "text": "你叫",
+              "seconds": 1.0440158429992152
+            },
+            {
+              "text": "你叫什么",
+              "seconds": 1.2990848699992057
+            },
+            {
+              "text": "你叫什么",
+              "seconds": 1.3311619839951163
+            },
+            {
+              "text": "你叫什么名字",
+              "seconds": 1.5820604449982056
+            },
+            {
+              "text": "你叫什么名字",
+              "seconds": 1.613954589003697
+            },
+            {
+              "text": "你叫什么名字",
+              "seconds": 1.8738765839952976
+            },
+            {
+              "text": "你叫什么名字",
+              "seconds": 1.9001398849941324
+            }
+          ],
+          "partial_count": 11,
+          "input": "synthetic_only",
+          "text": "你叫什么名字",
+          "seconds": 2.397552907001227,
+          "cancelled": false
+        }
+      ],
+      "tts": [
+        {
+          "text": "我在，请说。",
+          "method": "synthesis",
+          "local_cache": false,
+          "seconds": 0.017332373012322932,
+          "audio_seconds": 1.432
+        },
+        {
+          "text": "我叫二狗。",
+          "method": "synthesis",
+          "local_cache": false,
+          "seconds": 5.241315737992409,
+          "audio_seconds": 1.592
+        }
+      ],
+      "playbacks": [
+        {
+          "generation": 0,
+          "text": "我在，请说。",
+          "kind": "ack",
+          "start": 8.889879668000503,
+          "drained": true,
+          "end": 10.43016242700105,
+          "seconds": 1.5402827590005472
+        },
+        {
+          "generation": 0,
+          "text": "我叫二狗。",
+          "kind": "say",
+          "start": 19.050681195993093,
+          "drained": true,
+          "end": 20.75027878099354,
+          "seconds": 1.699597585000447
+        }
+      ],
+      "controller": {
+        "phase": "LISTENING",
+        "ready": true,
+        "wake_word": "二狗",
+        "full_duplex": true,
+        "barge_in": true,
+        "barge_in_mode": "wake_word",
+        "aec_verified": true,
+        "pending_wake_change": false,
+        "recording_persisted": false,
+        "transcript_logging": false,
+        "public_listener": false,
+        "queue_limits": {
+          "asr": 1,
+          "response": 1,
+          "frame": 250,
+          "preroll": 25
+        },
+        "llm_configured": true,
+        "network_enabled": false,
+        "keyword_spotter_configured": true,
+        "thermal_sensor_available": true,
+        "conversation": {
+          "session_id": "9d32a17c07d646b7b41f6d016d766fe5",
+          "session_epoch": 1,
+          "turn_id": 1,
+          "wake_word": "二狗",
+          "active_turn_id": null,
+          "candidate_pending_playback": false,
+          "history_turns": 1,
+          "history_messages": 2,
+          "token_count_mode": "conservative_utf8_estimate",
+          "recording_or_transcript_files": false,
+          "mode": "unknown",
+          "history_sent_to_model": false
+        },
+        "last_response_error": "none",
+        "input": {
+          "rms": 0,
+          "peak": 10726,
+          "recent_peak": 0,
+          "frame_age": 0.01,
+          "voice_at": 101397.616,
+          "run": 0,
+          "accepted_run": 0,
+          "max_run": 64,
+          "threshold": 180,
+          "post_ack_peak_rms": 10726,
+          "post_ack_longest_voiced_frames": 64,
+          "onset": 8,
+          "starts": 1,
+          "guard_voiced": {}
+        },
+        "timing": {
+          "dialog_left": 11.99,
+          "post_ack": false,
+          "guard_left": 0,
+          "stage": null,
+          "stage_age": null,
+          "response_left": null,
+          "asr": null
+        },
+        "counters": {
+          "wake_only_utterances": 1,
+          "audio_frames": 745,
+          "spoken_replies": 2,
+          "prompt_guard_frames": 160,
+          "echo_tail_guard_frames": 54,
+          "asr_spans": 1,
+          "capture_lock_drops": 1,
+          "capture_gap_resets": 1
+        },
+        "diagnostic_turns": [
+          {
+            "event": "recognized",
+            "at": 101393.977,
+            "mode": "wake",
+            "text": "二狗二狗"
+          },
+          {
+            "event": "reply",
+            "at": 101393.995,
+            "text": "我在，请说。",
+            "kind": "ack"
+          },
+          {
+            "event": "recognized",
+            "at": 101398.894,
+            "mode": "dialog",
+            "text": "你叫什么名字"
+          },
+          {
+            "event": "intent",
+            "at": 101398.913,
+            "kind": "identity"
+          },
+          {
+            "event": "reply",
+            "at": 101404.156,
+            "text": "我叫二狗。",
+            "kind": "say"
+          }
+        ],
+        "diagnostic_expires_in": 102.5
+      },
+      "audio": {
+        "frames": 850,
+        "xruns": 0,
+        "volume": 50,
+        "error": null,
+        "xrun_events": [],
+        "capture_sizes": [
+          2560,
+          640
+        ],
+        "playback_sizes": [
+          2560,
+          640
+        ],
+        "playback_pointer_boundary": 1342177280,
+        "cpu_seconds_completed": 0.0,
+        "cancelled_playbacks": 0,
+        "last_interrupt_hardware_flush_seconds": null,
+        "echo_startup_adaptation": false,
+        "capabilities": {
+          "microphone_available": true,
+          "speaker_available": true,
+          "simultaneous_capture_playback": true,
+          "aec_available": true,
+          "aec_verified": true
+        },
+        "audio_or_transcripts_saved": false
+      },
+      "conversation_mode": "unknown",
+      "nativecap": {
+        "ready": true,
+        "native_worker_pid": 21497,
+        "model_load_count": 1,
+        "thermal_c": 45.0,
+        "engine_tag": "b3927",
+        "model_id": "Qwen2.5-0.5B-Instruct-Q4_0",
+        "capabilities": {
+          "chat": true,
+          "chat_messages": true,
+          "speech": true,
+          "transcribe": true
+        }
+      },
+      "identity_correct": true,
+      "no_loop_seconds": 3
+    }
+  ],
+  "uid": 107,
+  "groups": [
+    18,
+    109,
+    110,
+    111
+  ],
+  "shared_before": {
+    "ready": true,
+    "native_worker_pid": 21497,
+    "model_load_count": 1,
+    "thermal_c": 48.0,
+    "engine_tag": "b3927",
+    "model_id": "Qwen2.5-0.5B-Instruct-Q4_0",
+    "capabilities": {
+      "chat": true,
+      "chat_messages": true,
+      "speech": true,
+      "transcribe": true
+    }
+  },
+  "question": {
+    "text": "你叫什么名字？",
+    "generation_seconds": 5.536541756999213,
+    "audio_seconds": 1.704,
+    "bytes": 54528,
+    "sha256": "87d1b39117126ac0766fca7f75d0ba2c9b6e2395f251d6c45f3607d2ff95ee66",
+    "rms": {
+      "max_rms": 10726.476151327612,
+      "mean_rms": 4263.741882832428,
+      "peak": 32767,
+      "frames": 86,
+      "frames_over_threshold": 64,
+      "longest_voiced_run": 64,
+      "threshold": 180,
+      "onset_frames": 8,
+      "has_sustained_onset": true
+    }
+  },
+  "shared_after": {
+    "ready": true,
+    "native_worker_pid": 21497,
+    "model_load_count": 1,
+    "thermal_c": 45.0,
+    "engine_tag": "b3927",
+    "model_id": "Qwen2.5-0.5B-Instruct-Q4_0",
+    "capabilities": {
+      "chat": true,
+      "chat_messages": true,
+      "speech": true,
+      "transcribe": true
+    }
+  },
+  "identity_correct": true,
+  "total_seconds": 24.01500808900164
+}
+

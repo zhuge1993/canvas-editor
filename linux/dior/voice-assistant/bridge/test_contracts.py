@@ -10,12 +10,13 @@ import sys
 import ast
 import hashlib
 import tempfile
+import stat
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 from protocol import BridgeError,validate,receive
 from server import InferenceBridge
-from providers import Providers,model_diagnostics,runtime_limits
+from providers import Providers,model_diagnostics,runtime_limits,thermal_limits,tts_diagnostics
 
 PEERS={107:{'gid':107,'role':'voice'},101:{'gid':101,'role':'web'}}
 def req(op='chat',**data):return {'v':1,'id':'test','op':op,'deadline_ms':3000,**data}
@@ -69,6 +70,26 @@ class Contracts(unittest.TestCase):
         result=self.finished(self.bridge.submit(req(text='问'*300,context='资料'*200),'web'))
         self.assertLessEqual(len(self.fake.prompts[-1].encode()),768)
         self.assertTrue(result['text_truncated']);self.assertTrue(result['context_truncated'])
+    def test_web_compact_prompt_preserves_net_180_byte_context_and_exact_truncation(self):
+        for context in ('事实', 'x'*180, 'x'*181, '界'*60, 'a'+'界'*60):
+            data=context.encode()[:180].decode('utf8',errors='ignore')
+            result=self.finished(self.bridge.submit(req(text='问题',context=context),'web'))
+            self.assertEqual(self.fake.prompts[-1],'资料：'+data+'\n问：问题')
+            self.assertEqual(result['context_truncated'],data!=context)
+            self.assertFalse(result['text_truncated'])
+            self.assertEqual(result['model_prompt_bytes'],len(self.fake.prompts[-1].encode()))
+        result=self.finished(self.bridge.submit(req(text='x'*1000,context='z'*1536),'web'))
+        self.assertEqual(self.fake.prompts[-1],'资料：'+'z'*180+'\n问：'+'x'*480)
+        self.assertEqual(result['model_prompt_bytes'],676)
+        self.assertTrue(result['context_truncated']);self.assertTrue(result['text_truncated'])
+        self.finished(self.bridge.submit(req(text='no context'),'web'))
+        self.assertEqual(self.fake.prompts[-1],'no context')
+    def test_compact_web_format_does_not_change_legacy_voice_history_format(self):
+        self.finished(self.bridge.submit(req(text='legacy first'),'voice'))
+        self.assertEqual(self.fake.prompts[-1],'前文：\n本轮问题：legacy first')
+        self.finished(self.bridge.submit(req(text='legacy next'),'voice'))
+        self.assertTrue(self.fake.prompts[-1].startswith('前文：问：legacy first 答：'))
+        self.assertTrue(self.fake.prompts[-1].endswith('\n本轮问题：legacy next'))
     def test_voice_preempts_web_and_same_provider_remains(self):
         self.fake.block=True
         web=self.bridge.submit(req(text='web'),'web');self.assertTrue(self.fake.entered.wait(1))
@@ -240,11 +261,43 @@ class Contracts(unittest.TestCase):
         self.bridge.temperature=None
         result=self.finished(self.bridge.submit(req(text='unknown thermal'),'web'))
         self.assertEqual(result['error_code'],'thermal_unavailable')
+    def test_independent_tts_50_gate_keeps_model_45_wait_and_hard_65_stop(self):
+        self.bridge.close()
+        self.bridge=InferenceBridge(self.fake,PEERS,lambda:50,thermal_admit_c=45,tts_thermal_admit_c=50)
+        self.bridge.temperature_reader=lambda:self.bridge.temperature
+        model=self.bridge.submit(req(text='model needs 45'),'web')
+        until=time.monotonic()+1
+        while model.state!='cooling' and time.monotonic()<until:time.sleep(.01)
+        status=self.bridge.control(req('status'),'operator')
+        self.assertEqual((status['thermal_admit_c'],status['tts_thermal_admit_c'],status['active_thermal_admit_c']),(45,50,45))
+        self.assertTrue(status['cooling']);self.assertFalse(self.fake.entered.is_set())
+        with self.bridge.condition:self.bridge._cancel(model,'cancelled');self.bridge.condition.notify_all()
+        self.assertEqual(self.finished(model)['error_code'],'cancelled')
+        entered=threading.Event()
+        def speech(text,cancel,deadline):
+            entered.set()
+            while not cancel.wait(.01):pass
+            raise BridgeError('cancelled')
+        self.fake.speech=speech
+        self.bridge.temperature=51
+        tts=self.bridge.submit(req('tts',text='dynamic speech'),'web')
+        until=time.monotonic()+1
+        while tts.state!='cooling' and time.monotonic()<until:time.sleep(.01)
+        self.assertFalse(entered.is_set())
+        self.assertEqual(self.bridge.control(req('status'),'operator')['active_thermal_admit_c'],50)
+        with self.bridge.condition:self.bridge.temperature=50;self.bridge.condition.notify_all()
+        self.assertTrue(entered.wait(1))
+        status=self.bridge.control(req('status'),'operator')
+        self.assertEqual(status['active_thermal_admit_c'],50);self.assertFalse(status['cooling'])
+        self.bridge.temperature=65;time.sleep(.1);self.assertFalse(tts.cancel.is_set())
+        self.bridge.temperature=66
+        self.assertEqual(self.finished(tts)['error_code'],'thermal')
     def test_config_limits_validate_before_provider_load_and_forward_actual_threads(self):
         self.assertEqual(runtime_limits({}),(3,52))
         for threads in (1,2,3,4):self.assertEqual(runtime_limits({'llm_threads':threads}),(threads,52))
+        for admit in (45,49,50,52):self.assertEqual(runtime_limits({'thermal_admit_c':admit}),(3,admit))
         for config in ({'llm_threads':0},{'llm_threads':5},{'llm_threads':True},{'llm_threads':'3'},
-                       {'thermal_admit_c':49},{'thermal_admit_c':53},{'thermal_admit_c':True}):
+                       {'thermal_admit_c':44},{'thermal_admit_c':53},{'thermal_admit_c':True}):
             with self.assertRaises(BridgeError):runtime_limits(config)
         with patch('providers.load') as loader:
             with self.assertRaises(BridgeError):Providers({'llm_threads':0})
@@ -252,9 +305,70 @@ class Contracts(unittest.TestCase):
         seen={}
         model=SimpleNamespace(ready={'threads':3,'model_load_count':1},process=SimpleNamespace(pid=123,poll=lambda:None))
         def model_factory(binary,weight,threads):seen['threads']=threads;return model
-        modules=[SimpleNamespace(LocalLanguageModel=model_factory),SimpleNamespace(OfflineTTS=lambda **kw:SimpleNamespace())]
+        modules=[SimpleNamespace(LocalLanguageModel=model_factory),SimpleNamespace(create_persistent=lambda **kw:SimpleNamespace())]
         config={'runtime_dir':'contract-runtime','llm_module':'contract-llm','llm_binary':'contract-binary',
                 'llm_model':'contract-model','tts_module':'contract-tts','tts_base':'contract-tts-base','llm_threads':3}
         with patch('providers.load',side_effect=modules):provider=Providers(config)
         self.assertEqual(seen['threads'],3);self.assertEqual(provider.summary()['native_threads'],3)
+    def test_tts_gate_config_inherits_global_and_rejects_bad_types_before_provider_load(self):
+        self.assertEqual(thermal_limits({}),(52,52))
+        self.assertEqual(thermal_limits({'thermal_admit_c':45}),(45,45))
+        self.assertEqual(thermal_limits({'thermal_admit_c':45,'tts_thermal_admit_c':50}),(45,50))
+        for value in (44,53,True,50.0,'50',None):
+            config={'thermal_admit_c':45,'tts_thermal_admit_c':value}
+            with self.assertRaises(BridgeError):runtime_limits(config)
+            with patch('providers.load') as loader:
+                with self.assertRaises(BridgeError):Providers(config)
+                loader.assert_not_called()
+        inherited=InferenceBridge(Fake(),PEERS,thermal_admit_c=45)
+        try:self.assertEqual(inherited.tts_thermal_admit_c,45)
+        finally:inherited.close()
+        for value in (44,53,True,50.0,'50'):
+            with self.assertRaises(BridgeError):InferenceBridge(Fake(),PEERS,thermal_admit_c=45,tts_thermal_admit_c=value)
+    def test_service_main_passes_validated_global_and_tts_config_to_bridge(self):
+        import server
+        config={'version':1,'socket':'/run/dior-inference/inference.sock',
+                'thermal_admit_c':45,'tts_thermal_admit_c':50}
+        path=SimpleNamespace(lstat=lambda:SimpleNamespace(st_mode=stat.S_IFREG|0o600,st_uid=0,st_size=200),
+                             is_symlink=lambda:False,read_text=lambda **kw:json.dumps(config))
+        pwd=SimpleNamespace(getpwnam=lambda name:SimpleNamespace(pw_uid=107 if name=='dior-voice' else 101,pw_gid=107 if name=='dior-voice' else 101))
+        with patch.dict(sys.modules,{'pwd':pwd}),patch.object(sys,'argv',['bridge']),patch('server.Path',return_value=path),patch('signal.signal'),patch('providers.Providers',return_value=self.fake) as provider,patch('server.InferenceBridge') as bridge:
+            server.main()
+            self.assertEqual(bridge.call_args.kwargs,{'thermal_admit_c':45,'tts_thermal_admit_c':50})
+            bridge.return_value.serve.assert_called_once_with(config['socket'],'dior-inference')
+            bridge.reset_mock();provider.reset_mock();config['tts_thermal_admit_c']=53
+            with self.assertRaises(BridgeError):server.main()
+            provider.assert_not_called();bridge.assert_not_called()
+    def test_bridge_constructor_accepts_45_and_rejects_out_of_range_admission(self):
+        bridge=InferenceBridge(Fake(),PEERS,thermal_admit_c=45)
+        try:
+            self.assertEqual(bridge.thermal_admit_c,45)
+            self.assertTrue(bridge.worker.is_alive());self.assertTrue(bridge.monitor.is_alive())
+        finally:bridge.close()
+        for value in (44,53,True,45.0,'45'):
+            with self.assertRaises(BridgeError):InferenceBridge(Fake(),PEERS,thermal_admit_c=value)
+    def test_tts_status_is_bounded_and_never_exposes_private_audio_or_text(self):
+        value={'persistent':True,'state':'idle','process_pid':123,'stderr_buffer_bytes':8192,
+               'statistics_entries':4,'anonymous_audio_bytes':0,'reader_threads':2,'worker_start_count':1,
+               'text':'private answer','audio':'private bytes','path':'private path','stderr':'private logs',
+               'unknown':'private info','request_count':10**100,'last_error':'private error'}
+        safe=tts_diagnostics(value)
+        self.assertTrue(safe['persistent']);self.assertEqual(safe['state'],'idle')
+        self.assertNotIn('request_count',safe);self.assertNotIn('last_error',safe)
+        self.assertNotIn('private',json.dumps(safe))
+    def test_prepare_system_only_calls_adapter_and_returns_bounded_ack(self):
+        provider=Providers.__new__(Providers);calls=[]
+        def prepare(system,**kwargs):
+            calls.append('prepare');return {'status':'complete','initialized':True,'prefix_tokens':41,
+                'generated_tokens':0,'cache_hit':False,'text':'private body'}
+        def forbidden(*args,**kwargs):raise AssertionError('prepare invoked generation/history/TTS')
+        provider.model=SimpleNamespace(prepare_system=prepare,generate=forbidden,clear_history=forbidden)
+        provider.tts=SimpleNamespace(synthesize=forbidden)
+        result=provider.prepare_system('synthetic system',threading.Event(),time.monotonic()+1)
+        self.assertEqual(calls,['prepare']);self.assertEqual(result['generated_tokens'],0);self.assertNotIn('text',result)
+        provider.model.prepare_system=lambda *a,**kw:dict(result,prefix_tokens=513)
+        with self.assertRaises(BridgeError):provider.prepare_system('system',threading.Event(),time.monotonic()+1)
+        provider.model=SimpleNamespace()
+        with self.assertRaises(BridgeError) as caught:provider.prepare_system('system',threading.Event(),time.monotonic()+1)
+        self.assertEqual(caught.exception.code,'prepare_system_unsupported')
 if __name__=='__main__':unittest.main(verbosity=2)

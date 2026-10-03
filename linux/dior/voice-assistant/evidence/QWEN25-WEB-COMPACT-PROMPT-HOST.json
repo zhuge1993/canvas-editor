@@ -1,0 +1,30 @@
+{
+  "format": "dior-web-compact-prompt-host-v1",
+  "status": "PASS_HOST_CONTRACTS",
+  "phone_verified": false,
+  "server_sha256": "cd4600229bc077039e87b5dc32ae4f6e8010a1362031148da1f0dadb0641c338",
+  "adapter_sha256": "f23d6fc9c9a5860278bc7ee7c052fe1bd945355d3f65c16339bbae3dd15df07d",
+  "provider_unchanged_sha256": "98df98ae16694c567f732af81079921364c9b4d38efeec024ea1843e14ffe269",
+  "native_unchanged_sha256": "31e9a5c8d92093af7a198e0b4091ca1be9133b2aa1cd4bdf3b208687253e2b6a",
+  "context_net_bytes_before": 180,
+  "context_net_bytes_after": 180,
+  "question_bytes": 480,
+  "dynamic_prompt_max_bytes": 676,
+  "bridge_contracts_passed": 23,
+  "adapter_contracts_passed": 17,
+  "measurement": {
+    "scope": "Existing Qwen2.5 GGUF vocabulary, llama.cpp b11371 host tokenization only; no inference or device use",
+    "old_uncached_tokens": 64,
+    "new_uncached_tokens": 54,
+    "dynamic_bytes_saved": 44,
+    "static_old_bytes": 60,
+    "static_new_bytes": 16
+  },
+  "measurement_file_sha256": "8cd4c29ed69e8ca28b272ec54bcfa48225c024928a541e21d7437960ad5e1f93",
+  "limitations": [
+    "Token counts use actual pinned Qwen2.5 GGUF vocabulary with existing host b11371 tokenizer; production native b3927 unchanged",
+    "No device inference run performed for this change; no speed or thermal stability claim",
+    "Legacy voice prompt formatting and structured voice messages remain unchanged",
+    "Temperature hard stop 65C and request deadline 30s remain unchanged"
+  ]
+}

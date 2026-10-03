@@ -17,6 +17,8 @@ import wave
 import sys
 import hashlib
 import re
+import importlib.util
+import stat
 
 # Resolve the native Linux function in the parent, before any threaded fork.
 # Child setup uses only prctl/getppid/setrlimit/_exit; no imports, file IO,
@@ -243,6 +245,27 @@ class OfflineTTS:
                 'open_files':CHILD_FD_LIMIT,'parent_death_signal':'SIGTERM'} if _LINUX_CHILD_GUARDS else None
             return TTSAudio(pcm,rate)
         finally: self._lock.release()
+
+def _trusted_persistent_module():
+    # Exact immutable sibling; never import a same-named module from cwd.
+    file=Path(__file__).resolve().with_name('persistent_tts.py');info=file.lstat()
+    if not stat.S_ISREG(info.st_mode) or file.is_symlink() or info.st_size>262144:
+        raise TTSError('invalid_persistent_provider')
+    if os.name=='posix' and (info.st_uid!=0 or info.st_mode&0o022):
+        raise TTSError('persistent_provider_requires_root_owned_immutable_source')
+    name='_dior_persistent_piper'
+    existing=sys.modules.get(name)
+    if existing is not None and Path(existing.__file__).resolve()==file:return existing
+    spec=importlib.util.spec_from_file_location(name,file);module=importlib.util.module_from_spec(spec)
+    sys.modules[name]=module;spec.loader.exec_module(module);return module
+
+def create_persistent(base=None,engine='piper',*,max_cpus=None,**kwargs):
+    """Lazy factory; max_cpus=1/2 limits only Piper before exec, None preserves it."""
+    if max_cpus is not None and (type(max_cpus) is not int or not 1<=max_cpus<=2):
+        raise ValueError('piper_max_cpus_must_be_none_or_1_to_2')
+    delegate=OfflineTTS(base=base,engine=engine,**kwargs)
+    if engine!='piper':return delegate
+    return _trusted_persistent_module().PersistentPiperTTS(delegate,max_cpus=max_cpus)
 
 def main():
     import argparse

@@ -19,6 +19,7 @@ class RecordedTTS(TTS):
     def __init__(self):self.texts=[]
     def synthesize(self,text,cancel):
         self.texts.append(text);return super().synthesize(text,cancel)
+    def synthesize_failure(self,cancel):return self.synthesize('这次没有及时回答，请再问一次。',cancel)
 
 
 class ControlledASR(ASR):
@@ -178,14 +179,14 @@ class WakeEchoContracts(unittest.TestCase):
             if len(attempts)==1:raise RuntimeError('injected playback failure')
             return original_play(*args,**kwargs)
         audio.play=fail_once
-        core.handle_text('二狗');self.wait_for(lambda:core.counters['response_failures']==1)
-        self.assertFalse(core.playing);self.assertIsNone(core.playback_kind)
-        self.assertEqual(core.phase,'LISTENING')
+        core.handle_text('二狗');self.wait_for(lambda:core.playback_kind=='failure' and core.playing)
+        self.assertEqual(core.counters['response_failures'],1);audio.drain()
+        self.assertFalse(core.playing);self.assertEqual(core.phase,'IDLE')
         clock.now+=2.1;core.handle_text('二狗')
         self.wait_for(lambda:core.playing and core.playback_kind=='ack')
-        self.assertEqual(len(attempts),2)
-        self.assertEqual(tts.texts,['我在，请说。','我在，请说。'])
-        self.assertEqual(len([call for call in audio.calls if call[0]=='play']),1)
+        self.assertEqual(len(attempts),3)
+        self.assertEqual(tts.texts,['我在，请说。','这次没有及时回答，请再问一次。','我在，请说。'])
+        self.assertEqual(len([call for call in audio.calls if call[0]=='play']),2)
         self.assertEqual(model.calls,[])
 
     def test_confirmed_barge_preserves_ordered_command_suffix_during_tail_guard(self):

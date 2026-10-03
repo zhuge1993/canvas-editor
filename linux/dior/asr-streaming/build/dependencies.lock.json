@@ -34,7 +34,7 @@
     }
   },
   "sources": {
-    "stream-worker.cpp": "df441473abd52032a8de1f3222b2779397a3a6e153dc6ed57be7e0eeb820fd99",
+    "stream-worker.cpp": "98e991540b707c95d55c28ffe133896609c5ccdba43ad4574d747a70f08dd7ba",
     "stream-benchmark.cpp": "bdccb18330f583b6ff0500c2da6c11c9c291df33958760bebdcc8f8919201e52",
     "dior-api19-compat.c": "c24710cc9e78cddedf9f985d879b3d0b39ab8a1b54a84415a96af6a713968ddb",
     "dior-api19-compat.h": "d3e082f9a6f44d2999f6489e0c6129092234fc2c066a4a00599096ebd4af2ac5"

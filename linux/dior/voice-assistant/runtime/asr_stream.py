@@ -47,6 +47,7 @@ class Span:
             return data,self.closed and not self.frames
 
 class StreamingASR:
+    MAX_TEXT_CHARS=512
     def __init__(self,path='/run/dior-asr/recognize.sock',lease_hooks=None):self.path=path;self.lease_hooks=lease_hooks
     def recognize(self,span,on_partial):
         if self.lease_hooks is not None:self.lease_hooks.begin()
@@ -55,7 +56,18 @@ class StreamingASR:
             if self.lease_hooks is not None:self.lease_hooks.end()
     def _recognize(self,span,on_partial):
         connection=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM);connection.settimeout(2)
-        buffer=bytearray();serial=0;finals=[];last=''
+        buffer=bytearray();serial=0;finals=[];pending_audio=False
+        def text_value(reply):
+            value=reply.get('text','')
+            if not isinstance(value,str):raise ValueError('asr_text_type')
+            return value.strip()
+        def combined(extra=''):
+            value=' '.join(finals+([extra] if extra else []))
+            # Never return a truncated command after an excessive transcript.
+            if len(value)>self.MAX_TEXT_CHARS:raise ValueError('asr_text_limit')
+            return value
+        def append_final(value):
+            if value:combined(value);finals.append(value)
         def receive():
             while True:
                 if span.cancel.is_set():raise TimeoutError('asr_cancelled')
@@ -80,20 +92,37 @@ class StreamingASR:
                 if reply.get('type')=='ready_session':break
                 if reply.get('type')!='queued':raise RuntimeError('asr_not_ready')
             connection.settimeout(2)
+            # Only an explicitly advertised worker capability enables this.
+            # Legacy brokers/workers keep the bounded segment coalescing path.
+            if reply.get('manual_endpoint_supported') is True:
+                configured=request('reset',manual_endpoint=True)
+                if configured.get('type')!='reset' or configured.get('manual_endpoint') is not True:
+                    raise RuntimeError('asr_manual_endpoint_not_enabled')
             while not span.cancel.is_set():
                 if time.monotonic()-span.created>20:raise TimeoutError('asr_lease_limit')
                 raw,done=span.take()
+                if span.cancel.is_set():raise TimeoutError('asr_cancelled')
                 if raw:
+                    pending_audio=True
                     reply=request('feed',pcm16_base64=base64.b64encode(raw).decode())
-                    last=str(reply.get('text',''))[:512]
-                    if last:on_partial(last)
-                    if reply.get('type')=='final':
-                        if last:finals.append(last)
-                        # Return actual endpoint promptly and release the lease.
-                        request('finish');return ' '.join(finals)
+                    kind=reply.get('type');last=text_value(reply)
+                    if kind not in ('partial','final'):raise ValueError('asr_reply_type')
+                    if kind=='final':
+                        # Native endpoints finish ONE segment and reset its
+                        # decoder. The broker connection and this controller
+                        # utterance remain open: more voiced frames can follow.
+                        append_final(last);pending_audio=False
+                        if last:on_partial(combined())
+                    elif last:on_partial(combined(last))
                 if done:
-                    reply=request('finish');last=str(reply.get('text',''))[:512]
-                    if last:finals.append(last)
-                    return ' '.join(finals)
+                    if span.cancel.is_set():raise TimeoutError('asr_cancelled')
+                    reply=request('finish');last=text_value(reply)
+                    if reply.get('type')!='final':raise ValueError('asr_finish_type')
+                    if span.cancel.is_set():raise TimeoutError('asr_cancelled')
+                    # A terminal snapshot can repeat the last endpoint when
+                    # no new audio followed it. Repeated real speech with new
+                    # frames is retained as a separate segment.
+                    if last and (pending_audio or not finals or last!=finals[-1]):append_final(last)
+                    return combined()
             raise TimeoutError('asr_cancelled')
         finally:connection.close()
