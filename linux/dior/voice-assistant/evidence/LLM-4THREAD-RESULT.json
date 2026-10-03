@@ -1,0 +1,90 @@
+{
+  "status": "PASS_LOCAL_GENERATION",
+  "gpu_used": false,
+  "microphone_used": false,
+  "skills_executed": false,
+  "cases": [
+    {
+      "prompt": "你好，请用一句话介绍自己。",
+      "reply": "你好，我叫人工智能。",
+      "intent": null,
+      "wall_seconds": 3.125352536000719,
+      "native": {
+        "cached_prefix_tokens": 28,
+        "first_token_seconds": 1.5875424559999374,
+        "generated_tokens": 6,
+        "gpu_used": false,
+        "id": "llm_1",
+        "input_tokens": 12,
+        "intent": null,
+        "max_rss_kib": 454804,
+        "prefill_seconds": 1.582288912999502,
+        "status": "complete",
+        "text": "你好，我叫人工智能。",
+        "total_seconds": 3.12266568600171,
+        "type": "done",
+        "history_excerpt_turns": 0
+      }
+    },
+    {
+      "prompt": "为什么手机服务器需要保持联网？",
+      "reply": "因为手机服务器需要保持联网以连接互联网，以便接收和处理来自互联网的请求。",
+      "intent": null,
+      "wall_seconds": 9.256168437997985,
+      "native": {
+        "cached_prefix_tokens": 28,
+        "first_token_seconds": 4.40314219299762,
+        "generated_tokens": 19,
+        "gpu_used": false,
+        "id": "llm_2",
+        "input_tokens": 34,
+        "intent": null,
+        "max_rss_kib": 454804,
+        "prefill_seconds": 4.397904275996552,
+        "status": "complete",
+        "text": "因为手机服务器需要保持联网以连接互联网，以便接收和处理来自互联网的请求。",
+        "total_seconds": 9.25335731600353,
+        "type": "done",
+        "history_excerpt_turns": 1
+      }
+    }
+  ],
+  "adapter_startup_seconds": 14.612251088998164,
+  "native_ready": {
+    "backend": "CPU_ARMV7_NEON",
+    "cached_prefix_tokens": 28,
+    "context_tokens": 512,
+    "default_max_generated_tokens": 24,
+    "gpu_used": false,
+    "hard_max_generated_tokens": 64,
+    "max_rss_kib": 454804,
+    "model_load_count": 1,
+    "model_load_seconds": 6.073782100000244,
+    "model_load_without_prefix_seconds": 2.393283256998984,
+    "prefix_prefill_seconds": 3.6805050410039257,
+    "threads": 4,
+    "type": "ready"
+  },
+  "cancellation": {
+    "cancel_was_set": true,
+    "reply_empty": true,
+    "return_after_cancel_seconds": 0.022229807000258006,
+    "native": {
+      "cached_prefix_tokens": 28,
+      "first_token_seconds": -1.0,
+      "generated_tokens": 0,
+      "gpu_used": false,
+      "id": "llm_3",
+      "input_tokens": 60,
+      "intent": null,
+      "max_rss_kib": 454804,
+      "prefill_seconds": 0.5201089219990536,
+      "status": "cancelled",
+      "text": "",
+      "total_seconds": 0.5201663699990604,
+      "type": "done",
+      "history_excerpt_turns": 2
+    },
+    "worker_still_alive": true
+  }
+}

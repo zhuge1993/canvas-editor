@@ -1,0 +1,139 @@
+{
+  "status": "PASS",
+  "microphone_tested": false,
+  "gpu_used": false,
+  "account": {
+    "uid": 106,
+    "gid": 109,
+    "shell": "/sbin/nologin",
+    "supplementary_groups": []
+  },
+  "immutable_files_verified": 37,
+  "default_boot_enabled": true,
+  "socket_permissions": {
+    "/run/dior-asr": "0o750",
+    "/run/dior-asr/recognize.sock": "0o660"
+  },
+  "authorized_clients": {
+    "dior": {
+      "status": "READY",
+      "model_name": "bilingual32",
+      "gpu_used": false,
+      "threads": 4,
+      "worker_pid": 4860,
+      "model_load_count": 1,
+      "max_rss_kib": 87440,
+      "temperature_c": 46.0
+    },
+    "flowboard": {
+      "status": "READY",
+      "model_name": "bilingual32",
+      "gpu_used": false,
+      "threads": 4,
+      "worker_pid": 4860,
+      "model_load_count": 1,
+      "max_rss_kib": 87440,
+      "temperature_c": 46.0
+    }
+  },
+  "unauthorized_user_denied": true,
+  "restart": {
+    "passed": true,
+    "old_worker_reaped": true,
+    "new_ready": {
+      "status": "READY",
+      "model_name": "bilingual32",
+      "gpu_used": false,
+      "threads": 4,
+      "worker_pid": 8185,
+      "model_load_count": 1,
+      "max_rss_kib": 87448,
+      "temperature_c": 47.0
+    },
+    "before_processes": {
+      "asr_broker": [
+        {
+          "pid": 4833,
+          "uid": 106,
+          "rss_kib": 11504,
+          "threads": 3
+        }
+      ],
+      "asr_worker": [
+        {
+          "pid": 4860,
+          "uid": 106,
+          "rss_kib": 77424,
+          "threads": 4
+        }
+      ],
+      "tunnel": [
+        {
+          "pid": 10422,
+          "uid": 105,
+          "rss_kib": 20724,
+          "threads": 8
+        }
+      ],
+      "flowboard": [
+        {
+          "pid": 20872,
+          "uid": 101,
+          "rss_kib": 43140,
+          "threads": 11
+        }
+      ]
+    },
+    "after_processes": {
+      "asr_broker": [
+        {
+          "pid": 8154,
+          "uid": 106,
+          "rss_kib": 11464,
+          "threads": 3
+        }
+      ],
+      "asr_worker": [
+        {
+          "pid": 8185,
+          "uid": 106,
+          "rss_kib": 69956,
+          "threads": 4
+        }
+      ],
+      "tunnel": [
+        {
+          "pid": 10422,
+          "uid": 105,
+          "rss_kib": 20724,
+          "threads": 8
+        }
+      ],
+      "flowboard": [
+        {
+          "pid": 20872,
+          "uid": 101,
+          "rss_kib": 39480,
+          "threads": 11
+        }
+      ]
+    },
+    "website_and_tunnel_pid_unchanged": true
+  },
+  "website": {
+    "users": 5,
+    "shares": 5,
+    "share_http_statuses": [
+      200,
+      200,
+      200,
+      200,
+      200
+    ],
+    "bundle_sha256": "18d99693439b6f7c8313987cf4d7f5088678d794b407918da4a1a79708086d83"
+  },
+  "kernel_tainted": 0,
+  "kernel": "3.4.0-msf",
+  "installed_total_bytes": 57299069,
+  "free_bytes": 4614057984
+}

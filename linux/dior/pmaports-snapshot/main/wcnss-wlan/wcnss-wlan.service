@@ -1,0 +1,12 @@
+[Unit]
+Description=Initialize WCNSS WLAN driver
+Before=network-pre.target
+Wants=network-pre.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'i=0; while [ ! -e /dev/wcnss_wlan ] && [ "$i" -lt 30 ]; do i=$((i+1)); sleep 1; done; [ -e /dev/wcnss_wlan ] || exit 1; echo 1 > /dev/wcnss_wlan; if [ -e /sys/module/wlan/parameters/fwpath ]; then echo sta > /sys/module/wlan/parameters/fwpath; fi'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

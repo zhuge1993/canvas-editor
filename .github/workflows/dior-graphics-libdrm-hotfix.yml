@@ -1,0 +1,54 @@
+name: Dior libdrm-only graphics hotfix
+on:
+  push:
+    branches: [linux-server-armhf]
+    paths:
+      - 'linux/dior/ci-build-graphics-libdrm.py'
+      - '.github/workflows/dior-graphics-libdrm-hotfix.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: dior-graphics-libdrm-hotfix-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  libdrm:
+    if: github.repository == 'zhuge1993/canvas-editor' && github.ref == 'refs/heads/linux-server-armhf'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONUNBUFFERED: '1'
+      PMB_SUDO: sudo
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install armv7 build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ca-certificates curl git gh python3 sudo tar xz-utils zstd \
+            qemu-user-static binfmt-support util-linux procps file
+      - name: Rebuild libdrm and test exact ION wire layout
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 linux/dior/ci-build-graphics-libdrm.py 2>&1 | tee "$RUNNER_TEMP/dior-libdrm-hotfix.log"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Dior-libdrm-hotfix-${{ github.sha }}
+          path: ${{ runner.temp }}/dior-graphics-libdrm-hotfix/artifact/
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Dior-libdrm-hotfix-diagnostics-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/dior-libdrm-hotfix.log
+            ${{ runner.temp }}/dior-graphics-libdrm-hotfix/pmbootstrap.log
+          if-no-files-found: warn
+          retention-days: 7

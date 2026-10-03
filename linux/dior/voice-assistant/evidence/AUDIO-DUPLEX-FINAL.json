@@ -1,0 +1,129 @@
+{
+  "status": "PASS",
+  "audio_saved": false,
+  "human_near_end_voice_tested": false,
+  "physical_echo_measurement": {
+    "raw_rms": 1840.8394504297712,
+    "linear_aec_rms": 67.0867126925024,
+    "processed_rms": 14.401915907898566,
+    "linear_erle_db": 28.767588027905198,
+    "processed_erle_db": 42.13191284432425,
+    "measured_frames": 165,
+    "speaker_pcm_seconds": 6,
+    "speaker_volume_percent": 35
+  },
+  "best_reference_delay_frames": 13,
+  "reference_delay_correlations": [
+    41317948,
+    135076,
+    -44790938,
+    -50852605,
+    71281209,
+    -28194375,
+    -43253209,
+    28155557,
+    1286923,
+    6143214,
+    -13648904,
+    -32527391,
+    4457915,
+    -76359153,
+    -11727091,
+    27163183,
+    -4161087,
+    -3163390,
+    41445809,
+    28661147,
+    -60788571,
+    -2645103,
+    -3709251,
+    28146557,
+    -60027316,
+    -22055681,
+    46428588,
+    18129499,
+    -48280997,
+    18870511,
+    25258908,
+    31112793
+  ],
+  "echo_cancellation_pass": true,
+  "mute_zero_pass": true,
+  "max_volume_pass": true,
+  "interrupt_callback_seconds": 0.10086721100378782,
+  "capture_frames_during_play_and_interrupt": 27,
+  "duplex": {
+    "frames": 450,
+    "xruns": 0,
+    "volume": 35,
+    "error": null,
+    "xrun_events": [],
+    "capture_sizes": [
+      2560,
+      640
+    ],
+    "playback_sizes": [
+      2560,
+      640
+    ],
+    "cpu_seconds_completed": 0.0,
+    "cancelled_playbacks": 1,
+    "last_interrupt_hardware_flush_seconds": 0.09923755800264189,
+    "echo_startup_adaptation": false,
+    "capabilities": {
+      "microphone_available": true,
+      "speaker_available": true,
+      "simultaneous_capture_playback": true,
+      "aec_available": true,
+      "aec_verified": false
+    },
+    "audio_or_transcripts_saved": false
+  },
+  "callbacks": [
+    [
+      1,
+      true,
+      7.222203926001384
+    ],
+    [
+      2,
+      false,
+      9.027887098003703
+    ]
+  ],
+  "capture_frame_count": 450,
+  "max_capture_gap_seconds": 0.06651368099846877,
+  "capture_gap_p95_seconds": 0.020016233997012023,
+  "mixer_restored": true,
+  "pcm_closed": true,
+  "device_final_status": {
+    "frames": 450,
+    "xruns": 0,
+    "volume": 35,
+    "error": null,
+    "xrun_events": [],
+    "capture_sizes": [
+      2560,
+      640
+    ],
+    "playback_sizes": [
+      2560,
+      640
+    ],
+    "cpu_seconds_completed": 2.066106136,
+    "cancelled_playbacks": 1,
+    "last_interrupt_hardware_flush_seconds": 0.09923755800264189,
+    "echo_startup_adaptation": false,
+    "capabilities": {
+      "microphone_available": false,
+      "speaker_available": false,
+      "simultaneous_capture_playback": false,
+      "aec_available": false,
+      "aec_verified": false
+    },
+    "audio_or_transcripts_saved": false
+  },
+  "coarse_reference_lag_samples": 2980,
+  "reference_lag_samples": 2980,
+  "reference_correlation": 0.7587466852271837
+}

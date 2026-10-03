@@ -1,0 +1,12 @@
+#!/bin/sh
+set -e
+
+if ! grep -q '^flowboard:' /etc/group 2>/dev/null; then
+	addgroup -S flowboard
+fi
+
+if ! id flowboard >/dev/null 2>&1; then
+	adduser -S -D -H -h /opt/flowboard -s /sbin/nologin -G flowboard flowboard
+fi
+
+exit 0

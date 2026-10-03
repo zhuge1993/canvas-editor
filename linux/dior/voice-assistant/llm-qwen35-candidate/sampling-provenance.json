@@ -1,0 +1,15 @@
+{
+  "model_revision": "2fc06364715b967f1860aea9cf38778875588b17",
+  "model_card_url": "https://huggingface.co/Qwen/Qwen3.5-0.8B/raw/2fc06364715b967f1860aea9cf38778875588b17/README.md",
+  "model_card_sha256": "87a163af54f32fa608a0f8d3ac67945c53dd2b4a7c96740b3d7fdc28e8458864",
+  "mode": "non-thinking text",
+  "parameters": {
+    "temperature": 1.0,
+    "top_p": 1.0,
+    "top_k": 20,
+    "min_p": 0.0,
+    "presence_penalty": 2.0,
+    "repetition_penalty": 1.0
+  },
+  "implementation_scope": "generated-token presence only; fresh fixed-seed sampler per request; greedy remains selectable"
+}

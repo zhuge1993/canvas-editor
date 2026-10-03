@@ -1,0 +1,374 @@
+"""Bridge host contracts with fake providers; not phone/model/Unix-DAC proof."""
+import base64
+import json
+import socket
+import threading
+import time
+import unittest
+import errno
+import sys
+import ast
+import hashlib
+import tempfile
+import stat
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+from protocol import BridgeError,validate,receive
+from server import InferenceBridge
+from providers import Providers,model_diagnostics,runtime_limits,thermal_limits,tts_diagnostics
+
+PEERS={107:{'gid':107,'role':'voice'},101:{'gid':101,'role':'web'}}
+def req(op='chat',**data):return {'v':1,'id':'test','op':op,'deadline_ms':3000,**data}
+class Fake:
+    def __init__(self):self.prompts=[];self.block=False;self.entered=threading.Event();self.released=threading.Event();self.asr_aborts=0
+    def alive(self):return True
+    def cached(self,text):return text=='我在，请说。'
+    def summary(self):return {'model_load_count':1,'native_worker_pid':123,'web_history':False}
+    def chat(self,prompt,cancel,deadline):
+        self.prompts.append(prompt);self.entered.set()
+        while self.block and not self.released.wait(.01):
+            if cancel.is_set():raise BridgeError('cancelled')
+        return {'text':'回答'}
+    def speech(self,text,cancel,deadline):return SimpleNamespace(pcm16=bytes(640),sample_rate=16000)
+    def transcribe(self,pcm,cancel,deadline):
+        self.entered.set()
+        while not cancel.wait(.01):
+            if self.released.is_set():return {'text':'实际路径待设备验证'}
+        raise BridgeError('cancelled')
+    def abort_asr(self):self.asr_aborts+=1
+    def close(self):self.released.set()
+class Contracts(unittest.TestCase):
+    def setUp(self):self.fake=Fake();self.bridge=InferenceBridge(self.fake,PEERS,lambda:40)
+    def tearDown(self):self.bridge.close()
+    def finished(self,job):self.assertTrue(job.done.wait(2));return job.result
+    def test_peer_uid_gid_and_operator_readonly(self):
+        self.assertEqual(self.bridge.role(107,107),'voice')
+        self.assertEqual(self.bridge.role(101,101),'web')
+        for peer in ((101,107),(999,101)):
+            with self.assertRaises(BridgeError):self.bridge.role(*peer)
+        with self.assertRaises(BridgeError):validate(req(text='hi'),'operator')
+        with self.assertRaises(BridgeError):validate(req('clear_history'),'web')
+    def test_bounded_protocol_and_audio_validation(self):
+        validate(req('transcribe',pcm16_base64=base64.b64encode(bytes(640000)).decode()),'web')
+        with self.assertRaises(BridgeError):validate(req('transcribe',pcm16_base64=base64.b64encode(bytes(640002)).decode()),'web')
+        with self.assertRaises(BridgeError):validate(req('tts',text='中'*121),'web')
+        a,b=socket.socketpair()
+        try:
+            a.sendall(b'['*9+b'0'+b']'*9+b'\n')
+            with self.assertRaises(BridgeError):receive(b,time.monotonic()+1)
+        finally:a.close();b.close()
+    def test_web_stateless_and_voice_history_isolated(self):
+        self.finished(self.bridge.submit(req(text='voice-private'),'voice'))
+        self.finished(self.bridge.submit(req(text='web-user-A',context='permitted project A'),'web'))
+        self.finished(self.bridge.submit(req(text='web-user-B',context='permitted project B'),'web'))
+        self.finished(self.bridge.submit(req(text='voice-follow'),'voice'))
+        self.assertNotIn('voice-private',self.fake.prompts[1]);self.assertNotIn('web-user-A',self.fake.prompts[2])
+        self.assertIn('voice-private',self.fake.prompts[3]);self.assertNotIn('web-user-B',self.fake.prompts[3])
+        self.assertEqual(len(self.bridge.voice_history),2)
+    def test_combined_model_prompt_is_768_bytes_and_reports_truncation(self):
+        result=self.finished(self.bridge.submit(req(text='问'*300,context='资料'*200),'web'))
+        self.assertLessEqual(len(self.fake.prompts[-1].encode()),768)
+        self.assertTrue(result['text_truncated']);self.assertTrue(result['context_truncated'])
+    def test_web_compact_prompt_preserves_net_180_byte_context_and_exact_truncation(self):
+        for context in ('事实', 'x'*180, 'x'*181, '界'*60, 'a'+'界'*60):
+            data=context.encode()[:180].decode('utf8',errors='ignore')
+            result=self.finished(self.bridge.submit(req(text='问题',context=context),'web'))
+            self.assertEqual(self.fake.prompts[-1],'资料：'+data+'\n问：问题')
+            self.assertEqual(result['context_truncated'],data!=context)
+            self.assertFalse(result['text_truncated'])
+            self.assertEqual(result['model_prompt_bytes'],len(self.fake.prompts[-1].encode()))
+        result=self.finished(self.bridge.submit(req(text='x'*1000,context='z'*1536),'web'))
+        self.assertEqual(self.fake.prompts[-1],'资料：'+'z'*180+'\n问：'+'x'*480)
+        self.assertEqual(result['model_prompt_bytes'],676)
+        self.assertTrue(result['context_truncated']);self.assertTrue(result['text_truncated'])
+        self.finished(self.bridge.submit(req(text='no context'),'web'))
+        self.assertEqual(self.fake.prompts[-1],'no context')
+    def test_compact_web_format_does_not_change_legacy_voice_history_format(self):
+        self.finished(self.bridge.submit(req(text='legacy first'),'voice'))
+        self.assertEqual(self.fake.prompts[-1],'前文：\n本轮问题：legacy first')
+        self.finished(self.bridge.submit(req(text='legacy next'),'voice'))
+        self.assertTrue(self.fake.prompts[-1].startswith('前文：问：legacy first 答：'))
+        self.assertTrue(self.fake.prompts[-1].endswith('\n本轮问题：legacy next'))
+    def test_voice_preempts_web_and_same_provider_remains(self):
+        self.fake.block=True
+        web=self.bridge.submit(req(text='web'),'web');self.assertTrue(self.fake.entered.wait(1))
+        voice=self.bridge.submit(req(text='voice'),'voice');self.fake.released.set()
+        self.assertEqual(self.finished(web)['error_code'],'preempted')
+        self.assertTrue(self.finished(voice)['ok']);self.assertEqual(self.bridge.provider.summary()['model_load_count'],1)
+    def test_voice_asr_presence_closes_web_lease_and_blocks_new_web(self):
+        pcm=base64.b64encode(bytes(640)).decode();web=self.bridge.submit(req('transcribe',pcm16_base64=pcm),'web')
+        self.assertTrue(self.fake.entered.wait(1))
+        self.bridge.control(req('begin_voice_asr',lease_id='lease',ttl_ms=20000),'voice')
+        self.assertEqual(self.finished(web)['error_code'],'preempted');self.assertGreater(self.fake.asr_aborts,0)
+        with self.assertRaises(BridgeError):self.bridge.submit(req(text='web'),'web')
+        self.bridge.control(req('end_voice_asr',lease_id='lease'),'voice')
+        self.assertTrue(self.finished(self.bridge.submit(req(text='web'),'web'))['ok'])
+    def test_queue_has_hard_limit(self):
+        self.fake.block=True;active=self.bridge.submit(req(text='voice'),'voice');self.assertTrue(self.fake.entered.wait(1))
+        for _ in range(3):self.bridge.submit(req(text='waiting'),'web')
+        with self.assertRaises(BridgeError):self.bridge.submit(req(text='overflow'),'web')
+    def test_hot_dynamic_work_waits_but_fixed_voice_cache_preempts_and_remains_available(self):
+        self.bridge.temperature=66;self.bridge.temperature_reader=lambda:66
+        web=self.bridge.submit(req(text='web'),'web')
+        until=time.monotonic()+1
+        while web.state!='cooling' and time.monotonic()<until:time.sleep(.01)
+        status=self.bridge.control(req('status'),'operator')
+        self.assertTrue(status['cooling']);self.assertTrue(status['thermal_waiting'])
+        self.assertEqual(status['active'],'chat');self.assertEqual(status['active_state'],'cooling')
+        self.assertFalse(self.fake.entered.is_set())
+        result=self.finished(self.bridge.submit(req('tts',text='我在，请说。'),'voice'))
+        self.assertEqual(self.finished(web)['error_code'],'preempted')
+        self.assertTrue(result['ok']);self.assertTrue(result['cache_hit']);self.assertFalse(result['model_inference_this_call'])
+    def test_disconnect_cancels_active_job(self):
+        self.fake.block=True;a,b=socket.socketpair();self.bridge.slots.acquire()
+        thread=threading.Thread(target=self.bridge.handle,args=(b,(101,101)),daemon=True);thread.start()
+        a.sendall((json.dumps(req(text='web'))+'\n').encode());self.assertTrue(self.fake.entered.wait(1));a.close()
+        thread.join(1);self.assertFalse(thread.is_alive())
+        until=time.monotonic()+1
+        while self.bridge.active and time.monotonic()<until:time.sleep(.01)
+        self.assertIsNone(self.bridge.active)
+    def test_absolute_deadline_returns_before_uncooperative_late_provider(self):
+        def late(prompt,cancel,deadline):time.sleep(1.4);return {'text':'late'}
+        self.fake.chat=late;a,b=socket.socketpair();a.settimeout(2);self.bridge.slots.acquire()
+        thread=threading.Thread(target=self.bridge.handle,args=(b,(101,101)),daemon=True);thread.start()
+        begin=time.monotonic();request=req(text='web');request['deadline_ms']=1000
+        a.sendall((json.dumps(request)+'\n').encode());data=bytearray()
+        while b'\n' not in data:data.extend(a.recv(4096))
+        self.assertEqual(json.loads(data)['error_code'],'deadline');self.assertLess(time.monotonic()-begin,1.3)
+        a.close();thread.join(1)
+    def test_hot_inflight_work_is_cancelled(self):
+        self.fake.block=True;job=self.bridge.submit(req(text='web'),'web');self.assertTrue(self.fake.entered.wait(1))
+        self.bridge.temperature=66
+        self.assertEqual(self.finished(job)['error_code'],'thermal')
+    def test_restart_fallback_is_fixed_cache_only_and_never_busy_bypass(self):
+        sys.path.insert(0,str(Path(__file__).resolve().parent.parent/'runtime'))
+        from client import BridgeTTS,VoiceASRLease
+        clip=SimpleNamespace(pcm16=bytes(640),sample_rate=16000)
+        class Missing:
+            def request(self,*a,**kw):raise FileNotFoundError(errno.ENOENT,'socket absent')
+        tts=BridgeTTS.__new__(BridgeTTS);tts.ipc=Missing();tts.fixed=SimpleNamespace(audio={'我在，请说。':clip})
+        self.assertIs(tts.synthesize('我在，请说。',threading.Event()),clip)
+        with self.assertRaises(OSError):tts.synthesize('dynamic reply',threading.Event())
+        lease=VoiceASRLease('unused');lease.ipc=Missing();lease.begin();self.assertIsNone(lease.local.token)
+        class Busy:
+            def request(self,*a,**kw):raise RuntimeError('busy')
+        tts.ipc=Busy();lease.ipc=Busy()
+        with self.assertRaises(RuntimeError):tts.synthesize('我在，请说。',threading.Event())
+        with self.assertRaises(RuntimeError):lease.begin()
+    def test_fixed_cache_indices_match_actual_tts_builder_phrase_order(self):
+        sys.path.insert(0,str(Path(__file__).resolve().parent.parent/'runtime'))
+        from client import FixedCache
+        source=Path(__file__).resolve().parent.parent/'tts/offline_tts.py'
+        tree=ast.parse(source.read_text(encoding='utf8'))
+        actual=None
+        for node in tree.body:
+            if isinstance(node,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='FIXED_PHRASES' for t in node.targets):
+                actual=ast.literal_eval(node.value)
+        self.assertIsNotNone(actual)
+        self.assertEqual(tuple(actual),FixedCache.PHRASES)
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);phrases={}
+            for index,phrase in enumerate(actual):
+                data=bytes([index,0])*320;path=root/('phrase-%02d.pcm'%index);path.write_bytes(data);path.chmod(0o444)
+                phrases[phrase]={'file':path.name,'bytes':len(data),'sample_rate':16000,'sha256':hashlib.sha256(data).hexdigest()}
+            manifest=root/'manifest.json';manifest.write_text(json.dumps({'schema':1,'engine':'piper',
+                'model_sha256':'d30b143fac66d821a1285aa013295adf5cd129d3cc11d70334e51c7b20662c37','phrases':phrases}),encoding='utf8');manifest.chmod(0o444)
+            try:
+                cache=FixedCache(root)
+                self.assertEqual(cache.audio['音量已设为百分之100。'].pcm16,bytes([5,0])*320)
+                self.assertEqual(cache.audio['音量已设为百分之50。'].pcm16,bytes([6,0])*320)
+            finally:
+                for path in root.iterdir():path.chmod(0o600)
+    def test_model_diagnostics_distinguish_empty_eos_without_private_payload(self):
+        provider=Providers.__new__(Providers);provider.diagnostics_lock=threading.Lock()
+        provider.last_model_diagnostics={'status':'not_run'};provider.last_error_type='none'
+        provider.asr_path='nonexistent-contract-asr.sock';provider.tts=SimpleNamespace()
+        model=SimpleNamespace(last_metrics=None,ready={'model_load_count':1},
+            process=SimpleNamespace(pid=123,poll=lambda:None),clear_history=lambda:None)
+        provider.model=model
+        def empty(*args,**kwargs):
+            model.last_metrics={'status':'complete','generated_tokens':0,'input_tokens':73,
+                'cached_prefix_tokens':33,'first_token_seconds':-1,'prefill_seconds':7.09,
+                'total_seconds':7.09,'max_rss_kib':455000,'gpu_used':False,
+                'text':'private-native-text','id':'private-native-id','prompt':'private-prompt',
+                'history':['private-history']}
+            return SimpleNamespace(text='')
+        model.generate=empty
+        result=provider.chat('private-user-input',threading.Event(),time.monotonic()+3)
+        summary=provider.summary()
+        self.assertEqual(summary['last_error_type'],'empty_complete')
+        self.assertEqual(summary['last_model_diagnostics']['generated_tokens'],0)
+        self.assertEqual(summary['last_model_diagnostics']['status'],'complete')
+        self.assertEqual(result['metrics'],summary['last_model_diagnostics'])
+        encoded=json.dumps(summary)+json.dumps(result['metrics'])
+        for secret in ('private-native-text','private-native-id','private-prompt','private-history','private-user-input'):
+            self.assertNotIn(secret,encoded)
+        model.generate=lambda *a,**kw:SimpleNamespace(text='')
+        provider.chat('next-user',threading.Event(),time.monotonic()+3)
+        self.assertEqual(provider.summary()['last_model_diagnostics'],{'status':'not_reported'})
+        self.assertEqual(provider.summary()['last_error_type'],'empty_unreported')
+    def test_model_diagnostics_reject_unbounded_values_and_exception_messages(self):
+        poisoned={'status':'private-status','generated_tokens':129,'input_tokens':True,
+            'first_token_seconds':float('inf'),'prefill_seconds':float('nan'),
+            'total_seconds':10**1000,'max_rss_kib':-1,'gpu_used':'private-string'}
+        self.assertEqual(model_diagnostics(poisoned),{'status':'unknown_status'})
+        provider=Providers.__new__(Providers);provider.diagnostics_lock=threading.Lock()
+        provider.last_model_diagnostics={'status':'not_run'};provider.last_error_type='none'
+        provider.asr_path='nonexistent-contract-asr.sock';provider.tts=SimpleNamespace()
+        model=SimpleNamespace(last_metrics=None,ready={'model_load_count':1},
+            process=SimpleNamespace(pid=123,poll=lambda:None),clear_history=lambda:None)
+        provider.model=model
+        def rejected(*a,**kw):
+            model.last_metrics={'status':'prompt_context_limit','input_tokens':0,'generated_tokens':0}
+            return SimpleNamespace(text='')
+        model.generate=rejected
+        provider.chat('private-input',threading.Event(),time.monotonic()+3)
+        self.assertEqual(provider.summary()['last_error_type'],'native_noncomplete')
+        self.assertEqual(provider.summary()['last_model_diagnostics']['status'],'prompt_context_limit')
+        def failed(*a,**kw):raise RuntimeError('private-exception-message')
+        model.generate=failed
+        with self.assertRaises(RuntimeError):provider.chat('private-input',threading.Event(),time.monotonic()+3)
+        summary=provider.summary()
+        self.assertEqual(summary['last_error_type'],'provider_error')
+        self.assertEqual(summary['last_model_diagnostics'],{'status':'not_reported'})
+        self.assertNotIn('private-exception-message',json.dumps(summary))
+    def test_thermal_admission_is_hysteretic_and_uses_existing_worker(self):
+        self.bridge.temperature=67;self.bridge.temperature_reader=lambda:self.bridge.temperature
+        threads=(self.bridge.worker.ident,self.bridge.monitor.ident)
+        job=self.bridge.submit(req(text='cooling query'),'web')
+        until=time.monotonic()+1
+        while job.state!='cooling' and time.monotonic()<until:time.sleep(.01)
+        time.sleep(.12)
+        self.assertFalse(job.cancel.is_set());self.assertFalse(self.fake.entered.is_set())
+        with self.bridge.condition:self.bridge.temperature=53;self.bridge.condition.notify_all()
+        time.sleep(.12);self.assertFalse(self.fake.entered.is_set())
+        with self.bridge.condition:self.bridge.temperature=52;self.bridge.condition.notify_all()
+        self.assertTrue(self.finished(job)['ok']);self.assertTrue(self.fake.entered.is_set())
+        self.assertEqual(threads,(self.bridge.worker.ident,self.bridge.monitor.ident))
+        self.assertFalse(self.bridge.control(req('status'),'operator')['cooling'])
+    def test_thermal_wait_retains_cancel_and_original_deadline(self):
+        self.bridge.temperature=60;self.bridge.temperature_reader=lambda:60
+        job=self.bridge.submit(req(text='cancel cooling'),'web')
+        until=time.monotonic()+1
+        while job.state!='cooling' and time.monotonic()<until:time.sleep(.01)
+        with self.bridge.condition:self.bridge._cancel(job,'cancelled');self.bridge.condition.notify_all()
+        self.assertEqual(self.finished(job)['error_code'],'cancelled')
+        request=req(text='deadline cooling');request['deadline_ms']=1000
+        start=time.monotonic();result=self.finished(self.bridge.submit(request,'web'))
+        self.assertEqual(result['error_code'],'deadline');self.assertLess(time.monotonic()-start,1.4)
+        self.assertFalse(self.fake.entered.is_set())
+        self.bridge.temperature=None
+        result=self.finished(self.bridge.submit(req(text='unknown thermal'),'web'))
+        self.assertEqual(result['error_code'],'thermal_unavailable')
+    def test_independent_tts_50_gate_keeps_model_45_wait_and_hard_65_stop(self):
+        self.bridge.close()
+        self.bridge=InferenceBridge(self.fake,PEERS,lambda:50,thermal_admit_c=45,tts_thermal_admit_c=50)
+        self.bridge.temperature_reader=lambda:self.bridge.temperature
+        model=self.bridge.submit(req(text='model needs 45'),'web')
+        until=time.monotonic()+1
+        while model.state!='cooling' and time.monotonic()<until:time.sleep(.01)
+        status=self.bridge.control(req('status'),'operator')
+        self.assertEqual((status['thermal_admit_c'],status['tts_thermal_admit_c'],status['active_thermal_admit_c']),(45,50,45))
+        self.assertTrue(status['cooling']);self.assertFalse(self.fake.entered.is_set())
+        with self.bridge.condition:self.bridge._cancel(model,'cancelled');self.bridge.condition.notify_all()
+        self.assertEqual(self.finished(model)['error_code'],'cancelled')
+        entered=threading.Event()
+        def speech(text,cancel,deadline):
+            entered.set()
+            while not cancel.wait(.01):pass
+            raise BridgeError('cancelled')
+        self.fake.speech=speech
+        self.bridge.temperature=51
+        tts=self.bridge.submit(req('tts',text='dynamic speech'),'web')
+        until=time.monotonic()+1
+        while tts.state!='cooling' and time.monotonic()<until:time.sleep(.01)
+        self.assertFalse(entered.is_set())
+        self.assertEqual(self.bridge.control(req('status'),'operator')['active_thermal_admit_c'],50)
+        with self.bridge.condition:self.bridge.temperature=50;self.bridge.condition.notify_all()
+        self.assertTrue(entered.wait(1))
+        status=self.bridge.control(req('status'),'operator')
+        self.assertEqual(status['active_thermal_admit_c'],50);self.assertFalse(status['cooling'])
+        self.bridge.temperature=65;time.sleep(.1);self.assertFalse(tts.cancel.is_set())
+        self.bridge.temperature=66
+        self.assertEqual(self.finished(tts)['error_code'],'thermal')
+    def test_config_limits_validate_before_provider_load_and_forward_actual_threads(self):
+        self.assertEqual(runtime_limits({}),(3,52))
+        for threads in (1,2,3,4):self.assertEqual(runtime_limits({'llm_threads':threads}),(threads,52))
+        for admit in (45,49,50,52):self.assertEqual(runtime_limits({'thermal_admit_c':admit}),(3,admit))
+        for config in ({'llm_threads':0},{'llm_threads':5},{'llm_threads':True},{'llm_threads':'3'},
+                       {'thermal_admit_c':44},{'thermal_admit_c':53},{'thermal_admit_c':True}):
+            with self.assertRaises(BridgeError):runtime_limits(config)
+        with patch('providers.load') as loader:
+            with self.assertRaises(BridgeError):Providers({'llm_threads':0})
+            loader.assert_not_called()
+        seen={}
+        model=SimpleNamespace(ready={'threads':3,'model_load_count':1},process=SimpleNamespace(pid=123,poll=lambda:None))
+        def model_factory(binary,weight,threads):seen['threads']=threads;return model
+        modules=[SimpleNamespace(LocalLanguageModel=model_factory),SimpleNamespace(create_persistent=lambda **kw:SimpleNamespace())]
+        config={'runtime_dir':'contract-runtime','llm_module':'contract-llm','llm_binary':'contract-binary',
+                'llm_model':'contract-model','tts_module':'contract-tts','tts_base':'contract-tts-base','llm_threads':3}
+        with patch('providers.load',side_effect=modules):provider=Providers(config)
+        self.assertEqual(seen['threads'],3);self.assertEqual(provider.summary()['native_threads'],3)
+    def test_tts_gate_config_inherits_global_and_rejects_bad_types_before_provider_load(self):
+        self.assertEqual(thermal_limits({}),(52,52))
+        self.assertEqual(thermal_limits({'thermal_admit_c':45}),(45,45))
+        self.assertEqual(thermal_limits({'thermal_admit_c':45,'tts_thermal_admit_c':50}),(45,50))
+        for value in (44,53,True,50.0,'50',None):
+            config={'thermal_admit_c':45,'tts_thermal_admit_c':value}
+            with self.assertRaises(BridgeError):runtime_limits(config)
+            with patch('providers.load') as loader:
+                with self.assertRaises(BridgeError):Providers(config)
+                loader.assert_not_called()
+        inherited=InferenceBridge(Fake(),PEERS,thermal_admit_c=45)
+        try:self.assertEqual(inherited.tts_thermal_admit_c,45)
+        finally:inherited.close()
+        for value in (44,53,True,50.0,'50'):
+            with self.assertRaises(BridgeError):InferenceBridge(Fake(),PEERS,thermal_admit_c=45,tts_thermal_admit_c=value)
+    def test_service_main_passes_validated_global_and_tts_config_to_bridge(self):
+        import server
+        config={'version':1,'socket':'/run/dior-inference/inference.sock',
+                'thermal_admit_c':45,'tts_thermal_admit_c':50}
+        path=SimpleNamespace(lstat=lambda:SimpleNamespace(st_mode=stat.S_IFREG|0o600,st_uid=0,st_size=200),
+                             is_symlink=lambda:False,read_text=lambda **kw:json.dumps(config))
+        pwd=SimpleNamespace(getpwnam=lambda name:SimpleNamespace(pw_uid=107 if name=='dior-voice' else 101,pw_gid=107 if name=='dior-voice' else 101))
+        with patch.dict(sys.modules,{'pwd':pwd}),patch.object(sys,'argv',['bridge']),patch('server.Path',return_value=path),patch('signal.signal'),patch('providers.Providers',return_value=self.fake) as provider,patch('server.InferenceBridge') as bridge:
+            server.main()
+            self.assertEqual(bridge.call_args.kwargs,{'thermal_admit_c':45,'tts_thermal_admit_c':50})
+            bridge.return_value.serve.assert_called_once_with(config['socket'],'dior-inference')
+            bridge.reset_mock();provider.reset_mock();config['tts_thermal_admit_c']=53
+            with self.assertRaises(BridgeError):server.main()
+            provider.assert_not_called();bridge.assert_not_called()
+    def test_bridge_constructor_accepts_45_and_rejects_out_of_range_admission(self):
+        bridge=InferenceBridge(Fake(),PEERS,thermal_admit_c=45)
+        try:
+            self.assertEqual(bridge.thermal_admit_c,45)
+            self.assertTrue(bridge.worker.is_alive());self.assertTrue(bridge.monitor.is_alive())
+        finally:bridge.close()
+        for value in (44,53,True,45.0,'45'):
+            with self.assertRaises(BridgeError):InferenceBridge(Fake(),PEERS,thermal_admit_c=value)
+    def test_tts_status_is_bounded_and_never_exposes_private_audio_or_text(self):
+        value={'persistent':True,'state':'idle','process_pid':123,'stderr_buffer_bytes':8192,
+               'statistics_entries':4,'anonymous_audio_bytes':0,'reader_threads':2,'worker_start_count':1,
+               'text':'private answer','audio':'private bytes','path':'private path','stderr':'private logs',
+               'unknown':'private info','request_count':10**100,'last_error':'private error'}
+        safe=tts_diagnostics(value)
+        self.assertTrue(safe['persistent']);self.assertEqual(safe['state'],'idle')
+        self.assertNotIn('request_count',safe);self.assertNotIn('last_error',safe)
+        self.assertNotIn('private',json.dumps(safe))
+    def test_prepare_system_only_calls_adapter_and_returns_bounded_ack(self):
+        provider=Providers.__new__(Providers);calls=[]
+        def prepare(system,**kwargs):
+            calls.append('prepare');return {'status':'complete','initialized':True,'prefix_tokens':41,
+                'generated_tokens':0,'cache_hit':False,'text':'private body'}
+        def forbidden(*args,**kwargs):raise AssertionError('prepare invoked generation/history/TTS')
+        provider.model=SimpleNamespace(prepare_system=prepare,generate=forbidden,clear_history=forbidden)
+        provider.tts=SimpleNamespace(synthesize=forbidden)
+        result=provider.prepare_system('synthetic system',threading.Event(),time.monotonic()+1)
+        self.assertEqual(calls,['prepare']);self.assertEqual(result['generated_tokens'],0);self.assertNotIn('text',result)
+        provider.model.prepare_system=lambda *a,**kw:dict(result,prefix_tokens=513)
+        with self.assertRaises(BridgeError):provider.prepare_system('system',threading.Event(),time.monotonic()+1)
+        provider.model=SimpleNamespace()
+        with self.assertRaises(BridgeError) as caught:provider.prepare_system('system',threading.Event(),time.monotonic()+1)
+        self.assertEqual(caught.exception.code,'prepare_system_unsupported')
+if __name__=='__main__':unittest.main(verbosity=2)

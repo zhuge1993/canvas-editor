@@ -1,0 +1,9 @@
+{
+  "status": "PASS",
+  "service": "dior-asr",
+  "model": "bilingual32",
+  "worker_sha256": "0d2206ee5fe10e63979a5f959883b5e414136f346e42e2b5eb0c4aeeee3b5dbd",
+  "program_backup": "/opt/dior-asr.previous",
+  "model_backup_created": false,
+  "default_enabled": true
+}

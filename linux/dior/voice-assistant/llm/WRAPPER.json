@@ -1,0 +1,169 @@
+{
+  "format": "dior-qwen25-role-wrapper-v1",
+  "upstream_source_manifest": "SOURCE.json",
+  "dependency_manifest": "DEPENDENCIES.json",
+  "local_files": [
+    {
+      "path": "llm-worker.cpp",
+      "bytes": 20712,
+      "sha256": "152f7a562c0b6feb9f823d958be330032ddfccae8e548c2a8660526058aa7598"
+    },
+    {
+      "path": "adapter.py",
+      "bytes": 13780,
+      "sha256": "f23d6fc9c9a5860278bc7ee7c052fe1bd945355d3f65c16339bbae3dd15df07d"
+    },
+    {
+      "path": "api19-compat.h",
+      "bytes": 1445,
+      "sha256": "ba420dd225ca40fc4c539c46d45803baa0328affae2dc051abdf721bcd3c9767"
+    }
+  ],
+  "qualified_worker": {
+    "bytes": 3172972,
+    "sha256": "31e9a5c8d92093af7a198e0b4091ca1be9133b2aa1cd4bdf3b208687253e2b6a",
+    "wrapper_source_sha256": "152f7a562c0b6feb9f823d958be330032ddfccae8e548c2a8660526058aa7598",
+    "adapter_sha256": "f23d6fc9c9a5860278bc7ee7c052fe1bd945355d3f65c16339bbae3dd15df07d",
+    "clear_history_supported": true,
+    "prepare_system_supported": true,
+    "cache_scope": "exact system plus stable user-role im_start special boundary",
+    "phone_execution_verified": true,
+    "engine_tag": "b3927",
+    "engine_commit": "10433e8b457c4cfd759cbb41fc55fc398db4a5da"
+  },
+  "model_sha256": "7671c0c304e6ce5a7fc577bcb12aba01e2c155cc2efd29b2213c95b18edaf6ed",
+  "context_tokens": 1024,
+  "max_generated_tokens": 96,
+  "semantic_history_owner": "caller",
+  "explicit_messages_supported": true,
+  "model_weights_changed": false,
+  "upstream_math_changed": false,
+  "quality_scope": "Bounded protocol and selected prompts; general dialogue reliability is not established",
+  "qualification_scope": "Selected real-device CPU generation, actual system-prefix reuse after history clear, and synthetic ASR-to-speaker completion; human microphone, general dialogue quality and prolonged thermal stability remain unqualified",
+  "previous_qualified_worker": {
+    "bytes": 3155208,
+    "sha256": "d12e31580fc5b437d997259d51bb149e22899eb55ea6d36520f40314af3f4515",
+    "engine_tag": "b3927",
+    "engine_commit": "10433e8b457c4cfd759cbb41fc55fc398db4a5da",
+    "wrapper_source_sha256": "ad35c3d524e937e30866be47578813df6049d5edecf073fa89da8b685bfbb4a0",
+    "adapter_sha256": "56cded668331deb12a3aaf7b509fdde829044bff4cbfc8fc84c5ef8bce8fc206"
+  },
+  "qualification_manifest": "PHONE-QUALIFICATION.json",
+  "adapter_qualification_history": [
+    {
+      "sha256": "21d3c9f4aa2ccabf9832bf257c14cc1aa4b716da6fa3de7c7a5fd9fbf17aa405",
+      "qualification_manifest": "PHONE-QUALIFICATION.json",
+      "scope": "Initial native system-cache and selected model/synthetic speaker qualification; early combined web report failed at TTS503"
+    },
+    {
+      "sha256": "78e2b8b60099f0008a8f4a098f2f348ee49beb1dff76b734be75d90d295476b7",
+      "scope": "Intermediate fixed website-system reuse adapter; host contracts passed, superseded before final combined web qualification",
+      "evidence": {
+        "artifact": "QWEN25-WEB-PREFIX-HOST.json",
+        "bytes": 1282,
+        "sha256": "48d34a5cc8449bf568ff344953cc0d65a10b3885db4b64e0b120efa18a05f4dc"
+      }
+    }
+  ],
+  "qualified_adapter": {
+    "sha256": "f23d6fc9c9a5860278bc7ee7c052fe1bd945355d3f65c16339bbae3dd15df07d",
+    "change": "Fixed website system carries read-only instruction; compact dynamic labels preserve 180-byte net context and no semantic history",
+    "host_verified": true,
+    "phone_execution_verified": true,
+    "qualified_native_sha256": "31e9a5c8d92093af7a198e0b4091ca1be9133b2aa1cd4bdf3b208687253e2b6a",
+    "qualification_scope": "Selected real-device HTTP model/project/audio cases and later synthetic ASR-to-speaker identity-skill case only"
+  },
+  "scoped_followup_qualification": {
+    "verified_date": "2026-10-03",
+    "adapter_sha256": "f23d6fc9c9a5860278bc7ee7c052fe1bd945355d3f65c16339bbae3dd15df07d",
+    "web_http": {
+      "result": "PASS_PARTIAL_REAL_PHONE_HTTP_NO_STT_INPUT",
+      "cases_passed": 8,
+      "cases_total": 8,
+      "server_sha256": "cd4600229bc077039e87b5dc32ae4f6e8010a1362031148da1f0dadb0641c338",
+      "provider_sha256": "98df98ae16694c567f732af81079921364c9b4d38efeec024ea1843e14ffe269",
+      "thermal_admit_c": 45,
+      "tts_thermal_admit_c": 45,
+      "cases": [
+        {
+          "name": "real stateless local model generation",
+          "http_status": 200,
+          "elapsed_seconds_including_admission_wait": 20.352
+        },
+        {
+          "name": "real scoped project model analysis",
+          "http_status": 200,
+          "elapsed_seconds_including_admission_wait": 20.682
+        },
+        {
+          "name": "real browser audio response",
+          "http_status": 200,
+          "elapsed_seconds_including_admission_wait": 21.143
+        }
+      ],
+      "max_sampled_thermal_c": 64.0,
+      "real_phone_inference": true,
+      "production_data_used": false,
+      "human_acoustics_tested": false,
+      "transcription_skipped": "No generated PCM/WAV fixture provided",
+      "voice_restored": true,
+      "restored_warmup": {
+        "scope": "startup_only",
+        "attempted": true,
+        "initialized": true,
+        "warmup_skipped": false,
+        "status": "complete",
+        "prefix_tokens": 38,
+        "generated_tokens": 0,
+        "elapsed_seconds": 16.162
+      }
+    },
+    "later_tts_50_followup": {
+      "result": "PASS_RESPONSE_RECOVERY_SYNTHETIC",
+      "server_sha256": "3b1d1a66890ba2edc18bfcbadc69c121574bb8e54896ea91d5cb48ff04046f8d",
+      "provider_sha256": "79e56fbaac642b1c3ee68a3764f74ec147139bc810bd23085747a3529ff4c88b",
+      "thermal_admit_c": 45,
+      "tts_thermal_admit_c": 50,
+      "reply_source": "controller_reply",
+      "model_inference_this_case": false,
+      "response_seconds_from_question_start": 9.52,
+      "tts_request_wall_seconds_including_admission_wait": 5.241,
+      "response_audio_seconds": 1.592,
+      "physical_speaker_drained": true,
+      "audio_xruns": 0,
+      "human_microphone_or_wake_tested": false,
+      "keyword_bypassed": true,
+      "same_eight_case_web_suite_rerun_under_tts_50": false
+    },
+    "evidence": [
+      {
+        "artifact": "LOCAL-OPT-WEB-FINAL.json",
+        "bytes": 1804,
+        "sha256": "b0c58263ecb80e23bcd993d6b07039b3eaf20e0ce72d22fda72425107d7acdba"
+      },
+      {
+        "artifact": "LOCAL-OPT-WEB-FINAL-THERMAL.json",
+        "bytes": 8321,
+        "sha256": "348cf9779c9e2a0d135e7539575f78b9aece01248dacf1a85cf0101d42cf873d"
+      },
+      {
+        "artifact": "LOCAL-OPT-WEB-FINAL-RESTORE.json",
+        "bytes": 300,
+        "sha256": "a5ab3b6386839952477ae294e620b8d7e1e4a4119b7952775f8b76a3da990ed8"
+      },
+      {
+        "artifact": "LOCAL-OPT-FOLLOWUP-TTS50.json",
+        "bytes": 8946,
+        "sha256": "9bce8149b2dd567fd1158a145b3dcfcc191ca13033f046c645822430125fa9bf"
+      }
+    ],
+    "limits": [
+      "Selected fixtures do not establish general dialogue intelligence or correctness",
+      "Web transcription input was not tested in the final eight-case HTTP suite",
+      "Synthetic audio bypassed keyword wake and discarded microphone frames",
+      "TTS50 followup exercised the identity skill, not LLM latency",
+      "One sampled peak of64C does not establish prolonged thermal stability",
+      "Production native remains CPU/NEON; separate operator GPU experiments do not qualify GPU model inference"
+    ]
+  }
+}

@@ -1,0 +1,146 @@
+{
+  "format": "dior-qwen25-phone-qualification-v1",
+  "verified_date": "2026-10-03",
+  "status": "PASS_SCOPED_NATIVE_EXECUTION",
+  "worker_sha256": "31e9a5c8d92093af7a198e0b4091ca1be9133b2aa1cd4bdf3b208687253e2b6a",
+  "wrapper_source_sha256": "152f7a562c0b6feb9f823d958be330032ddfccae8e548c2a8660526058aa7598",
+  "adapter_sha256": "21d3c9f4aa2ccabf9832bf257c14cc1aa4b716da6fa3de7c7a5fd9fbf17aa405",
+  "model_sha256": "7671c0c304e6ce5a7fc577bcb12aba01e2c155cc2efd29b2213c95b18edaf6ed",
+  "backend": "CPU_NEON",
+  "gpu_used": false,
+  "cloud_inference": false,
+  "threads": 2,
+  "context_tokens": 1024,
+  "max_generated_tokens": 96,
+  "startup_prepare": {
+    "scope": "startup_only",
+    "attempted": true,
+    "initialized": true,
+    "warmup_skipped": false,
+    "status": "complete",
+    "prefix_tokens": 38,
+    "generated_tokens": 0,
+    "elapsed_seconds": 9.319
+  },
+  "selected_model_requests": [
+    {
+      "case_index": 1,
+      "status": "PASS",
+      "chat_wall_seconds": 4.255,
+      "generated_tokens": 3,
+      "prefix_cache_hit": true,
+      "prefix_tokens_reused": 38,
+      "explicit_history_clear_before_request": false,
+      "identity_correct": true
+    },
+    {
+      "case_index": 2,
+      "status": "PASS",
+      "chat_wall_seconds": 4.188,
+      "generated_tokens": 3,
+      "prefix_cache_hit": true,
+      "prefix_tokens_reused": 38,
+      "explicit_history_clear_before_request": true,
+      "identity_correct": true
+    },
+    {
+      "case_index": 3,
+      "status": "PASS",
+      "chat_wall_seconds": 10.808,
+      "generated_tokens": 13,
+      "prefix_cache_hit": true,
+      "prefix_tokens_reused": 38,
+      "explicit_history_clear_before_request": false,
+      "identity_correct": null
+    }
+  ],
+  "synthetic_asr_to_speaker": {
+    "human_microphone_or_wake_tested": false,
+    "keyword_bypassed": true,
+    "audio_recorded": false,
+    "cases": [
+      {
+        "report": "LOCAL-OPT-FOLLOWUP-FIRST.json",
+        "status": "PASS",
+        "reply_source": "model",
+        "response_seconds_from_injection": 11.04,
+        "response_seconds_from_ack": 11.84,
+        "physical_playbacks_drained": true,
+        "xruns": 0,
+        "identity_correct": true,
+        "no_loop_observation_seconds": 3
+      },
+      {
+        "report": "LOCAL-OPT-FOLLOWUP-WARM.json",
+        "status": "PASS",
+        "reply_source": "controller_reply",
+        "response_seconds_from_injection": 6.0,
+        "response_seconds_from_ack": 6.8,
+        "physical_playbacks_drained": true,
+        "xruns": 0,
+        "identity_correct": true,
+        "no_loop_observation_seconds": 3
+      }
+    ]
+  },
+  "web_generation": {
+    "combined_report_status": "FAIL",
+    "model_cases": [
+      {
+        "name": "real stateless local model generation",
+        "pass": true,
+        "http_status": 200,
+        "elapsed_seconds": 17.572
+      },
+      {
+        "name": "real scoped project model analysis",
+        "pass": true,
+        "http_status": 200,
+        "elapsed_seconds": 29.748
+      }
+    ],
+    "subsequent_tts_error": "Real TTS failed (503)",
+    "tts_failure_fixed_by_this_qualification": false,
+    "production_data_used": false
+  },
+  "limits": [
+    "Selected prompts only; general dialogue reliability is not established",
+    "Human microphone recognition, keyword wake accuracy and acoustic interruption were not exercised",
+    "Continuous thermal stability and prolonged operation remain unqualified",
+    "The combined web report failed on subsequent TTS HTTP503; successful model calls do not qualify that audio path",
+    "Prefix cache improves fixed computation reuse, not model intelligence"
+  ],
+  "evidence_storage": "Raw local reports are excluded from Git; names and SHA256 values bind this scoped summary to the observed outputs",
+  "evidence": [
+    {
+      "artifact": "LOCAL-OPT-DEPLOY.log",
+      "bytes": 1637,
+      "sha256": "fdd15c031acf5c5b4ed51b4fb049f094a624a8ab949b51f1d5e73582da2526a7"
+    },
+    {
+      "artifact": "LOCAL-OPT-MODEL-TTS.json",
+      "bytes": 10363,
+      "sha256": "ee1da186595611591c552a96716119df16684bd4da429c341e7638cdbd3470f6"
+    },
+    {
+      "artifact": "LOCAL-OPT-FOLLOWUP-FIRST.json",
+      "bytes": 9283,
+      "sha256": "173666186c30039053b5cceb178eff47b54af3fe0e8f2dbf5fa74a273175975a"
+    },
+    {
+      "artifact": "LOCAL-OPT-FOLLOWUP-WARM.json",
+      "bytes": 8735,
+      "sha256": "29edd764a1a6718570ea75b28f344bad8922865f76aa907bb0f73719d9e3ab8a"
+    },
+    {
+      "artifact": "LOCAL-OPT-WEB-FIRST-FAIL.json",
+      "bytes": 1828,
+      "sha256": "6d65ee97893c6f7ff87e72c2b4b05cc66971337ea51d955c4ba7509283ca29b8"
+    },
+    {
+      "artifact": "LOCAL-OPT-VALIDATION-RESTORE.json",
+      "bytes": 748,
+      "sha256": "8df48f2453ea4871a446ec8ecd5602b2e5adee3d84b0f3e43e48b862fca94772"
+    }
+  ]
+}

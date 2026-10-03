@@ -1,0 +1,40 @@
+{
+  "status": "PASS",
+  "fault": "SIGSTOP 350ms exceeds 160ms PCM buffer",
+  "recordings_saved": false,
+  "controller_before": [
+    26011
+  ],
+  "controller_after": [
+    26792
+  ],
+  "other_service_pids_unchanged": true,
+  "recovery_seconds": 39.466518043002,
+  "final_status": {
+    "phase": "WAKE_CHECK",
+    "ready": true,
+    "wake_word": "二狗",
+    "full_duplex": true,
+    "barge_in": true,
+    "aec_verified": true,
+    "pending_wake_change": false,
+    "recording_persisted": false,
+    "transcript_logging": false,
+    "public_listener": false,
+    "queue_limits": {
+      "asr": 1,
+      "response": 1,
+      "frame": 50,
+      "preroll": 25
+    },
+    "llm_configured": true,
+    "network_enabled": true,
+    "keyword_spotter_configured": true,
+    "thermal_sensor_available": true,
+    "counters": {
+      "audio_frames": 26,
+      "asr_spans": 1
+    }
+  },
+  "kernel_tainted": 0
+}

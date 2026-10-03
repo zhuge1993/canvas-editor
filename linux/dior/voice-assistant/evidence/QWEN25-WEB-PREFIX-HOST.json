@@ -1,0 +1,27 @@
+{
+  "format": "dior-web-system-prefix-host-v1",
+  "status": "PASS_HOST_CONTRACTS",
+  "phone_verified": false,
+  "adapter_sha256": "78e2b8b60099f0008a8f4a098f2f348ee49beb1dff76b734be75d90d295476b7",
+  "native_unchanged_sha256": "31e9a5c8d92093af7a198e0b4091ca1be9133b2aa1cd4bdf3b208687253e2b6a",
+  "cpp_sha256": "152f7a562c0b6feb9f823d958be330032ddfccae8e548c2a8660526058aa7598",
+  "adapter_contracts": {
+    "passed": 17,
+    "test_sha256": "18c4ca0eca3b24f3bffe47a03acb8c3116f2683dd976b84c9020af4d3e418108"
+  },
+  "actual_cpp_fake_model_contracts": {
+    "passed": 12,
+    "test_sha256": "09ae4e44daa3b97cb4775e31195fb8dc6dcbcd1e744614b9ee1ca980ed9cf99d"
+  },
+  "verified": [
+    "Different website users send only fixed system plus current user input",
+    "No previous user, assistant answer or authorized project facts enter cached system content",
+    "Exact system mismatch invalidates voice/web reuse",
+    "After every native request retained KV equals only exact fixed system boundary",
+    "Session clear preserves system; explicit no-cache/full clear still removes it"
+  ],
+  "limits": [
+    "Fake model API tests establish protocol/cache lifetime, not semantic quality or phone latency",
+    "New adapter awaits actual phone website generation and TTS validation"
+  ]
+}

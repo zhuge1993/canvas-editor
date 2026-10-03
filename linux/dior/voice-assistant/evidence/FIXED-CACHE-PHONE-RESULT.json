@@ -1,0 +1,76 @@
+{
+  "status": "PASS",
+  "cached_phrase_count": 10,
+  "cases": [
+    {
+      "phrase": "我在，请说。",
+      "wall_seconds": 0.0001290119980694726,
+      "bytes": 45824,
+      "metrics": {
+        "engine": "piper",
+        "neural_voice": true,
+        "mechanical_fallback": false,
+        "offline": true,
+        "cloud_used": false,
+        "cache_hit": true,
+        "cache_kind": "fixed_readonly_whitelist",
+        "model_inference_this_call": false,
+        "sample_rate": 16000,
+        "pcm_bytes": 45824,
+        "audio_seconds": 1.432,
+        "synthesis_seconds": 9.218994819093496e-06,
+        "first_output_seconds": 9.218994819093496e-06,
+        "real_time_factor": 6.437845544059704e-06,
+        "worker_spawned": false,
+        "audio_file_created": false
+      }
+    },
+    {
+      "phrase": "音量已设为百分之100。",
+      "wall_seconds": 7.234399527078494e-05,
+      "bytes": 86784,
+      "metrics": {
+        "engine": "piper",
+        "neural_voice": true,
+        "mechanical_fallback": false,
+        "offline": true,
+        "cloud_used": false,
+        "cache_hit": true,
+        "cache_kind": "fixed_readonly_whitelist",
+        "model_inference_this_call": false,
+        "sample_rate": 16000,
+        "pcm_bytes": 86784,
+        "audio_seconds": 2.712,
+        "synthesis_seconds": 8.906994480639696e-06,
+        "first_output_seconds": 8.906994480639696e-06,
+        "real_time_factor": 3.284290000235876e-06,
+        "worker_spawned": false,
+        "audio_file_created": false
+      }
+    },
+    {
+      "phrase": "请稍等。",
+      "wall_seconds": 4.0885999624151736e-05,
+      "bytes": 35072,
+      "metrics": {
+        "engine": "piper",
+        "neural_voice": true,
+        "mechanical_fallback": false,
+        "offline": true,
+        "cloud_used": false,
+        "cache_hit": true,
+        "cache_kind": "fixed_readonly_whitelist",
+        "model_inference_this_call": false,
+        "sample_rate": 16000,
+        "pcm_bytes": 35072,
+        "audio_seconds": 1.096,
+        "synthesis_seconds": 3.9579972508363426e-06,
+        "first_output_seconds": 3.9579972508363426e-06,
+        "real_time_factor": 3.611311360252137e-06,
+        "worker_spawned": false,
+        "audio_file_created": false
+      }
+    }
+  ],
+  "dynamic_dialogue_cached": false
+}

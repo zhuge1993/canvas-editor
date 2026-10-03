@@ -1,5 +1,5 @@
 [Unit]
-Description=FlowBoard editor server
+Description=FlowBoard ARMv7 drawing server
 After=network.target
 
 [Service]
@@ -9,11 +9,16 @@ Group=flowboard
 WorkingDirectory=/opt/flowboard
 EnvironmentFile=-/opt/flowboard/flowboard.env
 Environment=FLOWBOARD_RUNTIME_DIR=/opt/flowboard
-ExecStart=/usr/bin/env bash /opt/flowboard/start-server.sh
-Restart=on-failure
+ExecStart=/bin/sh /opt/flowboard/start-server.sh
+Restart=always
 RestartSec=3
+TimeoutStopSec=15
 NoNewPrivileges=true
+UMask=0027
 PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/opt/flowboard
+LimitNOFILE=4096
 
 [Install]
 WantedBy=multi-user.target

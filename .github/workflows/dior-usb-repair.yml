@@ -1,0 +1,49 @@
+name: Dior USB rootfs repair
+on:
+  push:
+    branches: [linux-server-armhf]
+    paths:
+      - 'tools/dior-usb-repair/**'
+      - '.github/workflows/dior-usb-repair.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: dior-usb-rootfs-repair
+  cancel-in-progress: false
+jobs:
+  repack:
+    if: github.repository == 'zhuge1993/canvas-editor'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install filesystem verification tools (no compiler)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends e2fsprogs
+      - name: Download the exact successful original image artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: DiorLinux-FlowBoard-V1-aceca7ee0275e30809a874cf986cc187ae5cde92
+          run-id: 36665014260
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/dior-usb-original
+      - name: Check source syntax and repack userdata only
+        run: |
+          set -eu
+          sh -n tools/dior-usb-repair/dior-usb-early
+          sh -n tools/dior-usb-repair/dior-usb-console
+          python3 -c "import ast,pathlib; ast.parse(pathlib.Path('tools/dior-usb-repair/repack_usb.py').read_text())"
+          python3 tools/dior-usb-repair/repack_usb.py "$RUNNER_TEMP/dior-usb-original" "$RUNNER_TEMP/dior-usb-work"
+      - name: Upload verified rootfs candidate (USB not hardware-tested)
+        uses: actions/upload-artifact@v4
+        with:
+          name: DiorLinux-V1-USB-NCM-ACM-${{ github.sha }}
+          path: ${{ runner.temp }}/dior-usb-work/release/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7

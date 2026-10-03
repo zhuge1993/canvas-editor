@@ -1,0 +1,53 @@
+{
+  "status": "FAIL",
+  "input": "generated_piper_pcm_injected",
+  "real_microphone_and_speaker_open": true,
+  "human_wake_or_double_talk_tested": false,
+  "checks": {
+    "short_clear_keyword_real_model_wakes": true
+  },
+  "error": "AssertionError(\"controller_wait_timeout {'phase': 'LISTENING', 'ready': True, 'wake_word': '笑白', 'full_duplex': True, 'barge_in': True, 'aec_verified': True, 'pending_wake_change': False, 'recording_persisted': False, 'transcript_logging': False, 'public_listener': False, 'queue_limits': {'asr': 1, 'response': 1, 'frame': 50, 'preroll': 25}, 'llm_configured': False, 'network_enabled': False, 'keyword_spotter_configured': True, 'thermal_sensor_available': True, 'counters': {'audio_frames': 1818, 'asr_spans': 3, 'acoustic_keyword_hits': 1, 'spoken_replies': 4, 'capture_lock_drops': 2, 'capture_gap_resets': 1}}\")",
+  "generated_test_transcripts": [
+    {
+      "mode": "kws_dialog",
+      "text": "二狗"
+    },
+    {
+      "mode": "dialog",
+      "text": "以后叫你笑白"
+    },
+    {
+      "mode": "confirm",
+      "text": "确认"
+    }
+  ],
+  "device_final_status": {
+    "frames": 1928,
+    "xruns": 0,
+    "volume": 50,
+    "error": null,
+    "xrun_events": [],
+    "capture_sizes": [
+      2560,
+      640
+    ],
+    "playback_sizes": [
+      2560,
+      640
+    ],
+    "playback_pointer_boundary": 1342177280,
+    "cpu_seconds_completed": 0.0,
+    "cancelled_playbacks": 1,
+    "last_interrupt_hardware_flush_seconds": 0.08924072800436988,
+    "echo_startup_adaptation": false,
+    "capabilities": {
+      "microphone_available": true,
+      "speaker_available": true,
+      "simultaneous_capture_playback": true,
+      "aec_available": true,
+      "aec_verified": true
+    },
+    "audio_or_transcripts_saved": false
+  },
+  "pcm_closed": true
+}

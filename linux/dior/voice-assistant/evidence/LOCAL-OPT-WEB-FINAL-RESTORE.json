@@ -1,0 +1,15 @@
+{
+  "status": "PASS",
+  "exit_code": 0,
+  "voice_restored": true,
+  "warmup": {
+    "scope": "startup_only",
+    "attempted": true,
+    "initialized": true,
+    "warmup_skipped": false,
+    "status": "complete",
+    "prefix_tokens": 38,
+    "generated_tokens": 0,
+    "elapsed_seconds": 16.162
+  }
+}

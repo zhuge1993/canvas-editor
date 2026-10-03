@@ -1,0 +1,436 @@
+diff --git a/sherpa-ncnn/csrc/conv-emformer-model.cc b/sherpa-ncnn/csrc/conv-emformer-model.cc
+index d48d374..786f8ad 100644
+--- a/sherpa-ncnn/csrc/conv-emformer-model.cc
++++ b/sherpa-ncnn/csrc/conv-emformer-model.cc
+@@ -45,7 +45,7 @@ ConvEmformerModel::ConvEmformerModel(const ModelConfig &config) {
+   InitJoinerInputOutputIndexes();
+ }
+ 
+-#if __ANDROID_API__ >= 9
++#if __ANDROID_API__ >= 9 && !defined(DIOR_NO_ANDROID_ASSETS)
+ ConvEmformerModel::ConvEmformerModel(AAssetManager *mgr,
+                                      const ModelConfig &config) {
+   encoder_.opt = config.encoder_opt;
+@@ -185,7 +185,7 @@ void ConvEmformerModel::InitJoiner(const std::string &joiner_param,
+   InitNet(joiner_, joiner_param, joiner_bin);
+ }
+ 
+-#if __ANDROID_API__ >= 9
++#if __ANDROID_API__ >= 9 && !defined(DIOR_NO_ANDROID_ASSETS)
+ void ConvEmformerModel::InitEncoder(AAssetManager *mgr,
+                                     const std::string &encoder_param,
+                                     const std::string &encoder_bin) {
+diff --git a/sherpa-ncnn/csrc/conv-emformer-model.h b/sherpa-ncnn/csrc/conv-emformer-model.h
+index 71241ee..05eef27 100644
+--- a/sherpa-ncnn/csrc/conv-emformer-model.h
++++ b/sherpa-ncnn/csrc/conv-emformer-model.h
+@@ -17,7 +17,7 @@ namespace sherpa_ncnn {
+ class ConvEmformerModel : public Model {
+  public:
+   explicit ConvEmformerModel(const ModelConfig &config);
+-#if __ANDROID_API__ >= 9
++#if __ANDROID_API__ >= 9 && !defined(DIOR_NO_ANDROID_ASSETS)
+   ConvEmformerModel(AAssetManager *mgr, const ModelConfig &config);
+ #endif
+ 
+@@ -67,7 +67,7 @@ class ConvEmformerModel : public Model {
+ 
+   void InitEncoderPostProcessing();
+ 
+-#if __ANDROID_API__ >= 9
++#if __ANDROID_API__ >= 9 && !defined(DIOR_NO_ANDROID_ASSETS)
+   void InitEncoder(AAssetManager *mgr, const std::string &encoder_param,
+                    const std::string &encoder_bin);
+   void InitDecoder(AAssetManager *mgr, const std::string &decoder_param,
+diff --git a/sherpa-ncnn/csrc/lstm-model.cc b/sherpa-ncnn/csrc/lstm-model.cc
+index f4dc56d..621d376 100644
+--- a/sherpa-ncnn/csrc/lstm-model.cc
++++ b/sherpa-ncnn/csrc/lstm-model.cc
+@@ -55,7 +55,7 @@ LstmModel::LstmModel(const ModelConfig &config) {
+   InitJoinerInputOutputIndexes();
+ }
+ 
+-#if __ANDROID_API__ >= 9
++#if __ANDROID_API__ >= 9 && !defined(DIOR_NO_ANDROID_ASSETS)
+ LstmModel::LstmModel(AAssetManager *mgr, const ModelConfig &config) {
+   encoder_.opt = config.encoder_opt;
+   decoder_.opt = config.decoder_opt;
+@@ -175,7 +175,7 @@ void LstmModel::InitJoiner(const std::string &joiner_param,
+   InitNet(joiner_, joiner_param, joiner_bin);
+ }
+ 
+-#if __ANDROID_API__ >= 9
++#if __ANDROID_API__ >= 9 && !defined(DIOR_NO_ANDROID_ASSETS)
+ void LstmModel::InitEncoder(AAssetManager *mgr,
+                             const std::string &encoder_param,
+                             const std::string &encoder_bin) {
+diff --git a/sherpa-ncnn/csrc/lstm-model.h b/sherpa-ncnn/csrc/lstm-model.h
+index f944da6..9550f9d 100644
+--- a/sherpa-ncnn/csrc/lstm-model.h
++++ b/sherpa-ncnn/csrc/lstm-model.h
+@@ -31,7 +31,7 @@ namespace sherpa_ncnn {
+ class LstmModel : public Model {
+  public:
+   explicit LstmModel(const ModelConfig &config);
+-#if __ANDROID_API__ >= 9
++#if __ANDROID_API__ >= 9 && !defined(DIOR_NO_ANDROID_ASSETS)
+   LstmModel(AAssetManager *mgr, const ModelConfig &config);
+ #endif
+ 
+@@ -94,7 +94,7 @@ class LstmModel : public Model {
+ 
+   void InitEncoderPostProcessing();
+ 
+-#if __ANDROID_API__ >= 9
++#if __ANDROID_API__ >= 9 && !defined(DIOR_NO_ANDROID_ASSETS)
+   void InitEncoder(AAssetManager *mgr, const std::string &encoder_param,
+                    const std::string &encoder_bin);
+   void InitDecoder(AAssetManager *mgr, const std::string &decoder_param,
+diff --git a/sherpa-ncnn/csrc/model.cc b/sherpa-ncnn/csrc/model.cc
+index f2c97f5..fb82696 100644
+--- a/sherpa-ncnn/csrc/model.cc
++++ b/sherpa-ncnn/csrc/model.cc
+@@ -136,7 +136,7 @@ void Model::InitNet(ncnn::Net &net, const std::string &param,
+   }
+ }
+ 
+-#if __ANDROID_API__ >= 9
++#if __ANDROID_API__ >= 9 && !defined(DIOR_NO_ANDROID_ASSETS)
+ void Model::InitNet(AAssetManager *mgr, ncnn::Net &net,
+                     const std::string &param, const std::string &bin) {
+   if (net.load_param(mgr, param.c_str())) {
+@@ -202,7 +202,7 @@ std::unique_ptr<Model> Model::Create(const ModelConfig &config) {
+   return nullptr;
+ }
+ 
+-#if __ANDROID_API__ >= 9
++#if __ANDROID_API__ >= 9 && !defined(DIOR_NO_ANDROID_ASSETS)
+ std::unique_ptr<Model> Model::Create(AAssetManager *mgr,
+                                      const ModelConfig &config) {
+   ncnn::Net net;
+diff --git a/sherpa-ncnn/csrc/model.h b/sherpa-ncnn/csrc/model.h
+index 0c29e4a..53906c8 100644
+--- a/sherpa-ncnn/csrc/model.h
++++ b/sherpa-ncnn/csrc/model.h
+@@ -54,7 +54,7 @@ class Model {
+   /** Create a model from a config. */
+   static std::unique_ptr<Model> Create(const ModelConfig &config);
+ 
+-#if __ANDROID_API__ >= 9
++#if __ANDROID_API__ >= 9 && !defined(DIOR_NO_ANDROID_ASSETS)
+   static std::unique_ptr<Model> Create(AAssetManager *mgr,
+                                        const ModelConfig &config);
+ #endif
+@@ -135,7 +135,7 @@ class Model {
+   static void InitNet(ncnn::Net &net, const std::string &param,
+                       const std::string &bin);
+ 
+-#if __ANDROID_API__ >= 9
++#if __ANDROID_API__ >= 9 && !defined(DIOR_NO_ANDROID_ASSETS)
+   static void InitNet(AAssetManager *mgr, ncnn::Net &net,
+                       const std::string &param, const std::string &bin);
+ #endif
+diff --git a/sherpa-ncnn/csrc/offline-recognizer-impl.cc b/sherpa-ncnn/csrc/offline-recognizer-impl.cc
+index f9a8998..3e2dc51 100644
+--- a/sherpa-ncnn/csrc/offline-recognizer-impl.cc
++++ b/sherpa-ncnn/csrc/offline-recognizer-impl.cc
+@@ -8,7 +8,7 @@
+ #include <utility>
+ #include <vector>
+ 
+-#if __ANDROID_API__ >= 9
++#if __ANDROID_API__ >= 9 && !defined(DIOR_NO_ANDROID_ASSETS)
+ #include "android/asset_manager.h"
+ #include "android/asset_manager_jni.h"
+ #endif
+@@ -49,7 +49,7 @@ std::unique_ptr<OfflineRecognizerImpl> OfflineRecognizerImpl::Create(
+   return nullptr;
+ }
+ 
+-#if __ANDROID_API__ >= 9
++#if __ANDROID_API__ >= 9 && !defined(DIOR_NO_ANDROID_ASSETS)
+ template std::unique_ptr<OfflineRecognizerImpl> OfflineRecognizerImpl::Create(
+     AAssetManager *mgr, const OfflineRecognizerConfig &config);
+ #endif
+diff --git a/sherpa-ncnn/csrc/offline-recognizer.cc b/sherpa-ncnn/csrc/offline-recognizer.cc
+index 16b830f..1b9736c 100644
+--- a/sherpa-ncnn/csrc/offline-recognizer.cc
++++ b/sherpa-ncnn/csrc/offline-recognizer.cc
+@@ -6,7 +6,7 @@
+ 
+ #include <memory>
+ 
+-#if __ANDROID_API__ >= 9
++#if __ANDROID_API__ >= 9 && !defined(DIOR_NO_ANDROID_ASSETS)
+ #include "android/asset_manager.h"
+ #include "android/asset_manager_jni.h"
+ #endif
+@@ -80,7 +80,7 @@ OfflineRecognizerConfig OfflineRecognizer::GetConfig() const {
+   return impl_->GetConfig();
+ }
+ 
+-#if __ANDROID_API__ >= 9
++#if __ANDROID_API__ >= 9 && !defined(DIOR_NO_ANDROID_ASSETS)
+ template OfflineRecognizer::OfflineRecognizer(
+     AAssetManager *mgr, const OfflineRecognizerConfig &config);
+ #endif
+diff --git a/sherpa-ncnn/csrc/offline-sense-voice-model.cc b/sherpa-ncnn/csrc/offline-sense-voice-model.cc
+index 5a24013..668327f 100644
+--- a/sherpa-ncnn/csrc/offline-sense-voice-model.cc
++++ b/sherpa-ncnn/csrc/offline-sense-voice-model.cc
+@@ -11,7 +11,7 @@
+ #include <string>
+ #include <utility>
+ 
+-#if __ANDROID_API__ >= 9
++#if __ANDROID_API__ >= 9 && !defined(DIOR_NO_ANDROID_ASSETS)
+ #include "android/asset_manager.h"
+ #include "android/asset_manager_jni.h"
+ #endif
+@@ -210,7 +210,7 @@ const OfflineSenseVoiceModelMetaData &OfflineSenseVoiceModel::GetModelMetadata()
+   return impl_->GetModelMetadata();
+ }
+ 
+-#if __ANDROID_API__ >= 9
++#if __ANDROID_API__ >= 9 && !defined(DIOR_NO_ANDROID_ASSETS)
+ template OfflineSenseVoiceModel::OfflineSenseVoiceModel(
+     AAssetManager *mgr, const OfflineModelConfig &config);
+ #endif
+diff --git a/sherpa-ncnn/csrc/recognizer.cc b/sherpa-ncnn/csrc/recognizer.cc
+index 7884f9f..819cc5f 100644
+--- a/sherpa-ncnn/csrc/recognizer.cc
++++ b/sherpa-ncnn/csrc/recognizer.cc
+@@ -30,7 +30,7 @@
+ #include "sherpa-ncnn/csrc/greedy-search-decoder.h"
+ #include "sherpa-ncnn/csrc/modified-beam-search-decoder.h"
+ 
+-#if __ANDROID_API__ >= 9
++#if __ANDROID_API__ >= 9 && !defined(DIOR_NO_ANDROID_ASSETS)
+ #include <strstream>
+ 
+ #include "android/asset_manager.h"
+@@ -115,7 +115,7 @@ class Recognizer::Impl {
+     }
+   }
+ 
+-#if __ANDROID_API__ >= 9
++#if __ANDROID_API__ >= 9 && !defined(DIOR_NO_ANDROID_ASSETS)
+   Impl(AAssetManager *mgr, const RecognizerConfig &config)
+       : config_(config),
+         model_(Model::Create(mgr, config.model_config)),
+@@ -242,7 +242,7 @@ class Recognizer::Impl {
+   const Model *GetModel() const { return model_.get(); }
+ 
+  private:
+-#if __ANDROID_API__ >= 9
++#if __ANDROID_API__ >= 9 && !defined(DIOR_NO_ANDROID_ASSETS)
+   void InitHotwords(AAssetManager *mgr) {
+     AAsset *asset = AAssetManager_open(mgr, config_.hotwords_file.c_str(),
+                                        AASSET_MODE_BUFFER);
+@@ -322,7 +322,7 @@ class Recognizer::Impl {
+ Recognizer::Recognizer(const RecognizerConfig &config)
+     : impl_(std::make_unique<Impl>(config)) {}
+ 
+-#if __ANDROID_API__ >= 9
++#if __ANDROID_API__ >= 9 && !defined(DIOR_NO_ANDROID_ASSETS)
+ Recognizer::Recognizer(AAssetManager *mgr, const RecognizerConfig &config)
+     : impl_(std::make_unique<Impl>(mgr, config)) {}
+ #endif
+diff --git a/sherpa-ncnn/csrc/recognizer.h b/sherpa-ncnn/csrc/recognizer.h
+index 45a63b6..41d39ef 100644
+--- a/sherpa-ncnn/csrc/recognizer.h
++++ b/sherpa-ncnn/csrc/recognizer.h
+@@ -31,7 +31,7 @@
+ #include "sherpa-ncnn/csrc/stream.h"
+ #include "sherpa-ncnn/csrc/symbol-table.h"
+ 
+-#if __ANDROID_API__ >= 9
++#if __ANDROID_API__ >= 9 && !defined(DIOR_NO_ANDROID_ASSETS)
+ #include "android/asset_manager.h"
+ #include "android/asset_manager_jni.h"
+ #endif
+@@ -83,7 +83,7 @@ class Recognizer {
+  public:
+   explicit Recognizer(const RecognizerConfig &config);
+ 
+-#if __ANDROID_API__ >= 9
++#if __ANDROID_API__ >= 9 && !defined(DIOR_NO_ANDROID_ASSETS)
+   Recognizer(AAssetManager *mgr, const RecognizerConfig &config);
+ #endif
+ 
+diff --git a/sherpa-ncnn/csrc/silero-vad-model.cc b/sherpa-ncnn/csrc/silero-vad-model.cc
+index ab92057..bc7ed8c 100644
+--- a/sherpa-ncnn/csrc/silero-vad-model.cc
++++ b/sherpa-ncnn/csrc/silero-vad-model.cc
+@@ -49,7 +49,7 @@ class SileroVadModel::Impl {
+     PostInit();
+   }
+ 
+-#if __ANDROID_API__ >= 9
++#if __ANDROID_API__ >= 9 && !defined(DIOR_NO_ANDROID_ASSETS)
+   Impl(AAssetManager *mgr, const SileroVadModelConfig &config)
+       : config_(config) {
+     model_.opt.num_threads = config.num_threads;
+@@ -254,7 +254,7 @@ class SileroVadModel::Impl {
+ SileroVadModel::SileroVadModel(const SileroVadModelConfig &config)
+     : impl_(std::make_unique<Impl>(config)) {}
+ 
+-#if __ANDROID_API__ >= 9
++#if __ANDROID_API__ >= 9 && !defined(DIOR_NO_ANDROID_ASSETS)
+ SileroVadModel::SileroVadModel(AAssetManager *mgr,
+                                const SileroVadModelConfig &config)
+     : impl_(std::make_unique<Impl>(mgr, config)) {}
+diff --git a/sherpa-ncnn/csrc/silero-vad-model.h b/sherpa-ncnn/csrc/silero-vad-model.h
+index 244bbdb..697c0e4 100644
+--- a/sherpa-ncnn/csrc/silero-vad-model.h
++++ b/sherpa-ncnn/csrc/silero-vad-model.h
+@@ -19,7 +19,7 @@
+ #ifndef SHERPA_NCNN_CSRC_SILERO_VAD_MODEL_H_
+ #define SHERPA_NCNN_CSRC_SILERO_VAD_MODEL_H_
+ 
+-#if __ANDROID_API__ >= 9
++#if __ANDROID_API__ >= 9 && !defined(DIOR_NO_ANDROID_ASSETS)
+ #include "android/asset_manager.h"
+ #include "android/asset_manager_jni.h"
+ #endif
+@@ -34,7 +34,7 @@ class SileroVadModel {
+  public:
+   explicit SileroVadModel(const SileroVadModelConfig &config);
+ 
+-#if __ANDROID_API__ >= 9
++#if __ANDROID_API__ >= 9 && !defined(DIOR_NO_ANDROID_ASSETS)
+   SileroVadModel(AAssetManager *mgr, const SileroVadModelConfig &config);
+ #endif
+ 
+diff --git a/sherpa-ncnn/csrc/symbol-table.cc b/sherpa-ncnn/csrc/symbol-table.cc
+index e3dbdca..8e07421 100644
+--- a/sherpa-ncnn/csrc/symbol-table.cc
++++ b/sherpa-ncnn/csrc/symbol-table.cc
+@@ -23,7 +23,7 @@
+ #include <fstream>
+ #include <sstream>
+ 
+-#if __ANDROID_API__ >= 9
++#if __ANDROID_API__ >= 9 && !defined(DIOR_NO_ANDROID_ASSETS)
+ #include <strstream>
+ 
+ #include "android/asset_manager.h"
+@@ -38,7 +38,7 @@ SymbolTable::SymbolTable(const std::string &filename) {
+   Init(is);
+ }
+ 
+-#if __ANDROID_API__ >= 9
++#if __ANDROID_API__ >= 9 && !defined(DIOR_NO_ANDROID_ASSETS)
+ SymbolTable::SymbolTable(AAssetManager *mgr, const std::string &filename) {
+   AAsset *asset = AAssetManager_open(mgr, filename.c_str(), AASSET_MODE_BUFFER);
+   if (!asset) {
+diff --git a/sherpa-ncnn/csrc/symbol-table.h b/sherpa-ncnn/csrc/symbol-table.h
+index 768433b..8a767bd 100644
+--- a/sherpa-ncnn/csrc/symbol-table.h
++++ b/sherpa-ncnn/csrc/symbol-table.h
+@@ -22,7 +22,7 @@
+ #include <string>
+ #include <unordered_map>
+ 
+-#if __ANDROID_API__ >= 9
++#if __ANDROID_API__ >= 9 && !defined(DIOR_NO_ANDROID_ASSETS)
+ #include "android/asset_manager.h"
+ #include "android/asset_manager_jni.h"
+ #endif
+@@ -41,7 +41,7 @@ class SymbolTable {
+   /// Fields are separated by space(s).
+   explicit SymbolTable(const std::string &filename);
+ 
+-#if __ANDROID_API__ >= 9
++#if __ANDROID_API__ >= 9 && !defined(DIOR_NO_ANDROID_ASSETS)
+   SymbolTable(AAssetManager *mgr, const std::string &filename);
+ #endif
+ 
+diff --git a/sherpa-ncnn/csrc/voice-activity-detector.cc b/sherpa-ncnn/csrc/voice-activity-detector.cc
+index b6593e6..3142b5b 100644
+--- a/sherpa-ncnn/csrc/voice-activity-detector.cc
++++ b/sherpa-ncnn/csrc/voice-activity-detector.cc
+@@ -34,7 +34,7 @@ class VoiceActivityDetector::Impl {
+         config_(config),
+         buffer_(buffer_size_in_seconds * config.sample_rate) {}
+ 
+-#if __ANDROID_API__ >= 9
++#if __ANDROID_API__ >= 9 && !defined(DIOR_NO_ANDROID_ASSETS)
+   Impl(AAssetManager *mgr, const SileroVadModelConfig &config,
+        float buffer_size_in_seconds = 60)
+       : model_(std::make_unique<SileroVadModel>(mgr, config)),
+@@ -178,7 +178,7 @@ VoiceActivityDetector::VoiceActivityDetector(
+     const SileroVadModelConfig &config, float buffer_size_in_seconds /*= 60*/)
+     : impl_(std::make_unique<Impl>(config, buffer_size_in_seconds)) {}
+ 
+-#if __ANDROID_API__ >= 9
++#if __ANDROID_API__ >= 9 && !defined(DIOR_NO_ANDROID_ASSETS)
+ VoiceActivityDetector::VoiceActivityDetector(
+     AAssetManager *mgr, const SileroVadModelConfig &config,
+     float buffer_size_in_seconds /*= 60*/)
+diff --git a/sherpa-ncnn/csrc/voice-activity-detector.h b/sherpa-ncnn/csrc/voice-activity-detector.h
+index e4bda24..0b39c02 100644
+--- a/sherpa-ncnn/csrc/voice-activity-detector.h
++++ b/sherpa-ncnn/csrc/voice-activity-detector.h
+@@ -21,7 +21,7 @@
+ #include <memory>
+ #include <vector>
+ 
+-#if __ANDROID_API__ >= 9
++#if __ANDROID_API__ >= 9 && !defined(DIOR_NO_ANDROID_ASSETS)
+ #include "android/asset_manager.h"
+ #include "android/asset_manager_jni.h"
+ #endif
+@@ -40,7 +40,7 @@ class VoiceActivityDetector {
+   explicit VoiceActivityDetector(const SileroVadModelConfig &config,
+                                  float buffer_size_in_seconds = 60);
+ 
+-#if __ANDROID_API__ >= 9
++#if __ANDROID_API__ >= 9 && !defined(DIOR_NO_ANDROID_ASSETS)
+   VoiceActivityDetector(AAssetManager *mgr, const SileroVadModelConfig &config,
+                         float buffer_size_in_seconds = 60);
+ #endif
+diff --git a/sherpa-ncnn/csrc/zipformer-model.cc b/sherpa-ncnn/csrc/zipformer-model.cc
+index 0e733e2..c68483b 100644
+--- a/sherpa-ncnn/csrc/zipformer-model.cc
++++ b/sherpa-ncnn/csrc/zipformer-model.cc
+@@ -45,7 +45,7 @@ ZipformerModel::ZipformerModel(const ModelConfig &config) {
+   InitJoinerInputOutputIndexes();
+ }
+ 
+-#if __ANDROID_API__ >= 9
++#if __ANDROID_API__ >= 9 && !defined(DIOR_NO_ANDROID_ASSETS)
+ ZipformerModel::ZipformerModel(AAssetManager *mgr, const ModelConfig &config) {
+   encoder_.opt = config.encoder_opt;
+   decoder_.opt = config.decoder_opt;
+@@ -211,7 +211,7 @@ void ZipformerModel::InitJoiner(const std::string &joiner_param,
+   InitNet(joiner_, joiner_param, joiner_bin);
+ }
+ 
+-#if __ANDROID_API__ >= 9
++#if __ANDROID_API__ >= 9 && !defined(DIOR_NO_ANDROID_ASSETS)
+ void ZipformerModel::InitEncoder(AAssetManager *mgr,
+                                  const std::string &encoder_param,
+                                  const std::string &encoder_bin) {
+diff --git a/sherpa-ncnn/csrc/zipformer-model.h b/sherpa-ncnn/csrc/zipformer-model.h
+index 74c2581..d528ca7 100644
+--- a/sherpa-ncnn/csrc/zipformer-model.h
++++ b/sherpa-ncnn/csrc/zipformer-model.h
+@@ -17,7 +17,7 @@ namespace sherpa_ncnn {
+ class ZipformerModel : public Model {
+  public:
+   explicit ZipformerModel(const ModelConfig &config);
+-#if __ANDROID_API__ >= 9
++#if __ANDROID_API__ >= 9 && !defined(DIOR_NO_ANDROID_ASSETS)
+   ZipformerModel(AAssetManager *mgr, const ModelConfig &config);
+ #endif
+ 
+@@ -68,7 +68,7 @@ class ZipformerModel : public Model {
+ 
+   void InitEncoderPostProcessing();
+ 
+-#if __ANDROID_API__ >= 9
++#if __ANDROID_API__ >= 9 && !defined(DIOR_NO_ANDROID_ASSETS)
+   void InitEncoder(AAssetManager *mgr, const std::string &encoder_param,
+                    const std::string &encoder_bin);
+   void InitDecoder(AAssetManager *mgr, const std::string &decoder_param,

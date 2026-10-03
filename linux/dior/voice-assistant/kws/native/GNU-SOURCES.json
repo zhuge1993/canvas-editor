@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "sources": [
+    {
+      "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/g/glibc/libc6-dev_2.31-0ubuntu9.18_armhf.deb",
+      "file": "libc6-dev_2.31-0ubuntu9.18_armhf.deb",
+      "bytes": 1917948,
+      "sha256": "fedd4b12c29a45094dacedf727101b6674c3f89ed07656eb5baffc072e0f411c"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/v1.10.29/sherpa-onnx/c-api/c-api.h",
+      "file": "c-api.h",
+      "bytes": 59268,
+      "sha256": "c27e6af884e3e9c386a790612dd8c182a077f42b2293c58c6487641d457fcb73"
+    }
+  ],
+  "system_install": false
+}

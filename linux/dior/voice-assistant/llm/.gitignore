@@ -1,0 +1,6 @@
+*.gguf
+*.partial
+*.part
+llm-worker
+build/
+__pycache__/

@@ -1,0 +1,116 @@
+name: Linux server build
+
+on:
+  push:
+    branches:
+      - linux-server-armhf
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  linux-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - name: Validate Dior shell scripts
+        run: |
+          sh -n frontend/start-server.sh
+          sh -n frontend/install-linux.sh
+          sh -n frontend/flowboard.openrc
+          node --check frontend/healthcheck.cjs
+          sh -n linux/dior/build-image.sh
+          sh -n linux/dior/flowboard-dior-firmware-apk/APKBUILD
+          sh -n linux/dior/build-v1-first-flash.sh
+          sh -n tools/dior-usb-repair/inject-dior-hardware.sh
+          sh -n tools/dior-hw/dior-hw-probe
+          sh -n tools/dior-hw/dior-hw-verify
+          sh -n tools/dior-hw/dior-hw-smoke
+          sh -n linux/dior/flowboard-apk/dior-firmware.initd
+          sh -n linux/dior/flowboard-apk/dior-adsp.initd
+          test ! -f linux/dior/flowboard-apk/dior-bluetooth.initd || sh -n linux/dior/flowboard-apk/dior-bluetooth.initd
+          sh -n linux/dior/flowboard-apk/dior-hw-report.initd
+          sh -n linux/dior/pmaports-snapshot/main/wcnss-wlan/wcnss-wlan.initd
+      - name: Install dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+      - name: Validate durable saves and server recovery probes
+        working-directory: frontend
+        run: pnpm run test:server-lifetime
+      - name: Build Linux release
+        working-directory: frontend
+        run: pnpm run build:linux
+      - name: Inspect release
+        working-directory: frontend
+        run: |
+          test -s FlowBoard-linux.tar.gz
+          tar -tzf FlowBoard-linux.tar.gz | sort
+      - name: Validate Dior hardware integration
+        run: |
+          set -eu
+          sh -n linux/dior/flowboard-apk/dior-firmware.initd
+          sh -n linux/dior/flowboard-apk/dior-adsp.initd
+          sh -n linux/dior/flowboard-apk/dior-bluetooth.initd
+          sh -n linux/dior/flowboard-apk/dior-gps.initd
+          sh -n linux/dior/flowboard-apk/dior-hw-report.initd
+          sh -n tools/dior-hw/dior-hw-probe
+          sh -n tools/dior-hw/dior-touch-test
+          sh -n tools/dior-hw/dior-hw-verify
+          sh -n tools/dior-hw/dior-hw-smoke
+          sh -n tools/dior-usb-repair/inject-dior-hardware.sh
+          python3 -m py_compile tools/dior-boot/trim-qcdt.py
+          python3 -m py_compile tools/dior-usb-repair/extract-pmos-root.py
+          python3 -m py_compile linux/dior/ci-build-image.py linux/dior/seal-public-image.py
+          python3 -m unittest linux.dior.tests.test_extract_pmos_root -v
+          grep -q '^CONFIG_MSM_KGSL=y$' linux/dior/pmaports-snapshot/device/archived/linux-xiaomi-dior/config-xiaomi-dior.armv7
+          grep -q '^CONFIG_IMMERSION_HAPTIC=y$' linux/dior/pmaports-snapshot/device/archived/linux-xiaomi-dior/config-xiaomi-dior.armv7
+          grep -q '^CONFIG_RFKILL=y$' linux/dior/pmaports-snapshot/device/archived/linux-xiaomi-dior/config-xiaomi-dior.armv7
+          grep -q '^CONFIG_BT_HCISMD=y$' linux/dior/pmaports-snapshot/device/archived/linux-xiaomi-dior/config-xiaomi-dior.armv7
+          grep -q '^CONFIG_MSM_SMD_NMEA=y$' linux/dior/pmaports-snapshot/device/archived/linux-xiaomi-dior/config-xiaomi-dior.armv7
+          grep -q '^CONFIG_QPNP_CHARGER=y$' linux/dior/pmaports-snapshot/device/archived/linux-xiaomi-dior/config-xiaomi-dior.armv7
+          grep -q '^CONFIG_QPNP_BMS=y$' linux/dior/pmaports-snapshot/device/archived/linux-xiaomi-dior/config-xiaomi-dior.armv7
+          grep -q '^CONFIG_RADIO_IRIS=y$' linux/dior/pmaports-snapshot/device/archived/linux-xiaomi-dior/config-xiaomi-dior.armv7
+          grep -q 'a330_pm4.fw' linux/dior/pmaports-snapshot/device/archived/firmware-xiaomi-dior/APKBUILD
+          grep -q 'venus.mdt' linux/dior/pmaports-snapshot/device/archived/firmware-xiaomi-dior/APKBUILD
+          grep -q 'MTP_Speaker_cal.acdb' linux/dior/pmaports-snapshot/device/archived/firmware-xiaomi-dior/APKBUILD
+          grep -q '^pkgname=flowboard-dior-firmware$' linux/dior/flowboard-dior-firmware-apk/APKBUILD
+          grep -q 'wcnss.mdt' linux/dior/flowboard-dior-firmware-apk/APKBUILD
+          grep -q 'venus.mdt' linux/dior/flowboard-dior-firmware-apk/APKBUILD
+          grep -q 'MTP_Speaker_cal.acdb' linux/dior/flowboard-dior-firmware-apk/APKBUILD
+          grep -q 'flowboard-dior-firmware' linux/dior/flowboard-apk/APKBUILD
+          grep -q 'dior-hw-report.initd' linux/dior/flowboard-apk/APKBUILD
+      - name: Validate FlowBoard appliance policy
+        run: |
+          set -eu
+          grep -Fq "FLOWBOARD_DEFAULT_ADMIN_EMAIL ?? '804559340@qq.com'" frontend/runtimeCore.ts
+          grep -Fq "FLOWBOARD_MAX_USERS ?? '20'" frontend/runtimeCore.ts
+          grep -Fq "pathname === '/api/admin/invites'" frontend/runtimeCore.ts
+          grep -Fq "pathname === '/api/admin/copy-group'" frontend/runtimeCore.ts
+          grep -Fq "cloneGroupIntoCanvas" frontend/runtimeCore.ts
+          grep -Fq "cloned.startBinding" frontend/runtimeCore.ts
+          grep -Fq "cloned.endBinding" frontend/runtimeCore.ts
+          grep -Fq "user.isAdmin === true || project.ownerId === user.id" frontend/runtimeCore.ts
+          grep -Fq "x-forwarded-host" frontend/runtimeCore.ts
+          grep -Fq "x-forwarded-proto" frontend/runtimeCore.ts
+          grep -Fq "FLOWBOARD_HOST=127.0.0.1" frontend/flowboard.env.example
+          grep -Fq "FLOWBOARD_MAX_USERS=20" frontend/flowboard.env.example
+          grep -Fq "FLOWBOARD_DEFAULT_ADMIN_EMAIL=804559340@qq.com" frontend/flowboard.env.example
+          grep -Fq "adminCopyGroup" frontend/src/pages/Admin/index.tsx
+          grep -Fq 'navigate(`/editor/${doc.id}`)' frontend/src/pages/Admin/index.tsx
+          grep -Fq "set stp <授权码>" frontend/server.ts
+      - name: Upload Linux release
+        uses: actions/upload-artifact@v4
+        with:
+          name: FlowBoard-linux
+          path: frontend/FlowBoard-linux.tar.gz
+          if-no-files-found: error

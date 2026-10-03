@@ -1,0 +1,56 @@
+{
+  "format": "dior-asr-build-inputs-v1",
+  "sherpa": {
+    "url": "https://github.com/k2-fsa/sherpa-ncnn.git",
+    "version": "v2.1.15",
+    "commit": "c794e1439fce79932e989220aa1c2848ecbdcdcf",
+    "recipes": {
+      "cmake/kaldi-native-fbank.cmake": "b72863467ee6fe238f39b13068c05c84e847da2d356a8b48f7131508b1930364",
+      "cmake/kaldifst.cmake": "58db437b7a628741848f23e683241351b731aae8ae14fa44edd9de0df5e9ccc2",
+      "cmake/openfst.cmake": "7ebfda1a9e06cf6c4d1aa0720195c5caaf8fa278528db99e35fcc954fb1cfed7",
+      "cmake/ncnn.cmake": "3b62129672de913397a0a75eb338fc3ce2cd652a5158163fe8b457122d0450f6",
+      "cmake/json.cmake": "607a92d9c2d92e824c0ab0d738939b367b06ff8f2195fdd2df1040c5c984f9a1"
+    }
+  },
+  "ndk": {
+    "revision": "17.2.4988734",
+    "version": "r17c",
+    "reference": "https://github.com/android/ndk/wiki/unsupported-downloads",
+    "windows-x86_64": {
+      "url": "https://dl.google.com/android/repository/android-ndk-r17c-windows-x86_64.zip",
+      "bytes": 650626501,
+      "sha256": "8a2632b6c52d8b327a66240c276f09226089ef4516c43476f08723a668d30c30",
+      "official_sha1": "3e3b8d1650f9d297d130be2b342db956003f5992"
+    },
+    "linux-x86_64": {
+      "url": "https://dl.google.com/android/repository/android-ndk-r17c-linux-x86_64.zip",
+      "bytes": 709387703,
+      "official_sha1": "12cacc70c3fd2f40574015631c00f41fb8a39048"
+    },
+    "darwin-x86_64": {
+      "url": "https://dl.google.com/android/repository/android-ndk-r17c-darwin-x86_64.zip",
+      "bytes": 675091485,
+      "official_sha1": "f97e3d7711497e3b4faf9e7b3fa0f0da90bb649c"
+    }
+  },
+  "sources": {
+    "stream-worker.cpp": "98e991540b707c95d55c28ffe133896609c5ccdba43ad4574d747a70f08dd7ba",
+    "stream-benchmark.cpp": "bdccb18330f583b6ff0500c2da6c11c9c291df33958760bebdcc8f8919201e52",
+    "dior-api19-compat.c": "c24710cc9e78cddedf9f985d879b3d0b39ab8a1b54a84415a96af6a713968ddb",
+    "dior-api19-compat.h": "d3e082f9a6f44d2999f6489e0c6129092234fc2c066a4a00599096ebd4af2ac5"
+  },
+  "archives": [
+    {"name":"ncnn","filename":"ncnn-c4193aadbbb56582aa87b1850dd3d98fb8fd936d.zip","url":"https://github.com/Tencent/ncnn/archive/c4193aadbbb56582aa87b1850dd3d98fb8fd936d.zip","sha256":"da5563a86045d66ecf34820f82edec67906f988c61ecd3787f7e5df8bdfb43c0"},
+    {"name":"kaldi_native_fbank","filename":"kaldi-native-fbank-1.21.5.tar.gz","url":"https://github.com/csukuangfj/kaldi-native-fbank/archive/refs/tags/v1.21.5.tar.gz","sha256":"499966d4cdeb05060df2b26a0c171f92a6a2a119e7747b69e621e62c7fad0e9c"},
+    {"name":"kaldifst","filename":"kaldifst-1.7.17.tar.gz","url":"https://github.com/k2-fsa/kaldifst/archive/refs/tags/v1.7.17.tar.gz","sha256":"c4b701a23a400bda8032586b02c7e0d5e813a765832df60c23e6df9e62b010f4"},
+    {"name":"openfst","filename":"openfst-sherpa-onnx-2024-06-19.tar.gz","url":"https://github.com/csukuangfj/openfst/archive/refs/tags/sherpa-onnx-2024-06-19.tar.gz","sha256":"5c98e82cc509c5618502dde4860b8ea04d843850ed57e6d6b590b644b268853d"},
+    {"name":"json","filename":"json-3.12.0.tar.gz","url":"https://github.com/nlohmann/json/archive/refs/tags/v3.12.0.tar.gz","sha256":"4b92eb0c06d10683f7447ce9406cb97cd4b453be18d7279320f7b2f025c10187"},
+    {"name":"kissfft","filename":"kissfft-febd4caeed32e33ad8b2e0bb5ea77542c40f18ec.zip","url":"https://github.com/mborgerding/kissfft/archive/febd4caeed32e33ad8b2e0bb5ea77542c40f18ec.zip","sha256":"497103e664168ebe39580b757adbe616f6cf85a16572af581ca7bc42d0ab13fd"}
+  ],
+  "libraries": ["libkaldi-native-fbank-core.a","libkissfft-float.a","libncnn.a","libsherpa-ncnn-c-api.a","libsherpa-ncnn-core.a","libsherpa-ncnn-fst.a","libsherpa-ncnn-fstfar.a","libsherpa-ncnn-kaldifst-core.a"],
+  "prior_outputs": {
+    "scope":"Previously built and tested binaries; this lock is not evidence of a new rebuild",
+    "stream-worker":"0d2206ee5fe10e63979a5f959883b5e414136f346e42e2b5eb0c4aeeee3b5dbd",
+    "stream-benchmark":"bc38ffcf46da2283552bea873f6bd4b63d9ceb77e83ac88bad85c3589e0cdcf4"
+  }
+}

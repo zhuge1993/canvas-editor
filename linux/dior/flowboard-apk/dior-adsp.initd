@@ -1,0 +1,47 @@
+#!/sbin/openrc-run
+
+description="Boot Qualcomm LPASS/Q6 ADSP on Xiaomi dior"
+
+depend() {
+	after dior-firmware udev
+	before flowboard
+}
+
+start() {
+	ebegin "Starting dior Q6/ADSP audio DSP"
+
+	tries=0
+	while [ ! -e /sys/kernel/boot_adsp/boot ] && [ "$tries" -lt 40 ]; do
+		sleep 0.25
+		tries=$((tries + 1))
+	done
+	if [ ! -e /sys/kernel/boot_adsp/boot ]; then
+		eerror "Kernel ADSP boot control did not appear"
+		eend 1
+		return 1
+	fi
+	if [ ! -s /lib/firmware/adsp.mdt ]; then
+		eerror "Missing adsp.mdt; cannot boot LPASS"
+		eend 1
+		return 1
+	fi
+
+	if ! echo 1 > /sys/kernel/boot_adsp/boot; then
+		eerror "Failed to request Q6/ADSP boot"
+		eend 1
+		return 1
+	fi
+
+	tries=0
+	while [ "$tries" -lt 40 ]; do
+		status="$(cat /sys/kernel/audio_voice_service/status 2>/dev/null || true)"
+		[ "$status" = "ONLINE" ] && { eend 0; return 0; }
+		sleep 0.25
+		tries=$((tries + 1))
+	done
+
+	ewarn "ADSP boot was requested but ONLINE status was not observed"
+	dmesg | tail -n 160 | grep -Ei 'adsp|lpass|q6|apr|tapan|wcd|slim|audio' || true
+	eend 1
+	return 1
+}

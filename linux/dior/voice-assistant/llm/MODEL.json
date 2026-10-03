@@ -1,0 +1,39 @@
+{
+  "repo": "Qwen/Qwen2.5-0.5B-Instruct-GGUF",
+  "revision": "9217f5db79a29953eb74d5343926648285ec7e67",
+  "file": "qwen2.5-0.5b-instruct-q4_0.gguf",
+  "bytes": 428730208,
+  "sha256": "7671c0c304e6ce5a7fc577bcb12aba01e2c155cc2efd29b2213c95b18edaf6ed",
+  "url": "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/9217f5db79a29953eb74d5343926648285ec7e67/qwen2.5-0.5b-instruct-q4_0.gguf?download=true",
+  "download_seconds": 438.9657415999973,
+  "license": "Apache-2.0",
+  "phone_verified": true,
+  "gpu_used": false,
+  "git_publication": "weights excluded",
+  "transport": "verified HTTP ranges then full-file SHA256",
+  "generation_profile": {
+    "default_threads": 2,
+    "supported_threads": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "context_tokens": 1024,
+    "default_generated_tokens": 96,
+    "hard_generated_tokens": 96,
+    "semantic_history_owner": "caller",
+    "internal_history": false,
+    "explicit_messages_supported": true,
+    "max_messages": 12,
+    "max_message_content_bytes": 8192,
+    "website_prefix_cache": true,
+    "new_profile_phone_verified": true,
+    "phone_qualification_manifest": "PHONE-QUALIFICATION.json",
+    "phone_qualification_scope": "Two CPU threads, 1024 context and 96 output tokens; selected real-device requests only, not general answer quality or sustained performance",
+    "website_cache_scope": "Fixed website system prefix only; every user/assistant suffix removed after the request",
+    "website_prefix_cache_phone_verified": true,
+    "website_qualification_manifest": "WRAPPER.json#scoped_followup_qualification",
+    "website_qualification_scope": "Eight selected real-device HTTP cases passed with global/TTS admission45C; later TTS50 synthetic identity-skill playback passed, not an LLM speed measurement or long-run qualification"
+  }
+}

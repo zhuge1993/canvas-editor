@@ -78,14 +78,18 @@ function encodeCanvas(canvas: HTMLCanvasElement, sourceType: string): string {
 }
 
 /** 上传 dataURL 到服务端资源库，返回可长期引用的内容寻址 URL；失败返回 null。 */
-export async function uploadImageAsset(dataUrl: string): Promise<string | null> {
+export async function uploadImageAsset(dataUrl: string, shareToken?: string, sharePassword?: string): Promise<string | null> {
   try {
     const controller = new AbortController()
     const timer = window.setTimeout(() => controller.abort(), UPLOAD_TIMEOUT_MS)
     const response = await fetch('/api/assets', {
       method: 'POST',
       credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(shareToken ? { 'X-FlowBoard-Share-Token': shareToken } : {}),
+        ...(sharePassword ? { 'X-FlowBoard-Share-Password': sharePassword } : {}),
+      },
       body: JSON.stringify({ dataUrl }),
       signal: controller.signal,
     })
@@ -100,9 +104,9 @@ export async function uploadImageAsset(dataUrl: string): Promise<string | null> 
 }
 
 /** 压缩 + 外置一步到位：供粘贴、拖拽等所有图片入口使用。 */
-export async function prepareImageSrc(file: File, maxSide = MAX_SIDE): Promise<PreparedImage> {
+export async function prepareImageSrc(file: File, maxSide = MAX_SIDE, shareToken?: string, sharePassword?: string): Promise<PreparedImage> {
   const compressed = await compressImageFile(file, maxSide)
-  const url = await uploadImageAsset(compressed.dataUrl)
+  const url = await uploadImageAsset(compressed.dataUrl, shareToken, sharePassword)
   const src = url ?? compressed.dataUrl
   return {
     src,

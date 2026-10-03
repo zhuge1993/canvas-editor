@@ -3,9 +3,10 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useCanvasStore } from '@/store/useCanvasStore'
 import { useEditorStore } from '@/store/useEditorStore'
 import { getDocument, saveDocument } from '@/utils/storage'
-import { getSharedProject, saveSharedProject, type ProjectAccess } from '@/services/auth'
+import { AuthRequestError, getSharedProject, saveSharedProject, type ProjectAccess } from '@/services/auth'
 import { constrainCameraToWorkspace, createEmptyCanvasDocument, createShape, type ImageShape, type Shape } from '@/canvas/types'
 import { logError, logOperation } from '@/utils/logger'
+import { canvasDraftKey, parseCanvasDraft, writeCanvasDraft, clearSavedCanvasDraft } from '@/utils/canvasDraft'
 import TopMenu from '@/components/editor/TopMenu'
 import LeftToolbar from '@/components/editor/LeftToolbar'
 import RightPanel from '@/components/editor/RightPanel'
@@ -21,6 +22,7 @@ export default function EditorPage() {
   const savedContentRef = useRef('')
   const [loadedDocId, setLoadedDocId] = useState<string | null>(null)
   const [project, setProject] = useState<ProjectAccess | null>(null)
+  const [sharePassword, setSharePassword] = useState('')
   const [loadError, setLoadError] = useState('')
   const [showFindReplace, setShowFindReplace] = useState(false)
 
@@ -104,6 +106,7 @@ export default function EditorPage() {
     clearTimeout(autoSaveTimer.current)
     setLoadedDocId(null)
     setProject(null)
+    setSharePassword('')
     setLoadError('')
     savedContentRef.current = ''
     setDocumentTitle('未命名画布')
@@ -112,7 +115,22 @@ export default function EditorPage() {
     setTool('select')
 
     const load = shareToken
-      ? getSharedProject(shareToken)
+      ? (async () => {
+          let password = ''
+          while (true) {
+            try {
+              const shared = await getSharedProject(shareToken, password || undefined)
+              if (!cancelled) setSharePassword(password)
+              return shared
+            } catch (error) {
+              if (!(error instanceof AuthRequestError) || error.status !== 401) throw error
+              const entered = window.prompt(password ? '分享密码错误，请重新输入：' : '此分享链接需要密码：')
+              if (entered === null) throw new Error('已取消输入分享密码')
+              password = entered.trim()
+              if (!password) continue
+            }
+          }
+        })()
       : routeDocId ? getDocument(routeDocId) : Promise.resolve(undefined)
 
     void load.then((loaded) => {
@@ -128,15 +146,14 @@ export default function EditorPage() {
         try { content = JSON.parse(document.content) } catch (error) { logError('project.parse_failed', error, { docId: document.id }) }
       }
       // 本地草稿恢复：服务端保存失败时，若本地有更新的草稿则提示恢复
-      const draftKey = `flowboard_draft_${document.id}`
+      const draftKey = canvasDraftKey(document.id)
       let draft: string | null = null
       try { draft = localStorage.getItem(draftKey) } catch { /* ignore */ }
       if (draft && routeDocId) {
         try {
-          const draftDoc = JSON.parse(draft) as { updatedAt?: number; content?: string }
-          const draftSavedAt = draftDoc?.updatedAt ?? 0
+          const draftDoc = parseCanvasDraft(draft)
           const serverSavedAt = document.updatedAt ?? 0
-          if (draftSavedAt > serverSavedAt && draftDoc?.content) {
+          if (draftDoc?.content && (draftDoc.updatedAt === undefined || draftDoc.updatedAt > serverSavedAt)) {
             const draftCanvas = JSON.parse(draftDoc.content)
             if (window.confirm('检测到本地有比服务器更新的草稿，是否恢复？（未保存的修改）')) {
               content = draftCanvas
@@ -144,7 +161,7 @@ export default function EditorPage() {
             } else {
               localStorage.removeItem(draftKey)
             }
-          } else {
+          } else if (draftDoc) {
             localStorage.removeItem(draftKey)
           }
         } catch { /* 草稿损坏则忽略 */ }
@@ -179,11 +196,12 @@ export default function EditorPage() {
         createdAt: project?.createdAt ?? Date.now(),
         updatedAt: Date.now(),
       }
-      if (shareToken) await saveSharedProject(shareToken, payload)
+      if (shareToken) await saveSharedProject(shareToken, payload, sharePassword || undefined)
       else await saveDocument(payload)
       setProject(current => current ? { ...current, title: payload.title, content, updatedAt: payload.updatedAt } : current)
       savedContentRef.current = content
-      setSaveStatus('saved')
+      try { clearSavedCanvasDraft(localStorage, docId, content) } catch { /* Save is durable even when browser storage is unavailable. */ }
+      setSaveStatus(JSON.stringify(getSnapshot()) === content ? 'saved' : 'unsaved')
       logOperation('project.saved', 'Saved project', { docId, shared: Boolean(shareToken) })
       return true
     } catch (error) {
@@ -200,7 +218,7 @@ export default function EditorPage() {
       logError('project.save_failed', error, { docId, shared: Boolean(shareToken) })
       return false
     }
-  }, [canEdit, docId, documentTitle, getSnapshot, loadedDocId, project?.createdAt, setSaveStatus, shareToken])
+  }, [canEdit, docId, documentTitle, getSnapshot, loadedDocId, project?.createdAt, setSaveStatus, sharePassword, shareToken])
 
   const returnToProjectList = useCallback(async () => {
     clearTimeout(autoSaveTimer.current)
@@ -220,7 +238,7 @@ export default function EditorPage() {
     clearTimeout(autoSaveTimer.current)
     autoSaveTimer.current = window.setTimeout(() => {
       // 保存前先写本地草稿（防服务端保存失败丢数据）
-      try { localStorage.setItem(`flowboard_draft_${docId}`, content) } catch { /* 存储满时静默忽略 */ }
+      try { writeCanvasDraft(localStorage, docId, content) } catch { /* Preserve existing drafts when storage is full. */ }
       void saveCurrentDocument()
     }, 500)
     return () => clearTimeout(autoSaveTimer.current)
@@ -234,7 +252,7 @@ export default function EditorPage() {
       // 尝试保存草稿
       try {
         const content = JSON.stringify(getSnapshot())
-        if (docId) localStorage.setItem(`flowboard_draft_${docId}`, content)
+        if (docId) writeCanvasDraft(localStorage, docId, content)
       } catch { /* ignore */ }
     }
     window.addEventListener('beforeunload', onBeforeUnload)
@@ -292,7 +310,7 @@ export default function EditorPage() {
       }
       void (async () => {
         const { prepareImageSrc } = await import('@/utils/image')
-        const prepared = await prepareImageSrc(imageFile)
+        const prepared = await prepareImageSrc(imageFile, undefined, shareToken, sharePassword || undefined)
         const shape = createShape('image', world.x - prepared.width / 2, world.y - prepared.height / 2, prepared.width, prepared.height) as ImageShape
         shape.src = prepared.src
         shape.aspectRatio = prepared.width / Math.max(1, prepared.height)
@@ -429,7 +447,7 @@ export default function EditorPage() {
         {!readOnly && <LeftToolbar />}
         <div ref={viewportRef} className="relative flex-1 overflow-hidden" onDrop={handleDrop} onDragOver={(event) => event.preventDefault()}>
           <CanvasErrorBoundary>
-            <CanvasEngine readOnly={readOnly} />
+            <CanvasEngine readOnly={readOnly} assetShareToken={shareToken} assetSharePassword={sharePassword || undefined} />
           </CanvasErrorBoundary>
           <div className="canvas-scrollbar-shell pointer-events-auto absolute bottom-1 left-2 right-4 h-4 px-1">
             <input aria-label="画布水平滚动" type="range" min="0" max={horizontalScrollMax} step="any" value={scrollX} disabled={horizontalScrollMax <= 0} onChange={(event) => setHorizontalScroll(event.currentTarget.value)} className="canvas-scrollbar h-full w-full" />

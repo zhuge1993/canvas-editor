@@ -1,0 +1,29 @@
+#!/bin/sh
+# Capture byte counts from all evdev nodes while the user touches the screen.
+set -eu
+seconds="${1:-8}"
+case "$seconds" in *[!0-9]*|"") echo "usage: dior-touch-test [seconds]" >&2; exit 2;; esac
+tmp="/tmp/dior-touch-test.$$"
+mkdir -p "$tmp"
+cleanup(){ rm -rf "$tmp"; }
+trap cleanup EXIT INT TERM
+echo "Touch and swipe the screen repeatedly for $seconds seconds..."
+pids=""
+for dev in /dev/input/event*; do
+  [ -c "$dev" ] || continue
+  base="$(basename "$dev")"
+  (timeout "$seconds" cat "$dev" > "$tmp/$base.bin" 2>/dev/null || true) &
+  pids="$pids $!"
+done
+for p in $pids; do wait "$p" 2>/dev/null || true; done
+echo "Captured evdev bytes:"
+found=0
+for f in "$tmp"/*.bin; do
+  [ -e "$f" ] || continue
+  n="$(wc -c < "$f" | tr -d " ")"
+  base="$(basename "$f" .bin)"
+  name="$(cat "/sys/class/input/$base/device/name" 2>/dev/null || true)"
+  printf "%-8s %8s bytes  %s\n" "$base" "$n" "$name"
+  [ "$n" -gt 0 ] && found=1
+done
+[ "$found" -eq 1 ] && echo "At least one input device produced events." || echo "No evdev events captured."

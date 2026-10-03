@@ -1,0 +1,193 @@
+{
+  "semantic_scope": "固定三轮名字/人称辨别测试；不是通用知识或完整语音助手验收。",
+  "environment": "PC Windows x64 CPU, official llama.cpp b11371 source99b9548, fresh process each turn, 2 threads, ctx1024, output96, greedy.",
+  "history": "每轮使用该模型自身实际生成的完整前文；未使用强行替换的历史回答。",
+  "systems": {
+    "long": "你是手机上的中文语音助手。自然、简洁地交流，不声称已执行未经工具确认的操作。\n当前助手名和唤醒词：二狗。",
+    "short": "你叫二狗，是中文语音助手。简短、自然地回答用户。"
+  },
+  "models": {
+    "qwen35_q4_0": {
+      "bytes": 563036064,
+      "sha256": "57d1997790d1744fba5b40a7317df71ea5e2acee28c47e78f0cce39c0703f8cf"
+    },
+    "qwen35_ud_q4": {
+      "bytes": 558772480,
+      "sha256": "3177ebd67afe4438374da19e690bc1b98756f7e0fea9240e1be404336156a7b5"
+    },
+    "qwen25_q4_0": {
+      "bytes": 428730208,
+      "sha256": "7671c0c304e6ce5a7fc577bcb12aba01e2c155cc2efd29b2213c95b18edaf6ed"
+    }
+  },
+  "dialogues": [
+    {
+      "model": "qwen35_q4_0",
+      "system_profile": "long",
+      "all_three_correct": false,
+      "turns": [
+        {
+          "input": "你叫什么名字？",
+          "answer": "你好，我是二狗。",
+          "correct": true,
+          "note": "正确助手身份。"
+        },
+        {
+          "input": "请叫我小林。",
+          "answer": "你好，我是二狗。",
+          "correct": false,
+          "note": "重复助手身份，没有接受用户称呼。"
+        },
+        {
+          "input": "我叫什么名字？",
+          "answer": "你好，我是二狗。",
+          "correct": false,
+          "note": "回答助手身份，没有回答用户名字。"
+        }
+      ]
+    },
+    {
+      "model": "qwen35_q4_0",
+      "system_profile": "short",
+      "all_three_correct": false,
+      "turns": [
+        {
+          "input": "你叫什么名字？",
+          "answer": "你好！我是二狗，是中文语音助手。有什么可以帮你的吗？",
+          "correct": true,
+          "note": "正确助手身份。"
+        },
+        {
+          "input": "请叫我小林。",
+          "answer": "好的，那我叫小林。有什么可以帮你的吗？",
+          "correct": false,
+          "note": "把用户称呼误当自己改名。"
+        },
+        {
+          "input": "我叫什么名字？",
+          "answer": "你好！我是二狗，是中文语音助手。有什么可以帮你的吗？",
+          "correct": false,
+          "note": "回答助手身份，没有回答用户名字。"
+        }
+      ]
+    },
+    {
+      "model": "qwen35_ud_q4",
+      "system_profile": "long",
+      "all_three_correct": false,
+      "turns": [
+        {
+          "input": "你叫什么名字？",
+          "answer": "你好，我是二狗。",
+          "correct": true,
+          "note": "正确助手身份。"
+        },
+        {
+          "input": "请叫我小林。",
+          "answer": "你好，小林！我是二狗。",
+          "correct": true,
+          "note": "正确称呼用户小林，同时保留助手二狗。"
+        },
+        {
+          "input": "我叫什么名字？",
+          "answer": "你好，我是二狗。",
+          "correct": false,
+          "note": "回答助手身份，没有回答用户名字。"
+        }
+      ]
+    },
+    {
+      "model": "qwen35_ud_q4",
+      "system_profile": "short",
+      "all_three_correct": false,
+      "turns": [
+        {
+          "input": "你叫什么名字？",
+          "answer": "我叫二狗，是中文语音助手。",
+          "correct": true,
+          "note": "正确助手身份。"
+        },
+        {
+          "input": "请叫我小林。",
+          "answer": "好的，我是二狗，现在叫小林。有什么我可以帮你的吗？",
+          "correct": false,
+          "note": "把用户称呼误当自己改名。"
+        },
+        {
+          "input": "我叫什么名字？",
+          "answer": "我叫二狗，是中文语音助手。",
+          "correct": false,
+          "note": "回答助手身份，没有回答用户名字。"
+        }
+      ]
+    },
+    {
+      "model": "qwen25_q4_0",
+      "system_profile": "long",
+      "all_three_correct": true,
+      "turns": [
+        {
+          "input": "你叫什么名字？",
+          "answer": "二狗。",
+          "correct": true,
+          "note": "正确助手身份。"
+        },
+        {
+          "input": "请叫我小林。",
+          "answer": "好的，小林。有什么我可以帮助你的吗？",
+          "correct": true,
+          "note": "正确称呼用户小林。"
+        },
+        {
+          "input": "我叫什么名字？",
+          "answer": "你叫小林。",
+          "correct": true,
+          "note": "正确记住用户名字小林。"
+        }
+      ]
+    },
+    {
+      "model": "qwen25_q4_0",
+      "system_profile": "short",
+      "all_three_correct": false,
+      "turns": [
+        {
+          "input": "你叫什么名字？",
+          "answer": "我叫二狗。",
+          "correct": true,
+          "note": "正确助手身份。"
+        },
+        {
+          "input": "请叫我小林。",
+          "answer": "好的，小林。有什么问题可以问我。",
+          "correct": true,
+          "note": "正确称呼用户小林。"
+        },
+        {
+          "input": "我叫什么名字？",
+          "answer": "你叫二狗。",
+          "correct": false,
+          "note": "把助手名字二狗当作用户名字。"
+        }
+      ]
+    }
+  ],
+  "controls": {
+    "Qwen35_zero_output_vs_each_chunk_logits": "6 cases first248320 FP32 logits bitwise equal; no semantic recovery.",
+    "Qwen35_one_shot128": "No generated-text/argmax change; longer cases have numeric logit differences, retained in SEMANTIC-REVIEW.json.",
+    "Qwen35_new_process": "The74token address-user prompt still repeats the assistant identity.",
+    "Qwen35_official_sampling": "temp1/topk20/topp1/minp0/presence2/repeat1/generated-only128, seeds1234/42; both quantizations still fail or confuse pronouns in multiple simple cases.",
+    "arithmetic": "Qwen35 1+1 correctly answers2 under both systems and batch32/128.",
+    "Qwen25_engine": "Same unmodified b11371 x64 core, correct ChatML without think-tail; not the older production b3927 binary."
+  },
+  "current_conclusion": [
+    "测试的两种Qwen3.5-0.8B量化配置都没有稳定通过最基本的三轮用户称呼测试，暂不适合替换为可靠通用主脑。",
+    "现象在独立PC也出现；这些对照没有支持ARM专有数学错误、dialogue checkpoint或zero-output中间batch为本次重复的原因。",
+    "结论限于本次weights/engine/template/prompt/sampling组合，不宣称整个Qwen3.5家族或所有0.8B模型都不行。",
+    "既有Qwen2.5-0.5B在完整role/context下可以完成三轮，但换system也会混淆人称；不能承诺它是完全可靠通用对话模型。",
+    "应保留旧服务，完成会话结构修复并按用户联网/独立偏好选后续方案；没有部署本次新候选。"
+  ],
+  "phone_operated_by_this_reference": false,
+  "pc_performance_is_not_phone_performance": true,
+  "execution_success_is_not_semantic_pass": true
+}

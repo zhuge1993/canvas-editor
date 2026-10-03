@@ -1,0 +1,36 @@
+{
+  "status": "REMOVED_OWN_UNSELECTED_CANDIDATES",
+  "removed": [
+    {
+      "file": "Qwen3.5-0.8B-Q4_0.gguf",
+      "bytes": 563036064,
+      "sha256": "57d1997790d1744fba5b40a7317df71ea5e2acee28c47e78f0cce39c0703f8cf"
+    },
+    {
+      "file": "qwen35-worker",
+      "bytes": 6374044,
+      "sha256": "3d4831d31765885c767c33578b533e4e9fb6d730f5a1e861169f84e08a691a31"
+    },
+    {
+      "file": "qwen35-worker-cache",
+      "bytes": 6400012,
+      "sha256": "7991443ca1b3cef17d662e700d4507477e07e2f6bfb6a2321b6eb058cf5b43af"
+    },
+    {
+      "file": "qwen35-worker-dialog",
+      "bytes": 6417780,
+      "sha256": "33f4841a351693b4d628a1961a616ec78a8411bf31970a545cd8235be032192e"
+    },
+    {
+      "file": "qwen35-worker-samplingdiag",
+      "bytes": 6437260,
+      "sha256": "a6756e380ba016cacf3d933169c60c3b98efea170a1cf38f94bec4a589dd2b06"
+    }
+  ],
+  "bytes_unlinked": 588665160,
+  "free_bytes_before": 3659141120,
+  "free_bytes_after": 4247818240,
+  "baseline_model_removed": false,
+  "phone_services_modified": false,
+  "pc_verified_copies_retained": true
+}

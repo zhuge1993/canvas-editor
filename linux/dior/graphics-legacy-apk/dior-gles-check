@@ -1,0 +1,9 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+set -eu
+prefix=/opt/dior-graphics
+export LD_LIBRARY_PATH="$prefix/lib"
+export LIBGL_DRIVERS_PATH="$prefix/lib/dri"
+export MESA_LOADER_DRIVER_OVERRIDE=kgsl
+unset LIBGL_ALWAYS_SOFTWARE
+exec python3 "$prefix/libexec/dior-gles-probe.py" "$@"

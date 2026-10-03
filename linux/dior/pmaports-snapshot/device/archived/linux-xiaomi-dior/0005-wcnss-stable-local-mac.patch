@@ -1,0 +1,360 @@
+Subject: [PATCH] dior: validate supplied MACs and use stable local fallbacks
+
+Use valid NV, platform and explicit custom INI addresses before local
+fallbacks. Replace the two known per-persona placeholder sets (80..83,
+FF..FC) with local/unicast addresses carrying all 32 bits of Dior's
+eight-hex-digit bootloader serial and a distinct persona byte. Reserve
+preferred addresses before generation, reject conflicting preferred
+addresses, and commit the complete set only after validation succeeds.
+
+Seed WCNSS from the preserved androidboot.serialno argument without a
+userspace helper dependency. A userspace zero serial cannot discard this
+boot seed; an explicit nonzero platform serial keeps its existing priority.
+Never claim the generated local address is a factory address or QCA OUI.
+
+Fix the sysfs MAC parser's overlapping/out-of-bounds int writes by scanning
+into unsigned temporaries, validating the entire input and unicast address,
+and only then copying the six bytes into the platform buffer.
+
+No NV binary, firmware, ramdisk, device tree or userspace helper is changed.
+---
+diff --git a/drivers/net/wireless/wcnss/wcnss_wlan.c b/drivers/net/wireless/wcnss/wcnss_wlan.c
+index f613e194..faa13196 100644
+--- a/drivers/net/wireless/wcnss/wcnss_wlan.c
++++ b/drivers/net/wireless/wcnss/wcnss_wlan.c
+@@ -12,6 +12,8 @@
+  */
+ 
+ #include <linux/module.h>
++#include <linux/ctype.h>
++#include <linux/etherdevice.h>
+ #include <linux/firmware.h>
+ #include <linux/slab.h>
+ #include <linux/err.h>
+@@ -69,6 +71,26 @@ static int has_48mhz_xo = WCNSS_CONFIG_UNSPECIFIED;
+ module_param(has_48mhz_xo, int, S_IWUSR | S_IRUGO);
+ MODULE_PARM_DESC(has_48mhz_xo, "Is an external 48 MHz XO present");
+ 
++/* Dior's bootloader supplies an eight-hex-digit device serial. */
++static unsigned int wcnss_boot_serial_number;
++
++static int __init wcnss_boot_serial_setup(char *serial)
++{
++	unsigned int value;
++	int i;
++
++	if (!serial || strlen(serial) != 8)
++		return 0;
++	for (i = 0; i < 8; i++)
++		if (!isxdigit((unsigned char)serial[i]))
++			return 0;
++	if (kstrtouint(serial, 16, &value) || !value)
++		return 0;
++	wcnss_boot_serial_number = value;
++	return 1;
++}
++__setup("androidboot.serialno=", wcnss_boot_serial_setup);
++
+ static int has_calibrated_data = WCNSS_CONFIG_UNSPECIFIED;
+ module_param(has_calibrated_data, int, S_IWUSR | S_IRUGO);
+ MODULE_PARM_DESC(has_calibrated_data, "whether calibrated data file available");
+@@ -437,29 +459,42 @@ static struct {
+ static ssize_t wcnss_wlan_macaddr_store(struct device *dev,
+ 		struct device_attribute *attr, const char *buf, size_t count)
+ {
+-	char macAddr[WLAN_MAC_ADDR_SIZE];
++	unsigned int octets[WLAN_MAC_ADDR_SIZE];
++	u8 macAddr[WLAN_MAC_ADDR_SIZE] __aligned(2);
++	int consumed = 0;
++	int i;
+ 
+ 	if (!penv)
+ 		return -ENODEV;
+ 
+-	pr_debug("%s: Receive MAC Addr From user space: %s\n", __func__, buf);
+-
+-	if (WLAN_MAC_ADDR_SIZE != sscanf(buf, MAC_ADDRESS_STR,
+-		 (int *)&macAddr[0], (int *)&macAddr[1],
+-		 (int *)&macAddr[2], (int *)&macAddr[3],
+-		 (int *)&macAddr[4], (int *)&macAddr[5])) {
+-
+-		pr_err("%s: Failed to Copy MAC\n", __func__);
++	/* Check canonical octets before sscanf, including numeric-width overflow. */
++	if (count < WLAN_MAC_ADDR_SIZE * 3 - 1)
++		return -EINVAL;
++	for (i = 0; i < WLAN_MAC_ADDR_SIZE * 3 - 1; i++)
++		if ((i % 3 == 2 && buf[i] != ':') ||
++		    (i % 3 != 2 && !isxdigit((unsigned char)buf[i])))
++			return -EINVAL;
++
++	if (WLAN_MAC_ADDR_SIZE != sscanf(buf, MAC_ADDRESS_STR "%n",
++		 &octets[0], &octets[1], &octets[2],
++		 &octets[3], &octets[4], &octets[5], &consumed) ||
++		 consumed <= 0 || consumed > count)
++		return -EINVAL;
++	for (i = consumed; i < count; i++)
++		if (!isspace((unsigned char)buf[i]))
++			return -EINVAL;
++	for (i = 0; i < WLAN_MAC_ADDR_SIZE; i++) {
++		if (octets[i] > 0xff)
++			return -EINVAL;
++		macAddr[i] = octets[i];
++	}
++	if (!is_valid_ether_addr(macAddr))
+ 		return -EINVAL;
+-	}
+ 
+ 	memcpy(penv->wlan_nv_macAddr, macAddr, sizeof(penv->wlan_nv_macAddr));
+-
+ 	pr_info("%s: Write MAC Addr:" MAC_ADDRESS_STR "\n", __func__,
+-		penv->wlan_nv_macAddr[0], penv->wlan_nv_macAddr[1],
+-		penv->wlan_nv_macAddr[2], penv->wlan_nv_macAddr[3],
+-		penv->wlan_nv_macAddr[4], penv->wlan_nv_macAddr[5]);
+-
++		macAddr[0], macAddr[1], macAddr[2],
++		macAddr[3], macAddr[4], macAddr[5]);
+ 	return count;
+ }
+ 
+@@ -1354,9 +1389,9 @@ EXPORT_SYMBOL(wcnss_unregister_thermal_mitigation);
+ 
+ unsigned int wcnss_get_serial_number(void)
+ {
+-	if (penv)
++	if (penv && penv->serial_number)
+ 		return penv->serial_number;
+-	return 0;
++	return wcnss_boot_serial_number;
+ }
+ EXPORT_SYMBOL(wcnss_get_serial_number);
+ 
+@@ -2803,6 +2838,7 @@ wcnss_wlan_probe(struct platform_device *pdev)
+ 		return -ENOMEM;
+ 	}
+ 	penv->pdev = pdev;
++	penv->serial_number = wcnss_boot_serial_number;
+ 
+ 	/* register sysfs entries */
+ 	ret = wcnss_create_sysfs(&pdev->dev);
+diff --git a/drivers/staging/prima/CORE/HDD/src/wlan_hdd_main.c b/drivers/staging/prima/CORE/HDD/src/wlan_hdd_main.c
+index 334c3890..d77acf83 100644
+--- a/drivers/staging/prima/CORE/HDD/src/wlan_hdd_main.c
++++ b/drivers/staging/prima/CORE/HDD/src/wlan_hdd_main.c
+@@ -5086,67 +5086,103 @@ free_hdd_ctx:
+   \return - VOS_STATUS_SUCCESS if successful
+ 
+   --------------------------------------------------------------------------*/
+-static VOS_STATUS hdd_update_config_from_nv(hdd_context_t* pHddCtx)
++static bool hdd_mac_is_placeholder(const u8 *mac, unsigned int iface)
+ {
+-   v_BOOL_t itemIsValid = VOS_FALSE;
+-   VOS_STATUS status;
+-   v_MACADDR_t macFromNV[VOS_MAX_CONCURRENCY_PERSONA];
+-   v_U8_t      macLoop;
+-
+-   /*If the NV is valid then get the macaddress from nv else get it from qcom_cfg.ini*/
+-   status = vos_nv_getValidity(VNV_FIELD_IMAGE, &itemIsValid);
+-   if(status != VOS_STATUS_SUCCESS)
+-   {
+-      hddLog(VOS_TRACE_LEVEL_ERROR," vos_nv_getValidity() failed\n ");
+-       return VOS_STATUS_E_FAILURE;
+-   }
++   static const u8 prefix[] = {0x00, 0x0a, 0xf5, 0x89, 0x89};
+ 
+-   if (itemIsValid == VOS_TRUE) 
+-   {
+-        hddLog(VOS_TRACE_LEVEL_INFO_HIGH," Reading the Macaddress from NV\n ");
+-      status = vos_nv_readMultiMacAddress((v_U8_t *)&macFromNV[0].bytes[0],
+-                                          VOS_MAX_CONCURRENCY_PERSONA);
+-        if(status != VOS_STATUS_SUCCESS)
+-        {
+-         /* Get MAC from NV fail, not update CFG info
+-          * INI MAC value will be used for MAC setting */
+-         hddLog(VOS_TRACE_LEVEL_ERROR," vos_nv_readMacAddress() failed\n ");
+-            return VOS_STATUS_E_FAILURE;
+-        }
++   return !memcmp(mac, prefix, sizeof(prefix)) &&
++          (mac[5] == 0x80 + iface || mac[5] == 0xff - iface);
++}
+ 
+-      /* If first MAC is not valid, treat all others are not valid
+-       * Then all MACs will be got from ini file */
+-      if(vos_is_macaddr_zero(&macFromNV[0]))
+-      {
+-         /* MAC address in NV file is not configured yet */
+-         hddLog(VOS_TRACE_LEVEL_WARN, "Invalid MAC in NV file");
+-         return VOS_STATUS_E_INVAL;
++static VOS_STATUS hdd_update_config_from_nv(hdd_context_t *pHddCtx)
++{
++   v_BOOL_t itemIsValid = VOS_FALSE;
++   v_MACADDR_t macFromNV[VOS_MAX_CONCURRENCY_PERSONA] __aligned(2);
++   v_MACADDR_t selected[VOS_MAX_CONCURRENCY_PERSONA] __aligned(2);
++   u8 platform_mac[VOS_MAC_ADDR_SIZE] __aligned(2);
++   const char *source[VOS_MAX_CONCURRENCY_PERSONA] = {NULL};
++   unsigned int serialno = wcnss_get_serial_number();
++   unsigned int i, j, attempt;
++   bool collision;
++
++   memset(macFromNV, 0, sizeof(macFromNV));
++   memset(selected, 0, sizeof(selected));
++   memset(platform_mac, 0, sizeof(platform_mac));
++   if (vos_nv_getValidity(VNV_FIELD_IMAGE, &itemIsValid) == VOS_STATUS_SUCCESS &&
++       itemIsValid == VOS_TRUE &&
++       vos_nv_readMultiMacAddress(macFromNV[0].bytes,
++          VOS_MAX_CONCURRENCY_PERSONA) != VOS_STATUS_SUCCESS)
++      memset(macFromNV, 0, sizeof(macFromNV));
++   if (wcnss_get_wlan_mac_address((char *)platform_mac))
++      memset(platform_mac, 0, sizeof(platform_mac));
++
++   /* Reserve all preferred addresses before generating any local fallback. */
++   for (i = 0; i < VOS_MAX_CONCURRENCY_PERSONA; i++) {
++      if (is_valid_ether_addr(macFromNV[i].bytes)) {
++         selected[i] = macFromNV[i];
++         source[i] = "NV";
++      } else if (i == 0 && is_valid_ether_addr(platform_mac)) {
++         memcpy(selected[i].bytes, platform_mac, VOS_MAC_ADDR_SIZE);
++         source[i] = "platform";
++      } else if (is_valid_ether_addr(pHddCtx->cfg_ini->intfMacAddr[i].bytes) &&
++                 !hdd_mac_is_placeholder(pHddCtx->cfg_ini->intfMacAddr[i].bytes, i)) {
++         selected[i] = pHddCtx->cfg_ini->intfMacAddr[i];
++         source[i] = "custom ini";
++      }
+    }
+-
+-      /* Get MAC address from NV, update CFG info */
+-      for(macLoop = 0; macLoop < VOS_MAX_CONCURRENCY_PERSONA; macLoop++)
+-      {
+-         if(vos_is_macaddr_zero(&macFromNV[macLoop]))
+-         {
+-            printk(KERN_ERR "not valid MAC from NV for %d", macLoop);
+-            /* This MAC is not valid, skip it
+-             * This MAC will be got from ini file */
+-         }
+-         else
+-         {
+-            vos_mem_copy((v_U8_t *)&pHddCtx->cfg_ini->intfMacAddr[macLoop].bytes[0],
+-                         (v_U8_t *)&macFromNV[macLoop].bytes[0],
+-                   VOS_MAC_ADDR_SIZE);
++   for (i = 0; i < VOS_MAX_CONCURRENCY_PERSONA; i++)
++      for (j = 0; j < i; j++)
++         if (source[i] && source[j] &&
++             !memcmp(selected[i].bytes, selected[j].bytes, VOS_MAC_ADDR_SIZE)) {
++            pr_err("wlan: Duplicate preferred MAC addresses at interfaces %u/%u\n", i, j);
++            return VOS_STATUS_E_INVAL;
+          }
++
++   for (i = 0; i < VOS_MAX_CONCURRENCY_PERSONA; i++) {
++      if (source[i])
++         continue;
++#ifdef WLAN_AUTOGEN_MACADDR_FEATURE
++      if (!serialno) {
++         pr_err("wlan: No valid MAC or device serial for interface %u\n", i);
++         return VOS_STATUS_E_INVAL;
+       }
++      /* Local/unicast prefix; retain all 32 serial bits and the persona. */
++      selected[i].bytes[0] = 0x02;
++      selected[i].bytes[1] = serialno >> 24;
++      selected[i].bytes[2] = serialno >> 16;
++      selected[i].bytes[3] = serialno >> 8;
++      selected[i].bytes[4] = serialno;
++      for (attempt = 0; attempt < 256 / VOS_MAX_CONCURRENCY_PERSONA; attempt++) {
++         selected[i].bytes[5] = i + attempt * VOS_MAX_CONCURRENCY_PERSONA;
++         collision = false;
++         for (j = 0; j < VOS_MAX_CONCURRENCY_PERSONA; j++)
++            if (source[j] && !memcmp(selected[i].bytes, selected[j].bytes,
++                                    VOS_MAC_ADDR_SIZE))
++               collision = true;
++         if (!collision)
++            break;
++      }
++      if (collision)
++         return VOS_STATUS_E_INVAL;
++      source[i] = "local device-serial fallback";
++#else
++      selected[i] = pHddCtx->cfg_ini->intfMacAddr[i];
++      source[i] = "ini (autogen disabled)";
++#endif
+    }
+-   else
+-   {
+-      hddLog(VOS_TRACE_LEVEL_ERROR, "NV ITEM, MAC Not valid");
+-      return VOS_STATUS_E_FAILURE;
++   for (i = 0; i < VOS_MAX_CONCURRENCY_PERSONA; i++) {
++      if (!is_valid_ether_addr(selected[i].bytes))
++         return VOS_STATUS_E_INVAL;
++      for (j = 0; j < i; j++)
++         if (!memcmp(selected[i].bytes, selected[j].bytes, VOS_MAC_ADDR_SIZE))
++            return VOS_STATUS_E_INVAL;
+    }
+ 
+-
++   /* Commit once: neither a missing seed nor a conflict can leave partial data. */
++   memcpy(pHddCtx->cfg_ini->intfMacAddr, selected, sizeof(selected));
++   for (i = 0; i < VOS_MAX_CONCURRENCY_PERSONA; i++)
++      pr_info("wlan: Dior MAC[%u] source=%s " MAC_ADDRESS_STR "\n",
++              i, source[i], MAC_ADDR_ARRAY(selected[i].bytes));
+    return VOS_STATUS_SUCCESS;
+ }
+ 
+@@ -5644,59 +5680,8 @@ int hdd_wlan_startup(struct device *dev )
+    /* Prima Update MAC address only at here */
+    if (VOS_STATUS_SUCCESS != hdd_update_config_from_nv(pHddCtx))
+    {
+-#ifdef WLAN_AUTOGEN_MACADDR_FEATURE
+-      /* There was not a valid set of MAC Addresses in NV.  See if the
+-         default addresses were modified by the cfg.ini settings.  If so,
+-         we'll use them, but if not, we'll autogenerate a set of MAC
+-         addresses based upon the device serial number */
+-
+-      static const v_MACADDR_t default_address =
+-         {{0x00, 0x0A, 0xF5, 0x89, 0x89, 0xFF}};
+-      unsigned int serialno;
+-      int i;
+-
+-      serialno = wcnss_get_serial_number();
+-      if ((0 != serialno) &&
+-          (0 == memcmp(&default_address, &pHddCtx->cfg_ini->intfMacAddr[0],
+-                       sizeof(default_address))))
+-      {
+-         /* cfg.ini has the default address, invoke autogen logic */
+-
+-         /* MAC address has 3 bytes of OUI so we have a maximum of 3
+-            bytes of the serial number that can be used to generate
+-            the other 3 bytes of the MAC address.  Mask off all but
+-            the lower 3 bytes (this will also make sure we don't
+-            overflow in the next step) */
+-         serialno &= 0x00FFFFFF;
+-
+-         /* we need a unique address for each session */
+-         serialno *= VOS_MAX_CONCURRENCY_PERSONA;
+-
+-         /* autogen all addresses */
+-         for (i = 0; i < VOS_MAX_CONCURRENCY_PERSONA; i++)
+-         {
+-            /* start with the entire default address */
+-            pHddCtx->cfg_ini->intfMacAddr[i] = default_address;
+-            /* then replace the lower 3 bytes */
+-            pHddCtx->cfg_ini->intfMacAddr[i].bytes[3] = (serialno >> 16) & 0xFF;
+-            pHddCtx->cfg_ini->intfMacAddr[i].bytes[4] = (serialno >> 8) & 0xFF;
+-            pHddCtx->cfg_ini->intfMacAddr[i].bytes[5] = serialno & 0xFF;
+-
+-            serialno++;
+-         }
+-
+-         pr_info("wlan: Invalid MAC addresses in NV, autogenerated "
+-                MAC_ADDRESS_STR,
+-                MAC_ADDR_ARRAY(pHddCtx->cfg_ini->intfMacAddr[0].bytes));
+-      }
+-      else
+-#endif //WLAN_AUTOGEN_MACADDR_FEATURE
+-      {
+-         hddLog(VOS_TRACE_LEVEL_ERROR,
+-                "%s: Invalid MAC address in NV, using MAC from ini file "
+-                MAC_ADDRESS_STR, __func__,
+-                MAC_ADDR_ARRAY(pHddCtx->cfg_ini->intfMacAddr[0].bytes));
+-      }
++      hddLog(VOS_TRACE_LEVEL_FATAL, "%s: MAC selection failed", __func__);
++      goto err_vosclose;
+    }
+    {
+       eHalStatus halStatus;

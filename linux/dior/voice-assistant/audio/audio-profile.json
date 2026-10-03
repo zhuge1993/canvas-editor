@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "device": "Xiaomi Redmi Note 4G dior",
+  "acoustic_echo_test": "PASS",
+  "human_double_talk_tested": false,
+  "kernel_release": "3.4.0-msf",
+  "kernel_version": "#9-postmarketOS SMP PREEMPT Thu Oct 1 14:36:00 UTC 2026",
+  "device_rate": 16000,
+  "channels": 1,
+  "period_frames": 640,
+  "buffer_frames": 2560,
+  "reference_delay_samples": 1920,
+  "echo_filter_samples": 2560,
+  "linear_echo_reduction_db": 29.592369068840725,
+  "processed_echo_reduction_db": 43.50699027002398,
+  "measured_speaker_volume_percent": 35,
+  "startup_filter_adaptation_seconds": 2,
+  "source_evidence": "VOICE-AUDIO-DUPLEX-FIRST-PASS.json"
+}

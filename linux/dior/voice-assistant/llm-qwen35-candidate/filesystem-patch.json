@@ -1,0 +1,14 @@
+[
+  {
+    "file": "ggml/src/ggml-backend-dl.h",
+    "original_sha256": "225bd83a197c4e8b5f985717176824d1144e2b74a79f04838f51b84115c14dc5",
+    "patched_sha256": "c056247c5f6da030c9c052dd390887c206fd66e2c96a93c02d49f1c2429740e7",
+    "scope": "filesystem header/namespace only; model and math code unchanged"
+  },
+  {
+    "file": "ggml/src/ggml-backend-reg.cpp",
+    "original_sha256": "0f63c69ad083e0744872f57d59d049b069283303f5bbc646222907d779afe4d1",
+    "patched_sha256": "6e605bb7a314f8bb6524a9aa846c1433078a1cfc744c6e71972b83fc7d451043",
+    "scope": "filesystem header/namespace only; model and math code unchanged"
+  }
+]

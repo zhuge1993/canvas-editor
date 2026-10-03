@@ -1,0 +1,25 @@
+#!/bin/sh
+set -eu
+
+# These limit Go's soft heap target and worker concurrency, not total process RSS.
+export GOGC=50 GOMEMLIMIT=96MiB GOMAXPROCS=2
+provider=$(cat /etc/dior-tunnel/provider)
+case "$provider" in
+    quick)
+        exec /usr/bin/node /usr/local/libexec/dior-quick-tunnel.cjs
+        ;;
+    cloudflare)
+        exec /usr/local/bin/cloudflared tunnel \
+            --config /etc/dior-tunnel/cloudflare.yml \
+            --no-autoupdate --protocol http2 --edge-ip-version 4 \
+            --metrics 127.0.0.1:20241 --loglevel warn \
+            --log-directory /var/log/dior-tunnel run
+        ;;
+    frp)
+        exec /usr/local/bin/frpc -c /etc/dior-tunnel/frpc.toml
+        ;;
+    *)
+        printf '%s\n' 'Dior tunnel is unconfigured; select quick, cloudflare, or frp first.' >&2
+        exit 78
+        ;;
+esac

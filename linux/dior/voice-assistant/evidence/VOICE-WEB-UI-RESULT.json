@@ -1,0 +1,15 @@
+{
+  "result": "PASS_BROWSER_FIXTURES",
+  "scope": "actual Edge AudioContext + generated oscillator, real React canvas editor; mocked server/model replies; no human/phone microphone evidence",
+  "uploads": [
+    15188,
+    13482
+  ],
+  "retained": {
+    "captures": 4,
+    "activeTracks": 0,
+    "objectUrls": 0
+  },
+  "checks": 16,
+  "failures": []
+}

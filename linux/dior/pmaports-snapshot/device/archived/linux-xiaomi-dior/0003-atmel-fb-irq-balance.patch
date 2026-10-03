@@ -1,0 +1,66 @@
+Subject: [PATCH] input: atmel: balance framebuffer PM IRQ ownership
+
+The first or a repeated framebuffer UNBLANK can arrive without a matching
+POWERDOWN. Unconditional enable_irq() then warns about an unbalanced IRQ;
+repeated POWERDOWN also accumulates unmatched disable depth.
+
+Track only the IRQ disable owned by PM under the existing input mutex,
+independently of input open/close, the IRQ worker, and sysfs operations.
+Keep the existing users checks and start/stop calls so another UNBLANK can
+retry a failed I2C start. Serialize touch clearing with the PM transition.
+
+---
+diff --git a/drivers/input/touchscreen/atmel/atmel_mxt_ts.c b/drivers/input/touchscreen/atmel/atmel_mxt_ts.c
+index 2a718dd1..17d0dbd1 100644
+--- a/drivers/input/touchscreen/atmel/atmel_mxt_ts.c
++++ b/drivers/input/touchscreen/atmel/atmel_mxt_ts.c
+@@ -530,6 +530,8 @@ struct mxt_data {
+ 	u8 idle_cycle_time;
+ 	u8 actv2idle_timeout;
+ 	u8 is_stopped;
++	/* PM IRQ ownership is protected by input_dev->mutex. */
++	bool pm_irq_disabled;
+ 	u8 max_reportid;
+ 	u32 config_crc;
+ 	u32 info_block_crc;
+@@ -4204,17 +4206,20 @@ static int mxt_suspend(struct device *dev)
+ 	struct mxt_data *data = i2c_get_clientdata(client);
+ 	struct input_dev *input_dev = data->input_dev;
+ 
+-	disable_irq(client->irq);
+-
+ 	mutex_lock(&input_dev->mutex);
+ 
++	if (!data->pm_irq_disabled) {
++		disable_irq(client->irq);
++		data->pm_irq_disabled = true;
++	}
++
+ 	if (input_dev->users)
+ 		mxt_stop(data, true);
+ 
+-	mutex_unlock(&input_dev->mutex);
+-
+ 	mxt_clear_touch_event(data);
+ 
++	mutex_unlock(&input_dev->mutex);
++
+ 	return 0;
+ }
+ 
+@@ -4224,10 +4229,13 @@ static int mxt_resume(struct device *dev)
+ 	struct mxt_data *data = i2c_get_clientdata(client);
+ 	struct input_dev *input_dev = data->input_dev;
+ 
+-	enable_irq(client->irq);
+-
+ 	mutex_lock(&input_dev->mutex);
+ 
++	if (data->pm_irq_disabled) {
++		enable_irq(client->irq);
++		data->pm_irq_disabled = false;
++	}
++
+ 	if (input_dev->users)
+ 		mxt_start(data, true);
+ 

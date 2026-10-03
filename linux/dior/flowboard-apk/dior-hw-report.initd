@@ -1,0 +1,43 @@
+#!/sbin/openrc-run
+
+description="Capture post-boot Xiaomi dior hardware validation report"
+
+depend() {
+	need localmount
+	after networkmanager wcnss-wlan dior-adsp dior-bluetooth dior-gps bluetooth flowboard
+}
+
+start() {
+	ebegin "Scheduling dior post-boot hardware report"
+	(
+		# Give asynchronous downstream Qualcomm subsystems a short bounded window
+		# to register. Never hold boot indefinitely if one device is broken.
+		tries=0
+		while [ "$tries" -lt 30 ]; do
+			if [ -d /sys/class/net/usb0 ] && 			   [ -c /dev/fb0 ] && 			   [ -e /sys/class/input/event2 ]; then
+				break
+			fi
+			sleep 1
+			tries=$((tries + 1))
+		done
+
+		mkdir -p /var/log
+		{
+			echo "DiorLinux automatic post-boot hardware report"
+			date -u 2>/dev/null || true
+			echo
+			echo "===== PASS/FAIL VERIFIER ====="
+			/usr/local/sbin/dior-hw-verify || true
+			echo
+			echo "===== READ-ONLY FULL PROBE ====="
+			/usr/local/sbin/dior-hw-probe || true
+			echo
+			echo "Report path: /var/log/dior-hardware-firstboot.log"
+		} > /var/log/dior-hardware-firstboot.log 2>&1
+	) &
+	eend 0
+}
+
+stop() {
+	return 0
+}

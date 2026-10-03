@@ -1,0 +1,36 @@
+{
+  "status": "PASS",
+  "assets_files": 825,
+  "assets_bytes": 559175107,
+  "manifest_sha256": "473b2026b6f2a2277bd28c0dca2191e1952eed2cdffce4cd616d1f5876842ff6",
+  "runtime_audio_sha256": "0e6002818b7682f707074f7c3189e82b41a9addd85953ccdaf285b2e2874d8d5",
+  "model_sha256": "7671c0c304e6ce5a7fc577bcb12aba01e2c155cc2efd29b2213c95b18edaf6ed",
+  "boot_default": true,
+  "website": {
+    "users": 5,
+    "canvasShares": 5,
+    "shareHttpStatuses": [
+      200,
+      200,
+      200,
+      200,
+      200
+    ],
+    "urlNotifications": {
+      "status": "up_to_date",
+      "smtpAccepted": 5,
+      "pending": 0,
+      "failed": 0,
+      "dedupeRecords": 55
+    },
+    "bundleSha256": "18d99693439b6f7c8313987cf4d7f5088678d794b407918da4a1a79708086d83",
+    "kernelTainted": 0,
+    "public_url_unchanged": true
+  },
+  "kernel": "3.4.0-msf",
+  "kernel_tainted": 0,
+  "free_storage_bytes": 4110082048,
+  "settings_present": false,
+  "settings_bytes": 0,
+  "playback_pointer_boundary": "1342177280"
+}

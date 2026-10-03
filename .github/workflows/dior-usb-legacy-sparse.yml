@@ -1,0 +1,48 @@
+name: Dior USB legacy sparse delivery
+# Re-run after restoring the complete branch tree.
+on:
+  push:
+    branches: [linux-server-armhf]
+    paths:
+      - 'tools/dior-usb-repair/make-legacy-sparse.py'
+      - '.github/workflows/dior-usb-legacy-sparse.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  convert:
+    if: github.repository == 'zhuge1993/canvas-editor'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Download verified USB repair artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: DiorLinux-V1-USB-NCM-ACM-dda9441c592d27f4ec0e80b4b4f4e43daf10c16d
+          run-id: 36679534347
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/usb-repair
+      - name: Extract raw candidate and create deterministic legacy sparse
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/raw" "$RUNNER_TEMP/release"
+          unzip -q "$RUNNER_TEMP/usb-repair/DiorLinux-V1-USB-NCM-ACM.zip" -d "$RUNNER_TEMP/raw"
+          raw="$RUNNER_TEMP/raw/DiorLinux-V1-USB-NCM-ACM/xiaomi-dior-usb-ncm-acm.img"
+          test "$(stat -c %s "$raw")" = 1186988032
+          test "$(sha256sum "$raw" | cut -d' ' -f1)" = b03b8a94b73cac09dcbadbfbc372076fc356d500e2ef52c9fa83fce427f2be99
+          python3 tools/dior-usb-repair/make-legacy-sparse.py "$raw" "$RUNNER_TEMP/release/xiaomi-dior-usb-ncm-acm-legacy-sparse.img" --max-bytes 838860800 | tee "$RUNNER_TEMP/release/LEGACY-SPARSE-VERIFICATION.json"
+          sha256sum "$RUNNER_TEMP/release/xiaomi-dior-usb-ncm-acm-legacy-sparse.img" > "$RUNNER_TEMP/release/SHA256SUMS"
+          cp tools/dior-usb-repair/README-USB.txt "$RUNNER_TEMP/release/README-USB.txt"
+      - name: Upload legacy sparse candidate (physical bootloader still unverified)
+        uses: actions/upload-artifact@v4
+        with:
+          name: DiorLinux-V1-USB-legacy-sparse-${{ github.sha }}
+          path: ${{ runner.temp }}/release/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7

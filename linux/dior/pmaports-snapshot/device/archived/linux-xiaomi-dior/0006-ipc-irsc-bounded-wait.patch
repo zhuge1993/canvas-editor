@@ -1,0 +1,84 @@
+Subject: [PATCH] ipc: bound and interrupt client security initialization wait
+
+Keep permission rules; return EAGAIN for nonblocking callers, propagate signals
+and report ETIMEDOUT instead of hanging indefinitely without Android IRSC.
+
+diff --git a/arch/arm/mach-msm/ipc_socket.c b/arch/arm/mach-msm/ipc_socket.c
+index 5aa6c93a..082c31aa 100644
+--- a/arch/arm/mach-msm/ipc_socket.c
++++ b/arch/arm/mach-msm/ipc_socket.c
+@@ -371,8 +371,13 @@ static int msm_ipc_router_sendmsg(struct kiocb *iocb, struct socket *sock,
+ 		goto out_sendmsg;
+ 	}
+ 
+-	if (port_ptr->type == CLIENT_PORT)
+-		wait_for_irsc_completion();
++	if (port_ptr->type == CLIENT_PORT) {
++		ret = wait_for_irsc_completion(m->msg_flags & MSG_DONTWAIT);
++		if (ret) {
++			msm_ipc_router_free_skb(msg);
++			goto out_sendmsg;
++		}
++	}
+ 	ipc_buf = skb_peek(msg);
+ 	if (ipc_buf)
+ 		msm_ipc_router_ipc_log(IPC_SEND, ipc_buf, port_ptr);
+diff --git a/arch/arm/mach-msm/msm_ipc_router_security.c b/arch/arm/mach-msm/msm_ipc_router_security.c
+index 5897e1fc..7a5a8151 100644
+--- a/arch/arm/mach-msm/msm_ipc_router_security.c
++++ b/arch/arm/mach-msm/msm_ipc_router_security.c
+@@ -54,16 +54,24 @@ static DECLARE_COMPLETION(irsc_completion);
+  * wait_for_irsc_completion() - Wait for IPC Router Security Configuration
+  *                              (IRSC) to complete
+  */
+-void wait_for_irsc_completion(void)
++int wait_for_irsc_completion(bool nonblock)
+ {
+-	unsigned long rem_jiffies;
+-	do {
+-		rem_jiffies = wait_for_completion_timeout(&irsc_completion,
++	long ret;
++
++	if (completion_done(&irsc_completion))
++		return 0;
++	if (nonblock)
++		return -EAGAIN;
++
++	ret = wait_for_completion_interruptible_timeout(&irsc_completion,
+ 				msecs_to_jiffies(IRSC_COMPLETION_TIMEOUT_MS));
+-		if (rem_jiffies)
+-			return;
+-		pr_err("%s: waiting for IPC Security Conf.\n", __func__);
+-	} while (1);
++	if (ret < 0)
++		return ret;
++	if (!ret) {
++		pr_err("%s: IPC security configuration timed out\n", __func__);
++		return -ETIMEDOUT;
++	}
++	return 0;
+ }
+ 
+ /**
+diff --git a/arch/arm/mach-msm/msm_ipc_router_security.h b/arch/arm/mach-msm/msm_ipc_router_security.h
+index 9cc61e95..684b962f 100644
+--- a/arch/arm/mach-msm/msm_ipc_router_security.h
++++ b/arch/arm/mach-msm/msm_ipc_router_security.h
+@@ -77,7 +77,7 @@ int msm_ipc_router_security_init(void);
+  * wait_for_irsc_completion() - Wait for IPC Router Security Configuration
+  *                              (IRSC) to complete
+  */
+-void wait_for_irsc_completion(void);
++int wait_for_irsc_completion(bool nonblock);
+ 
+ /**
+  * signal_irsc_completion() - Signal the completion of IRSC
+@@ -112,7 +112,7 @@ static inline int msm_ipc_router_security_init(void)
+ 	return 0;
+ }
+ 
+-static inline void wait_for_irsc_completion(void) { }
++static inline int wait_for_irsc_completion(bool nonblock) { return 0; }
+ 
+ static inline void signal_irsc_completion(void) { }
+ 

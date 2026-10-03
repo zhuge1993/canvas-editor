@@ -1,0 +1,104 @@
+{
+  "status": "PASS_PARTIAL_SCOPE",
+  "input": "generated_piper_pcm_injected",
+  "real_microphone_and_speaker_open": true,
+  "human_wake_or_double_talk_tested": false,
+  "checks": {
+    "short_clear_keyword_real_model_wakes": true,
+    "max_voice_asr_real_mixer": true,
+    "min_voice_asr_real_mixer": true,
+    "confirmation_real_asr_and_persistent_setting": true,
+    "new_name_prefix_identity_asr": true
+  },
+  "core": {
+    "phase": "LISTENING",
+    "ready": true,
+    "wake_word": "小猪哥",
+    "full_duplex": true,
+    "barge_in": true,
+    "aec_verified": true,
+    "pending_wake_change": false,
+    "recording_persisted": false,
+    "transcript_logging": false,
+    "public_listener": false,
+    "queue_limits": {
+      "asr": 1,
+      "response": 1,
+      "frame": 50,
+      "preroll": 25
+    },
+    "llm_configured": false,
+    "network_enabled": false,
+    "keyword_spotter_configured": true,
+    "thermal_sensor_available": true,
+    "counters": {
+      "audio_frames": 1809,
+      "asr_spans": 5,
+      "acoustic_keyword_hits": 1,
+      "spoken_replies": 7,
+      "capture_lock_drops": 54,
+      "capture_gap_resets": 4,
+      "interruptions": 1,
+      "barge_in_events": 1
+    }
+  },
+  "audio": {
+    "frames": 1970,
+    "xruns": 0,
+    "volume": 0,
+    "error": null,
+    "xrun_events": [],
+    "capture_sizes": [
+      2560,
+      640
+    ],
+    "playback_sizes": [
+      2560,
+      640
+    ],
+    "playback_pointer_boundary": 1342177280,
+    "cpu_seconds_completed": 0.0,
+    "cancelled_playbacks": 2,
+    "last_interrupt_hardware_flush_seconds": 0.07880787499016151,
+    "echo_startup_adaptation": false,
+    "capabilities": {
+      "microphone_available": true,
+      "speaker_available": true,
+      "simultaneous_capture_playback": true,
+      "aec_available": true,
+      "aec_verified": true
+    },
+    "audio_or_transcripts_saved": false
+  },
+  "speaker_completion_count": 7,
+  "short_wake_word_tested_separately": "derived-prefix positive; independent synthetic variants failed; no human validation",
+  "device_final_status": {
+    "frames": 1970,
+    "xruns": 0,
+    "volume": 0,
+    "error": null,
+    "xrun_events": [],
+    "capture_sizes": [
+      2560,
+      640
+    ],
+    "playback_sizes": [
+      2560,
+      640
+    ],
+    "playback_pointer_boundary": 1342177280,
+    "cpu_seconds_completed": 4.813627609,
+    "cancelled_playbacks": 2,
+    "last_interrupt_hardware_flush_seconds": 0.07880787499016151,
+    "echo_startup_adaptation": false,
+    "capabilities": {
+      "microphone_available": false,
+      "speaker_available": false,
+      "simultaneous_capture_playback": false,
+      "aec_available": false,
+      "aec_verified": false
+    },
+    "audio_or_transcripts_saved": false
+  },
+  "pcm_closed": true
+}

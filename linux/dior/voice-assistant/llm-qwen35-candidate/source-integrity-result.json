@@ -1,0 +1,12 @@
+{
+  "source_pin": "99b95488cac0f00ce3f05af113a8c1e287753f87",
+  "archive_sha256": "255b78039d32724d1b5ed3ba87dce1b8f7bd1e3f18a8361f4b9ea7365fec5c8b",
+  "regular_source_files_checked": 1679,
+  "allowed_modified_files": [
+    "ggml/src/ggml-backend-dl.h",
+    "ggml/src/ggml-backend-reg.cpp"
+  ],
+  "unexpected_modified_files": [],
+  "model_math_files_modified": false,
+  "scope": "actual file bytes compared with official pinned archive; no device/inference claim"
+}

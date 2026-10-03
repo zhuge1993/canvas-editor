@@ -1,0 +1,190 @@
+#!/bin/sh
+# One-shot post-flash hardware verification for Xiaomi dior.
+set -u
+
+pass=0
+fail=0
+info=0
+ok(){ printf 'PASS  %s\n' "$*"; pass=$((pass+1)); }
+bad(){ printf 'FAIL  %s\n' "$*"; fail=$((fail+1)); }
+note(){ printf 'INFO  %s\n' "$*"; info=$((info+1)); }
+
+[ -c /dev/fb0 ] && ok "display framebuffer /dev/fb0" || bad "display framebuffer missing"
+[ -c /dev/kgsl-3d0 ] && ok "Adreno KGSL /dev/kgsl-3d0" || note "Adreno KGSL device not exposed"
+
+touch_name=""
+for e in /sys/class/input/event*; do
+	[ -r "$e/device/name" ] || continue
+	n="$(cat "$e/device/name")"
+	case "$n" in
+		*atmel*|*maxtouch*) touch_name="$n"; break ;;
+	esac
+done
+[ -n "$touch_name" ] && ok "touchscreen: $touch_name" || bad "Atmel maXTouch input not registered"
+
+keys_found=0
+for e in /sys/class/input/event*; do
+	[ -r "$e/device/name" ] || continue
+	[ "$(cat "$e/device/name" 2>/dev/null)" = "gpio-keys" ] && keys_found=1
+done
+[ "$keys_found" -eq 1 ] && ok "physical gpio-keys registered" || bad "gpio-keys input missing"
+
+[ -d /sys/class/net/usb0 ] && ok "USB NCM network usb0" || bad "USB network usb0 missing"
+if [ -c /dev/ttyGS0 ] || [ -c /dev/ttyGS1 ]; then
+	ok "USB ACM gadget serial node present"
+else
+	bad "USB ACM gadget serial node missing"
+fi
+[ -c /dev/wcnss_wlan ] && ok "WCNSS control device" || bad "WCNSS control device missing"
+[ -d /sys/class/net/wlan0 ] && ok "Wi-Fi wlan0 registered" || bad "Wi-Fi wlan0 not registered"
+
+if [ -r /sys/kernel/audio_voice_service/status ]; then
+	st="$(cat /sys/kernel/audio_voice_service/status)"
+	[ "$st" = "ONLINE" ] && ok "Q6/ADSP ONLINE" || bad "Q6/ADSP status: $st"
+else
+	bad "Q6/ADSP status node missing"
+fi
+if [ -r /proc/asound/cards ] && ! grep -q 'no soundcards' /proc/asound/cards; then
+	ok "ALSA sound card registered"
+else
+	bad "ALSA sound card not registered"
+fi
+
+[ -c /dev/media0 ] && ok "camera media controller /dev/media0" || bad "camera media controller missing"
+if ls /dev/video* >/dev/null 2>&1; then ok "camera/video nodes present"; else bad "camera/video nodes missing"; fi
+if dmesg 2>/dev/null | tail -n 600 | grep -q 'Failed to load video firmware'; then
+	bad "VIDC still reports video firmware load failure"
+else
+	ok "no recent VIDC firmware-load failure"
+fi
+
+battery=""
+for p in /sys/class/power_supply/*; do
+	[ -r "$p/type" ] || continue
+	[ "$(cat "$p/type" 2>/dev/null)" = "Battery" ] && { battery="$p"; break; }
+done
+if [ -n "$battery" ]; then
+	cap="$(cat "$battery/capacity" 2>/dev/null || true)"
+	if [ -n "$cap" ]; then ok "battery power_supply present, capacity=$cap%"; else ok "battery power_supply present"; fi
+else
+	bad "battery power_supply missing"
+fi
+
+charger_found=0
+for p in /sys/class/power_supply/*; do
+	[ -r "$p/type" ] || continue
+	case "$(cat "$p/type" 2>/dev/null)" in
+		USB|Mains)
+			charger_found=1
+			note "charger supply $(basename "$p") online=$(cat "$p/online" 2>/dev/null || echo '?')"
+			;;
+	esac
+done
+[ "$charger_found" -eq 1 ] && ok "charger power_supply present" || bad "charger power_supply missing"
+
+if ls /sys/class/backlight/*/brightness >/dev/null 2>&1; then ok "backlight control present"; else bad "backlight control missing"; fi
+for led in red green blue button-backlight; do
+	if [ -e "/sys/class/leds/$led/brightness" ]; then
+		ok "LED control: $led"
+	else
+		note "LED control not exposed: $led"
+	fi
+done
+
+thermal_count=0
+for t in /sys/class/thermal/thermal_zone*; do
+	[ -d "$t" ] || continue
+	thermal_count=$((thermal_count+1))
+done
+[ "$thermal_count" -gt 0 ] && ok "thermal zones present: $thermal_count" || bad "thermal zones missing"
+
+if [ -d /sys/class/mmc_host ]; then
+	ok "MMC host controllers present"
+	if ls /sys/class/block/mmcblk1* >/dev/null 2>&1; then
+		ok "external microSD block device present"
+	else
+		note "microSD controller present but no external card detected"
+	fi
+else
+	bad "MMC host controllers missing"
+fi
+
+usb_host=0
+for p in /sys/bus/usb/devices/usb*; do
+	[ -e "$p" ] || continue
+	usb_host=1
+done
+[ "$usb_host" -eq 1 ] && ok "USB host controller exposed" || note "USB host controller not exposed"
+
+if [ -c /dev/tspdrv ]; then
+	ok "Immersion haptic /dev/tspdrv present"
+elif [ -e /sys/class/timed_output/vibrator ] || ls /sys/class/leds/*vib* >/dev/null 2>&1; then
+	ok "vibrator control present"
+else
+	bad "vibrator/haptic control not exposed"
+fi
+
+if [ -r /sys/module/hci_smd/parameters/hcismd_set ]; then
+	bt_enable="$(cat /sys/module/hci_smd/parameters/hcismd_set 2>/dev/null || true)"
+	note "Bluetooth hci_smd enable=$bt_enable"
+else
+	bad "Bluetooth hci_smd control parameter missing"
+fi
+if [ -d /sys/class/bluetooth/hci0 ]; then
+	ok "Bluetooth HCI controller hci0"
+else
+	bad "Bluetooth HCI controller not registered"
+fi
+
+if ls /dev/radio* >/dev/null 2>&1; then
+	ok "FM radio V4L2 device present"
+else
+	note "FM radio device not exposed"
+fi
+
+if [ -e /dev/smd27 ]; then
+	ok "GPSNMEA SMD channel /dev/smd27 present"
+else
+	bad "GPSNMEA SMD channel /dev/smd27 missing"
+fi
+
+rmnet_found=0
+for n in /sys/class/net/rmnet*; do
+	[ -e "$n" ] || continue
+	rmnet_found=1
+	note "mobile-data interface: $(basename "$n")"
+done
+[ "$rmnet_found" -eq 1 ] && ok "rmnet modem data interfaces present" || bad "rmnet modem data interfaces absent"
+
+sensor_hits=0
+for p in /sys/class/input/event*/device/name /sys/class/sensors/*/name; do
+	[ -r "$p" ] || continue
+	n="$(cat "$p" 2>/dev/null || true)"
+	case "$n" in
+		*accel*|*gyro*|*mag*|*compass*|*proximity*|*light*|*akm*|*sensor*)
+			note "sensor: $n"
+			sensor_hits=$((sensor_hits+1))
+			;;
+	esac
+done
+[ "$sensor_hits" -gt 0 ] && ok "sensor interfaces discovered" || note "no named sensor interfaces discovered"
+
+if command -v wget >/dev/null 2>&1; then
+	if wget -q -T 5 -O /dev/null http://127.0.0.1:3000/ 2>/dev/null; then
+		ok "FlowBoard HTTP responds on 127.0.0.1:3000"
+	else
+		bad "FlowBoard HTTP did not respond on 127.0.0.1:3000"
+	fi
+else
+	note "wget unavailable; skipped FlowBoard HTTP check"
+fi
+
+if command -v rc-service >/dev/null 2>&1; then
+	for s in dior-firmware dior-adsp wcnss-wlan dior-bluetooth flowboard; do
+		rc-service "$s" status >/dev/null 2>&1 && ok "service $s running" || bad "service $s not running"
+	done
+fi
+
+printf '\nSUMMARY pass=%d fail=%d info=%d\n' "$pass" "$fail" "$info"
+printf 'Run dior-hw-probe as well when any FAIL remains.\n'
+[ "$fail" -eq 0 ]

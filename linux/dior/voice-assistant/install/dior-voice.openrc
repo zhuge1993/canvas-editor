@@ -1,0 +1,29 @@
+#!/sbin/openrc-run
+name="Dior local voice assistant"
+description="Offline local voice skills, short model dialogue and bounded search"
+supervisor="supervise-daemon"
+command="/usr/bin/python3"
+command_args="/opt/dior-voice/runtime/run_assistant.py --audio-module /opt/dior-voice/runtime/audio_backend.py --tts-module /opt/dior-voice/tts/offline_tts.py --tts-root /opt/dior-voice/tts --tts-engine piper --llm-module /opt/dior-voice/adapter.py --llm-binary /opt/dior-voice/llm-worker --llm-model /opt/dior-voice/models/qwen2.5-0.5b-instruct-q4_0.gguf --llm-threads 4 --llm-seconds 25 --vad-rms 180 --progress-cue --network --kws-module /opt/dior-voice/kws/kws_adapter.py --kws-base /opt/dior-voice/kws --kws-tts-base /opt/dior-voice/tts --kws-threads 2 --inference-socket /run/dior-inference/inference.sock --inference-client-module /opt/dior-inference/bridge/client.py"
+command_user="dior-voice:dior-voice"
+directory="/opt/dior-voice/runtime"
+pidfile="/run/dior-voice-supervise.pid"
+umask="0027"
+respawn_delay=5
+respawn_max=5
+respawn_period=60
+retry="TERM/12/KILL/5"
+stopgroup="yes"
+output_log="/dev/null"
+error_log="/dev/null"
+export PYTHONDONTWRITEBYTECODE=1
+export PYTHONUNBUFFERED=1
+export OMP_WAIT_POLICY=PASSIVE
+export KMP_BLOCKTIME=0
+depend() {
+    need localmount dior-asr dior-inference
+}
+start_pre() {
+    [ ! -L /run/dior-voice ] || return 1
+    checkpath --directory --owner dior-voice:dior-voice --mode 0750 /run/dior-voice || return 1
+    checkpath --directory --owner dior-voice:dior-voice --mode 0700 /var/lib/dior-voice || return 1
+}

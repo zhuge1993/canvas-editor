@@ -1,0 +1,21 @@
+{
+  "engine": "piper",
+  "neural_voice": true,
+  "mechanical_fallback": false,
+  "offline": true,
+  "cloud_used": false,
+  "sample_rate": 16000,
+  "pcm_bytes": 40704,
+  "audio_seconds": 1.272,
+  "synthesis_seconds": 3.469889278996561,
+  "first_output_seconds": 3.3694337380002253,
+  "real_time_factor": 2.7279003765696235,
+  "audio_file_created": false,
+  "linux_child_lifecycle_guards": true,
+  "child_limits": {
+    "core_bytes": 0,
+    "address_space_bytes": 1073741824,
+    "open_files": 64,
+    "parent_death_signal": "SIGTERM"
+  }
+}

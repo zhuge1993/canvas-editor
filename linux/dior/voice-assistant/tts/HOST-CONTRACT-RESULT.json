@@ -1,0 +1,7 @@
+{
+  "tests_run": 19,
+  "failures": 0,
+  "errors": 0,
+  "scope": "fake session + actual WAV/facade/cumulative/cache bounds and child-thread affinity admission; no model quality or phone execution claim",
+  "persistent_tts_sha256": "84ebacb3adead38249aed3a05845c316bb8443a20f8139623c11e5163e54ed61"
+}

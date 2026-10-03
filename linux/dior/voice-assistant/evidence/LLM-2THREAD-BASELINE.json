@@ -1,0 +1,87 @@
+{
+  "status": "PARTIAL_LOCAL_MODEL_LOADED",
+  "gpu_used": false,
+  "microphone_used": false,
+  "skills_executed": false,
+  "cases": [
+    {
+      "prompt": "你好，请用一句话介绍自己。",
+      "reply": "我是一个本地语音助手。",
+      "intent": null,
+      "wall_seconds": 5.741219135001302,
+      "native": {
+        "cached_prefix_tokens": 28,
+        "first_token_seconds": 3.1095215210007154,
+        "generated_tokens": 6,
+        "gpu_used": false,
+        "id": "llm_1",
+        "input_tokens": 12,
+        "intent": null,
+        "max_rss_kib": 454808,
+        "prefill_seconds": 3.104235842998605,
+        "status": "complete",
+        "text": "我是一个本地语音助手。",
+        "total_seconds": 5.738548533998255,
+        "type": "done",
+        "history_excerpt_turns": 0
+      }
+    },
+    {
+      "prompt": "为什么手机服务器需要保持联网？",
+      "reply": "",
+      "intent": null,
+      "wall_seconds": 15.0045784630056,
+      "native": {
+        "cached_prefix_tokens": 28,
+        "first_token_seconds": 9.91837215400301,
+        "generated_tokens": 12,
+        "gpu_used": false,
+        "id": "llm_2",
+        "input_tokens": 39,
+        "intent": null,
+        "max_rss_kib": 454808,
+        "prefill_seconds": 9.913138247000461,
+        "status": "cancelled",
+        "text": "手机服务器需要保持联网的原因是，为了确保数据的安全",
+        "total_seconds": 15.001931093000167,
+        "type": "done",
+        "history_excerpt_turns": 1
+      }
+    }
+  ],
+  "adapter_startup_seconds": 17.80634757500229,
+  "native_ready": {
+    "backend": "CPU_ARMV7_NEON",
+    "cached_prefix_tokens": 28,
+    "context_tokens": 512,
+    "gpu_used": false,
+    "max_rss_kib": 454808,
+    "model_load_count": 1,
+    "model_load_seconds": 9.29401469000004,
+    "prefix_prefill_seconds": 6.909067939996021,
+    "threads": 2,
+    "type": "ready"
+  },
+  "cancellation": {
+    "cancel_was_set": true,
+    "reply_empty": true,
+    "return_after_cancel_seconds": 0.0959672659955686,
+    "native": {
+      "cached_prefix_tokens": 28,
+      "first_token_seconds": -1.0,
+      "generated_tokens": 0,
+      "gpu_used": false,
+      "id": "llm_3",
+      "input_tokens": 41,
+      "intent": null,
+      "max_rss_kib": 454808,
+      "prefill_seconds": 0.5938457540032687,
+      "status": "cancelled",
+      "text": "",
+      "total_seconds": 0.5939050770030008,
+      "type": "done",
+      "history_excerpt_turns": 1
+    },
+    "worker_still_alive": true
+  }
+}

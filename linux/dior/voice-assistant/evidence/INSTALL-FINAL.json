@@ -1,0 +1,39 @@
+{
+  "status": "PASS_INSTALLED",
+  "root": "/opt/dior-voice",
+  "default_boot_enabled": true,
+  "worker_sha256": "051f0fc03b465215258ba75f4dc039e6a805d5f22cc2e3b69fd578eb95afe984",
+  "model_sha256": "7671c0c304e6ce5a7fc577bcb12aba01e2c155cc2efd29b2213c95b18edaf6ed",
+  "assets_files": 825,
+  "assets_bytes": 559175107,
+  "readiness": {
+    "status": {
+      "phase": "WAKE_CHECK",
+      "ready": true,
+      "wake_word": "二狗",
+      "full_duplex": true,
+      "barge_in": true,
+      "aec_verified": true,
+      "pending_wake_change": false,
+      "recording_persisted": false,
+      "transcript_logging": false,
+      "public_listener": false,
+      "queue_limits": {
+        "asr": 1,
+        "response": 1,
+        "frame": 50,
+        "preroll": 25
+      },
+      "llm_configured": true,
+      "network_enabled": true,
+      "keyword_spotter_configured": true,
+      "thermal_sensor_available": true,
+      "counters": {
+        "audio_frames": 24,
+        "asr_spans": 1
+      }
+    }
+  },
+  "website_or_tunnel_restarted": false,
+  "model_copied_for_backup": false
+}

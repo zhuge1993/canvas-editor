@@ -1,0 +1,13 @@
+# Named, locally managed tunnel. Never use "tunnel --url" for this server.
+tunnel: REPLACE_WITH_TUNNEL_UUID
+credentials-file: /etc/dior-tunnel/cloudflare-credentials.json
+protocol: http2
+edge-ip-version: "4"
+metrics: 127.0.0.1:20241
+no-autoupdate: true
+loglevel: warn
+log-directory: /var/log/dior-tunnel
+ingress:
+  - hostname: REPLACE_WITH_FIXED_HOSTNAME
+    service: http://127.0.0.1:3000
+  - service: http_status:404

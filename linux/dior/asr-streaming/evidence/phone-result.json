@@ -1,0 +1,327 @@
+{
+  "status": "PASS_INSTALLED_AND_LOCAL_SERVICE_VERIFIED",
+  "checked_at": "2026-10-03T02:49:20.590537+00:00",
+  "device": {
+    "name": "Xiaomi Redmi Note 4G dior",
+    "cpu": "ARMv7 Cortex-A7 NEON",
+    "kernel": "3.4.0-msf",
+    "kernel_tainted": 0
+  },
+  "selection": {
+    "replaces_default": "whisper.cpp tiny-q5 baseline",
+    "engine": "sherpa-ncnn v2.1.15",
+    "engine_commit": "c794e1439fce79932e989220aa1c2848ecbdcdcf",
+    "upstream_release_getter_sha": "d4bb5a78",
+    "model": "sherpa-ncnn-streaming-zipformer-small-bilingual-zh-en-2023-02-16",
+    "model_variant": "root chunk32",
+    "model_author_revision": "5fb2fb06fe78a776dbda78226c42d435359064f7",
+    "backend": "CPU_NEON_OPENMP",
+    "gpu_used": false,
+    "threads": 4,
+    "decoding": "greedy_search",
+    "endpoint_trailing_silence_seconds": 0.4,
+    "hotwords_or_reference_text_injected": false,
+    "model_files": [
+      {
+        "path": "decoder_jit_trace-pnnx.ncnn.bin",
+        "bytes": 6412296,
+        "sha256": "4d1bb6ff7176907da2d19f451ba5ac13d72b56c675c8c41abd6e2f35e99bd435"
+      },
+      {
+        "path": "decoder_jit_trace-pnnx.ncnn.param",
+        "bytes": 439,
+        "sha256": "cb88f5894978fd3e85369d2f8ea55621809fceb2b5158243fb0cd025eb4f1aaf"
+      },
+      {
+        "path": "encoder_jit_trace-pnnx.ncnn.bin",
+        "bytes": 39222748,
+        "sha256": "0d3678d99dbb821d127511552c5c8451319a24469c5e5fbd9da1f7084254240f"
+      },
+      {
+        "path": "encoder_jit_trace-pnnx.ncnn.param",
+        "bytes": 111810,
+        "sha256": "8025162b7d5042a4b06f3794fcd6bda7533eec65ce50533df7d8b0d91ff70887"
+      },
+      {
+        "path": "joiner_jit_trace-pnnx.ncnn.bin",
+        "bytes": 7219652,
+        "sha256": "2ee60ac939e61494ef3cacf2768e0d786ed7461e636664f078dd6829877b6377"
+      },
+      {
+        "path": "joiner_jit_trace-pnnx.ncnn.param",
+        "bytes": 490,
+        "sha256": "75f733e68e479904181fdcf48a6a717b2b0fecbd364413e73bd44f25828922ce"
+      },
+      {
+        "path": "tokens.txt",
+        "bytes": 56317,
+        "sha256": "a8e0e4ec53810e433789b54a5c0134a7eaa2ffca595a6334d54c00da858841d3"
+      }
+    ]
+  },
+  "deployment": {
+    "service": "dior-asr",
+    "root": "/opt/dior-asr",
+    "default_boot_enabled": true,
+    "boot_reboot_tested": false,
+    "local_socket": "/run/dior-asr/recognize.sock",
+    "public_network_endpoint_added": false,
+    "automatic_microphone_capture": false,
+    "worker_sha256": "0d2206ee5fe10e63979a5f959883b5e414136f346e42e2b5eb0c4aeeee3b5dbd",
+    "installed_bytes": 57299069,
+    "package_bytes": 50517909,
+    "package_sha256": "d68513f760ff66599493b4c452681d71bcaa74a08fff76180b6da193bcc0507e",
+    "immutable_files_verified": 37,
+    "client_accounts_tested": [
+      "dior",
+      "flowboard"
+    ],
+    "unauthorized_user_denied": true,
+    "account": {
+      "uid": 106,
+      "gid": 109,
+      "shell": "/sbin/nologin",
+      "supplementary_groups": []
+    },
+    "socket_permissions": {
+      "/run/dior-asr": "0o750",
+      "/run/dior-asr/recognize.sock": "0o660"
+    },
+    "asr_only_restart_verified": true,
+    "old_worker_reaped": true,
+    "current_worker_pid": 8185,
+    "client_group_effect": "Verified fresh su sessions for dior and flowboard; existing website process was not restarted and retains its previous process group list."
+  },
+  "timing": {
+    "scope": "Published PCM16 mono16k recordings fed at wall-clock audio availability; true model endpoint before explicit EOF",
+    "microphone_live_capture_tested": false,
+    "installed_service_distinct_recordings": 4,
+    "installed_service_endpoint_tail_range_seconds": [
+      0.437356549001648,
+      0.8832808859967627
+    ],
+    "installed_service_first_partial_range_seconds": [
+      1.0823878350056475,
+      1.4608686560022761
+    ],
+    "paced_native_repeat_count": 10,
+    "paced_native_repeat_endpoint_tail_range_seconds": [
+      0.444166,
+      0.845652
+    ],
+    "max_observed_temperature_c_in_paced_repeats": 63.0,
+    "paced_repeats_thermal_aborts": 0,
+    "last_speech_phoneme_annotated": false
+  },
+  "accuracy": {
+    "installed_service_chinese": {
+      "model": "bilingual32-service",
+      "group": "public_cross_model_comparison",
+      "language": "zh",
+      "unique_sample_count": 4,
+      "aggregation": "first measured run per distinct sample; repetitions are not independent accuracy samples",
+      "strict": {
+        "errors": 2,
+        "reference_characters": 55,
+        "micro_CER": 0.03636363636363636,
+        "exact_sentence_count": 3
+      },
+      "traditional_to_simplified": {
+        "errors": 2,
+        "reference_characters": 55,
+        "micro_CER": 0.03636363636363636,
+        "exact_sentence_count": 3
+      }
+    },
+    "comparison": [
+      {
+        "model": "zh14m",
+        "group": "public_cross_model_comparison",
+        "language": "zh",
+        "unique_sample_count": 4,
+        "aggregation": "first measured run per distinct sample; repetitions are not independent accuracy samples",
+        "strict": {
+          "errors": 4,
+          "reference_characters": 55,
+          "micro_CER": 0.07272727272727272,
+          "exact_sentence_count": 2
+        },
+        "traditional_to_simplified": {
+          "errors": 4,
+          "reference_characters": 55,
+          "micro_CER": 0.07272727272727272,
+          "exact_sentence_count": 2
+        }
+      },
+      {
+        "model": "zh14m",
+        "group": "public_cross_model_comparison",
+        "language": "zh-en",
+        "unique_sample_count": 1,
+        "aggregation": "first measured run per distinct sample; repetitions are not independent accuracy samples",
+        "strict": {
+          "errors": 75,
+          "reference_characters": 108,
+          "micro_CER": 0.6944444444444444,
+          "exact_sentence_count": 0
+        },
+        "traditional_to_simplified": {
+          "errors": 75,
+          "reference_characters": 108,
+          "micro_CER": 0.6944444444444444,
+          "exact_sentence_count": 0
+        }
+      },
+      {
+        "model": "bilingual32",
+        "group": "public_cross_model_comparison",
+        "language": "zh",
+        "unique_sample_count": 4,
+        "aggregation": "first measured run per distinct sample; repetitions are not independent accuracy samples",
+        "strict": {
+          "errors": 2,
+          "reference_characters": 55,
+          "micro_CER": 0.03636363636363636,
+          "exact_sentence_count": 3
+        },
+        "traditional_to_simplified": {
+          "errors": 2,
+          "reference_characters": 55,
+          "micro_CER": 0.03636363636363636,
+          "exact_sentence_count": 3
+        }
+      },
+      {
+        "model": "bilingual32",
+        "group": "public_cross_model_comparison",
+        "language": "zh-en",
+        "unique_sample_count": 1,
+        "aggregation": "first measured run per distinct sample; repetitions are not independent accuracy samples",
+        "strict": {
+          "errors": 70,
+          "reference_characters": 108,
+          "micro_CER": 0.6481481481481481,
+          "exact_sentence_count": 0
+        },
+        "traditional_to_simplified": {
+          "errors": 70,
+          "reference_characters": 108,
+          "micro_CER": 0.6481481481481481,
+          "exact_sentence_count": 0
+        }
+      }
+    ],
+    "normalization": "Unicode whitespace/punctuation removed only; no homophone corrections, case changes, filler deletion, or reference injection",
+    "known_error": {
+      "reference": "达摩院",
+      "hypothesis": "打磨院"
+    },
+    "public_samples_training_membership": "unknown; not a formal held-out benchmark",
+    "limitations": [
+      "Only four distinct Chinese recordings, 55 scored characters; not a general accuracy percentage.",
+      "Chinese-English technical code switching sample remains poor (70 edits/108 characters strict CER); not selected for English code dictation.",
+      "No live microphone, accent, noise, or long-session speech quality validation."
+    ]
+  },
+  "bounded_runtime": {
+    "phone_real_native_checks": {
+      "forbidden_quit": true,
+      "invalid_pcm": true,
+      "client_config_forbidden": true,
+      "json_depth": true,
+      "frame_limit": true,
+      "disconnect_resets_native_stream": true,
+      "real_native_fifo": true,
+      "idle_timeout_releases_queue": {
+        "wall_seconds": 20.037374081999587,
+        "native_cpu_ticks": 0
+      },
+      "paced_wav_BAC009S0764W0121.wav": {
+        "endpoint": true,
+        "tail_seconds": 0.448030481997586,
+        "max_rss_kib": 87440
+      },
+      "paced_wav_BAC009S0916W0489.wav": {
+        "endpoint": true,
+        "tail_seconds": 0.437356549001648,
+        "max_rss_kib": 87440
+      },
+      "paced_wav_IT0011W0002.wav": {
+        "endpoint": true,
+        "tail_seconds": 0.8832808859967627,
+        "max_rss_kib": 87440
+      },
+      "paced_wav_zh-short.wav": {
+        "endpoint": true,
+        "tail_seconds": 0.8785217520007862,
+        "max_rss_kib": 87440
+      },
+      "eighty_calls_single_model": {
+        "before_max_rss_kib": 87440,
+        "after_max_rss_kib": 87440
+      }
+    },
+    "host_broker_contract_tests": 9,
+    "native_max_rss_kib_before_after_80_extra_calls": [
+      87440,
+      87440
+    ],
+    "idle_observation": {
+      "wall_seconds": 20.037374081999587,
+      "native_cpu_ticks": 0
+    },
+    "max_connections": 8,
+    "active_recognition_sessions": 1,
+    "max_session_audio_seconds": 30,
+    "idle_timeout_seconds": 20,
+    "session_wall_limit_seconds": 60,
+    "queue_timeout_seconds": 90,
+    "json_frame_limit_bytes": 65536,
+    "json_depth": 8,
+    "native_stderr_retained_limit_bytes": 16384,
+    "native_virtual_memory_limit_mib": 768,
+    "thermal_pause_above_c": 65,
+    "audio_or_transcript_disk_log_created": false,
+    "duration_of_claim": "Bounded regression only; no days-long soak test claimed.",
+    "model_load_count_in_four_audio_and_eighty_additional_ping_sessions": 1
+  },
+  "preservation": {
+    "boot_flashes": 0,
+    "kernel_firmware_gpu_sdk_modified": false,
+    "website_and_tunnel_pids_unchanged": true,
+    "website": {
+      "users": 5,
+      "shares": 5,
+      "share_http_statuses": [
+        200,
+        200,
+        200,
+        200,
+        200
+      ],
+      "bundle_sha256": "18d99693439b6f7c8313987cf4d7f5088678d794b407918da4a1a79708086d83"
+    }
+  },
+  "cleanup": {
+    "status": "PASS",
+    "duplicate_test_bytes_removed": 204860774,
+    "kept_installed_model": "/opt/dior-asr/models/bilingual32",
+    "kept_test_wavs_and_evidence": true,
+    "free_bytes": 4818972672
+  },
+  "evidence": [
+    "ASR-NEXT-SERVICE-INTEGRATION.json",
+    "ASR-NEXT-SERVICE-AUDIT.json",
+    "ASR-NEXT-SERVICE-ACCURACY.json",
+    "ASR-NEXT-ACCURACY.json",
+    "ASR-NEXT-bilingual32-endpoint-repeat5.json",
+    "ASR-NEXT-bilingual32-news-endpoint-repeat3.json",
+    "ASR-NEXT-bilingual32-question-endpoint-repeat2.json",
+    "ASR-NEXT-RAW/INSTALL-RESULT.json",
+    "ASR-NEXT-RAW/INSTALL-VALIDATION-FINAL.json",
+    "ASR-NEXT-RAW/WORKER-PROTOCOL.json",
+    "ASR-NEXT-RAW/CLEANUP-RESULT.json"
+  ],
+  "temporary_transfer_servers_stopped": true,
+  "public_website_final_http_status": 200
+}

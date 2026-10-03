@@ -1,0 +1,103 @@
+{
+  "status": "PARTIAL",
+  "gpu_used": false,
+  "microphone_used": false,
+  "skills_executed": false,
+  "cases": [
+    {
+      "name": "identity",
+      "messages": [
+        {
+          "role": "system",
+          "content": "你是这部手机上的中文语音助手，名字叫二狗。自然、准确地回答用户，用一两句简短中文。不编造已经执行的操作。"
+        },
+        {
+          "role": "user",
+          "content": "你叫什么名字？"
+        }
+      ],
+      "native": {
+        "finish_reason": "eos",
+        "first_token_seconds": 13.780911680994905,
+        "generated_tokens": 11,
+        "gpu_used": false,
+        "history_persisted": false,
+        "id": "identity",
+        "input_tokens": 52,
+        "max_rss_kib": 637720,
+        "non_thinking": true,
+        "prefill_seconds": 13.771705973005737,
+        "status": "complete",
+        "text": "我是二狗，一个由人工智能生成的语音助手。",
+        "total_seconds": 20.029520772994147,
+        "type": "done"
+      },
+      "wall_seconds": 20.041190199990524,
+      "peak_thermal_c": 65.0,
+      "thermal_cancel": false
+    },
+    {
+      "name": "followup",
+      "messages": [
+        {
+          "role": "system",
+          "content": "你是这部手机上的中文语音助手，名字叫二狗。自然、准确地回答用户，用一两句简短中文。不编造已经执行的操作。"
+        },
+        {
+          "role": "user",
+          "content": "我叫小林，请记住我的称呼。"
+        },
+        {
+          "role": "assistant",
+          "content": "好的，小林。"
+        },
+        {
+          "role": "user",
+          "content": "我刚才让你怎么称呼我？"
+        }
+      ],
+      "native": {
+        "finish_reason": "cancelled",
+        "first_token_seconds": -1.0,
+        "generated_tokens": 0,
+        "gpu_used": false,
+        "history_persisted": false,
+        "id": "followup",
+        "input_tokens": 76,
+        "max_rss_kib": 637720,
+        "non_thinking": true,
+        "prefill_seconds": 5.931437532999553,
+        "status": "cancelled",
+        "text": "",
+        "total_seconds": 5.939056716990308,
+        "type": "done"
+      },
+      "wall_seconds": 5.947976953000762,
+      "peak_thermal_c": 66.0,
+      "thermal_cancel": true
+    }
+  ],
+  "threads": 3,
+  "model_sha256": "57d1997790d1744fba5b40a7317df71ea5e2acee28c47e78f0cce39c0703f8cf",
+  "binary_sha256": "3d4831d31765885c767c33578b533e4e9fb6d730f5a1e861169f84e08a691a31",
+  "ready": {
+    "backend": "CPU_ARMV7_NEON",
+    "context_tokens": 1024,
+    "engine_pin": "99b95488cac0f00ce3f05af113a8c1e287753f87",
+    "engine_tag": "b11371",
+    "gpu_used": false,
+    "max_generated_tokens": 128,
+    "max_messages": 12,
+    "max_rss_kib": 623832,
+    "message_bytes_limit": 8192,
+    "model_load_count": 1,
+    "model_load_seconds": 4.059845035997569,
+    "non_thinking": true,
+    "threads": 3,
+    "type": "ready"
+  },
+  "load_seconds": 4.069377256993903,
+  "native_exit": -15,
+  "native_stderr_tail": ".....................................................\ngraph_compute: ggml_backend_sched_graph_compute_async failed with error 1\nprocess_ubatch: failed to compute graph, compute status: 1\ndecode: removing memory module entries for seq_id = 0, pos = [0, +inf)\nllama_decode: failed to decode, ret = 2\n",
+  "old_service_restored": true
+}

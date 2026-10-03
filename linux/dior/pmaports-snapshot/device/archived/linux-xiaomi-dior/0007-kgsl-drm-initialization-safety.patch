@@ -1,0 +1,77 @@
+Subject: [PATCH] kgsl: enable legacy DRM dependencies and validate ION initialization
+
+diff --git a/drivers/gpu/msm/Kconfig b/drivers/gpu/msm/Kconfig
+index 2576386c..7a68809c 100644
+--- a/drivers/gpu/msm/Kconfig
++++ b/drivers/gpu/msm/Kconfig
+@@ -78,6 +78,7 @@ config MSM_Z180_DEFAULT_GOVERNOR
+ config MSM_KGSL_DRM
+ 	bool "Build a DRM interface for the MSM_KGSL driver"
+ 	depends on MSM_KGSL && DRM
++	select GENLOCK
+ 
+ config KGSL_PER_PROCESS_PAGE_TABLE
+ 	bool "Enable Per Process page tables for the KGSL driver"
+diff --git a/drivers/gpu/msm/kgsl_drm.c b/drivers/gpu/msm/kgsl_drm.c
+index c221c4a2..a2da3c0d 100644
+--- a/drivers/gpu/msm/kgsl_drm.c
++++ b/drivers/gpu/msm/kgsl_drm.c
+@@ -269,7 +269,7 @@ kgsl_gem_alloc_memory(struct drm_gem_object *obj)
+ 
+ 		sg_table = ion_sg_table(kgsl_drm_ion_client,
+ 				priv->ion_handle);
+-		if (IS_ERR_OR_NULL(priv->ion_handle)) {
++		if (IS_ERR_OR_NULL(sg_table)) {
+ 			DRM_ERROR(
+ 			"Unable to get ION sg table\n");
+ 			goto memerr;
+@@ -646,7 +646,7 @@ kgsl_gem_create_from_ion_ioctl(struct drm_device *dev, void *data,
+ 
+ 	sg_table = ion_sg_table(kgsl_drm_ion_client,
+ 		priv->ion_handle);
+-	if (IS_ERR_OR_NULL(priv->ion_handle)) {
++	if (IS_ERR_OR_NULL(sg_table)) {
+ 		DRM_ERROR("Unable to get ION sg table\n");
+ 		ion_free(kgsl_drm_ion_client,
+ 			priv->ion_handle);
+@@ -1569,13 +1569,12 @@ static struct drm_driver driver = {
+ 
+ int kgsl_drm_init(struct platform_device *dev)
+ {
+-	int i;
++	int i, ret;
+ 
+ 	/* Only initialize once */
+ 	if (kgsl_drm_inited == DRM_KGSL_INITED)
+ 		return 0;
+ 
+-	kgsl_drm_inited = DRM_KGSL_INITED;
+ 
+ 	driver.num_ioctls = DRM_ARRAY_SIZE(kgsl_drm_ioctls);
+ 
+@@ -1590,12 +1589,22 @@ int kgsl_drm_init(struct platform_device *dev)
+ 	/* Create ION Client */
+ 	kgsl_drm_ion_client = msm_ion_client_create(
+ 			0xffffffff, "kgsl_drm");
+-	if (!kgsl_drm_ion_client) {
++	if (IS_ERR_OR_NULL(kgsl_drm_ion_client)) {
++		ret = kgsl_drm_ion_client ? PTR_ERR(kgsl_drm_ion_client) : -ENOMEM;
++		kgsl_drm_ion_client = NULL;
+ 		DRM_ERROR("Unable to create ION client\n");
+-		return -ENOMEM;
++		return ret;
++	}
++
++	ret = drm_platform_init(&driver, dev);
++	if (ret) {
++		ion_client_destroy(kgsl_drm_ion_client);
++		kgsl_drm_ion_client = NULL;
++		return ret;
+ 	}
+ 
+-	return drm_platform_init(&driver, dev);
++	kgsl_drm_inited = DRM_KGSL_INITED;
++	return 0;
+ }
+ 
+ void kgsl_drm_exit(void)

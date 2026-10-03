@@ -1,0 +1,11 @@
+{
+  "url": "https://raw.githubusercontent.com/gulrak/filesystem/8a2edd6d92ed820521d42c94d179462bf06b5ed3/include/ghc/filesystem.hpp",
+  "tag": "v1.5.14",
+  "source_pin": "8a2edd6d92ed820521d42c94d179462bf06b5ed3",
+  "bytes": 192164,
+  "sha256": "522791c2a2f1959193fdff61f4668c5ba894459753170b2246971272ee8ddc47",
+  "license": "MIT",
+  "scope": "private filesystem compatibility only",
+  "license_url": "https://raw.githubusercontent.com/gulrak/filesystem/8a2edd6d92ed820521d42c94d179462bf06b5ed3/LICENSE",
+  "license_sha256": "1b265537c97cfb422ffb52492c96979943f54fab8746a6dd38d8329953d487cc"
+}

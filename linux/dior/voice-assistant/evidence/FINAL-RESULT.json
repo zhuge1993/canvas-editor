@@ -1,0 +1,152 @@
+{
+  "status": "DEPLOYED_AND_AUTOMATIC_GATES_PASSED",
+  "website": "https://announce-poet-humans-den.trycloudflare.com",
+  "branch": "linux-server-armhf",
+  "model": "Qwen2.5-0.5B-Instruct Q4_0",
+  "backend": "ARMv7 NEON CPU",
+  "gpu_used_for_models": false,
+  "resident_native_model_count": 1,
+  "native_threads": 3,
+  "thermal_admission_c": 52,
+  "thermal_cancel_above_c": 65,
+  "phone_default_wake_word": "二狗",
+  "phone_voice_ready": true,
+  "model_ready": true,
+  "voice_and_inference_boot_enabled": true,
+  "website_features": [
+    "cursor dictation",
+    "voice/text questions",
+    "permission-scoped project/canvas data",
+    "real local model advice",
+    "browser speech"
+  ],
+  "actual_phone_http_cases": [
+    {
+      "name": "unauthenticated request denied",
+      "pass": true,
+      "status": 401,
+      "elapsedSeconds": 0.107
+    },
+    {
+      "name": "real bridge model capabilities",
+      "pass": true,
+      "status": 200,
+      "elapsedSeconds": 0.033
+    },
+    {
+      "name": "exact scoped project counts",
+      "pass": true,
+      "status": 200,
+      "text": "语音验收临时项目，角色技术，今日更新记录共1条：等待验收1条。角色有技术。最近记录：网页语音输入（等待验收，技术）。",
+      "elapsedSeconds": 0.081
+    },
+    {
+      "name": "other account isolated",
+      "pass": true,
+      "status": 404,
+      "elapsedSeconds": 0.014
+    },
+    {
+      "name": "canvas text scoped and readable",
+      "pass": true,
+      "status": 200,
+      "text": "画布“语音测试画布”有1个图形。可读取的文字包括：语音输入按钮。图片内容需要视觉模型，此处不会猜测。",
+      "elapsedSeconds": 0.023
+    },
+    {
+      "name": "real uploaded PCM transcription",
+      "pass": true,
+      "status": 200,
+      "text": "二狗音量最大",
+      "bytes": 56576,
+      "elapsedSeconds": 1.629
+    },
+    {
+      "name": "real stateless local model generation",
+      "pass": true,
+      "status": 200,
+      "text": "你好，我叫人工智能。",
+      "elapsedSeconds": 4.186
+    },
+    {
+      "name": "real scoped project model analysis",
+      "pass": true,
+      "status": 200,
+      "text": "语音验收临时项目，问题记录共1条：等待验收1条。角色有技术。最近记录：网页语音输入（等待验收，技术）。\n\n分析建议：分析项目优先级，建议先进行网页语音输入。",
+      "elapsedSeconds": 13.817
+    },
+    {
+      "name": "real browser audio response",
+      "pass": true,
+      "status": 200,
+      "bytes": 91436,
+      "elapsedSeconds": 5.819
+    }
+  ],
+  "tests": {
+    "scope": "host contracts; fake I/O does not prove phone acoustics",
+    "runtime": 28,
+    "llm_history": 8,
+    "tts_lifetime": 4,
+    "tts_fixed_cache": 6,
+    "native_kws": 25,
+    "installer": 8,
+    "audio_xrun": 7,
+    "audio_pointer": 7,
+    "provider_sibling_import": "PASS",
+    "kws_signed32_rpc_wrap": "PASS",
+    "actual_24_hour_soak": false,
+    "windows_parent_death": "SKIP; separate phone parent-death result retained",
+    "bridge": 18,
+    "website_http": 13,
+    "browser_fixtures": 16,
+    "rename_asr_compat": 3,
+    "workspace_http": 8
+  },
+  "release": {
+    "archive_sha256": "7da8fe4f7e08bec728f903c79f99bb3df645ce66646f390aa4e839c727b79233",
+    "archive_bytes": 310410,
+    "bundle_sha256": "96794cd4643b047360be718e848ce2eed56bf86454e73860bef27fa5f86c20a2",
+    "bundle_bytes": 266374
+  },
+  "production_counts": {
+    "users": 5,
+    "canvasDocuments": 8,
+    "managementProjects": 0,
+    "managementEvents": 0,
+    "managementHistory": 0
+  },
+  "production_data_unchanged": true,
+  "tunnel_url_unchanged": true,
+  "kernel": "3.4.0-msf",
+  "kernel_tainted": 0,
+  "voice_related_rss_sum_kib": 534944,
+  "rss_sum_scope": "process RSS sum includes shared mappings; not total physical memory",
+  "free_storage_bytes_after_cleanup": 4244299776,
+  "read_only_site_model": true,
+  "microphone_or_dialogue_logs_saved": false,
+  "limits": {
+    "browser_recording_seconds": 20,
+    "pcm_upload_bytes": 640000,
+    "web_active_requests": 2,
+    "per_user_active": 1,
+    "per_user_per_minute": 20,
+    "inference_connections": 8,
+    "inference_jobs": 4,
+    "context_tokens": 512,
+    "model_prompt_utf8_bytes": 768,
+    "browser_dialogue_turns": 6
+  },
+  "unverified": [
+    "human wake recognition",
+    "human double-talk and speaker hearing",
+    "real browser microphones",
+    "24-hour soak",
+    "exact spoken nickname spelling"
+  ],
+  "known_accuracy_limits": [
+    "independent synthetic 二狗 short samples missed",
+    "generated 小白 sometimes recognized/saved as 笑白 after synthetic confirmation"
+  ],
+  "model_scope": "short local answers and small authorized text summaries; no image understanding or arbitrary project/system execution"
+}

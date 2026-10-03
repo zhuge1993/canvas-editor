@@ -1,0 +1,352 @@
+{
+  "repo": "https://github.com/ggml-org/llama.cpp",
+  "tag": "b3927",
+  "commit": "10433e8b457c4cfd759cbb41fc55fc398db4a5da",
+  "selected_cpu_core_only": true,
+  "files": [
+    {
+      "path": "CMakeLists.txt",
+      "git_blob_sha1": "64a335378e5962939e542c230e91f249621b6463",
+      "sha256": "e2a270349a37c3d2dd2b5ffb19f678d3ee859abd0a90686067994b2d918ff10e",
+      "bytes": 6771
+    },
+    {
+      "path": "LICENSE",
+      "git_blob_sha1": "acb96ce78e0486e9dc7602cdcdd2f491c34f335a",
+      "sha256": "e562a2ddfaf8280537795ac5ecd34e3012b6582a147ef69ba6a6a5c08c84757d",
+      "bytes": 1078
+    },
+    {
+      "path": "cmake/arm64-windows-llvm.cmake",
+      "git_blob_sha1": "8023796800683240e32048180a1eb874ddab1963",
+      "sha256": "12be8ba361b88d1a12cf28970da526f98c0f9b17103c2aa0c0b49ee7fa496a48",
+      "bytes": 592
+    },
+    {
+      "path": "cmake/arm64-windows-msvc.cmake",
+      "git_blob_sha1": "c77631420ce848d051eb4ef774313964dd5636ed",
+      "sha256": "3659927c568f80cdfaae90ce28b1e9fae94870301ae1719be7fbe6895b659806",
+      "bytes": 192
+    },
+    {
+      "path": "cmake/build-info.cmake",
+      "git_blob_sha1": "ea3dc55c83439a91c9289760bc17b1b0dcd69aa1",
+      "sha256": "7f002672200e9cb52268979daa627b3715a35ffada043002e60930a3c445c1bc",
+      "bytes": 1603
+    },
+    {
+      "path": "cmake/git-vars.cmake",
+      "git_blob_sha1": "1a4c24ebf6adeb1126e626f56de601621179353d",
+      "sha256": "411507be4e991f2afc0007905a95bbf848176a282189d0e27d7df1d48974290d",
+      "bytes": 717
+    },
+    {
+      "path": "cmake/llama-config.cmake.in",
+      "git_blob_sha1": "f072b76a39d2e1589b328aa106e32285f61f4d7f",
+      "sha256": "e1c6e175733b8a971439bec6e510781be309ef82ebe5e54c4ef322e8afd02c5e",
+      "bytes": 2444
+    },
+    {
+      "path": "cmake/llama.pc.in",
+      "git_blob_sha1": "326acbb6108fd02e13787371d6dbefcd511c97f8",
+      "sha256": "afbefe6f57e37847400ad85a016e184976decb1b20759600fcf96c80efcaeb53",
+      "bytes": 250
+    },
+    {
+      "path": "ggml/CMakeLists.txt",
+      "git_blob_sha1": "89fdf9d1c11eda7639549c2a2adf7721f32285d8",
+      "sha256": "69ef8f6b7379c736d57c0ee00c95af005779ba3e189ecef3cc9a38db3d0182ea",
+      "bytes": 9902
+    },
+    {
+      "path": "ggml/cmake/FindSIMD.cmake",
+      "git_blob_sha1": "5533668ec4ab18ff7261865e43be0100de65e5bf",
+      "sha256": "c36807121bb1452dfb1ab39a7b366bd49f454c49b43b1df4b7c54f038c824d49",
+      "bytes": 2651
+    },
+    {
+      "path": "ggml/include/ggml-alloc.h",
+      "git_blob_sha1": "23600eea99cb8e17db5c6ff8ddd1eae8abb8ca19",
+      "sha256": "67d215acf3d2bbaff24762c61293484d2739d19df6fec025fd9d30c9e567c9c7",
+      "bytes": 3011
+    },
+    {
+      "path": "ggml/include/ggml-backend.h",
+      "git_blob_sha1": "5933b8e8f63ee2492929b53fb1a1378913a59089",
+      "sha256": "af1401b5cf9b6d1edb2fae32a9f2252e4f0f8758f99a7e02fb614e7e92e31a36",
+      "bytes": 17717
+    },
+    {
+      "path": "ggml/include/ggml-blas.h",
+      "git_blob_sha1": "25b2e637fb437947465a5815ff7201ea86221491",
+      "sha256": "22a2bd472c7cbbd19dece0d3c71135fbe89a8dc98acebeeffd0b53a5c6be8b9e",
+      "bytes": 554
+    },
+    {
+      "path": "ggml/include/ggml-cann.h",
+      "git_blob_sha1": "95bdaf10d17d0df42413a9a7c2f54e43e723edb7",
+      "sha256": "012ba1a9846ce99c330606cc602bb7e5ec405bb55d0608386f113732654a4877",
+      "bytes": 4431
+    },
+    {
+      "path": "ggml/include/ggml-cuda.h",
+      "git_blob_sha1": "f44d8f4e643d9a0d532e8ce49d276da4805c9927",
+      "sha256": "4bd43e58032b3f621d7dc3d9593a0be505ca714d6184eb0110eb7edbf0591fb6",
+      "bytes": 1484
+    },
+    {
+      "path": "ggml/include/ggml-kompute.h",
+      "git_blob_sha1": "171465456a5b17a6e27ebe326703c260c65a3773",
+      "sha256": "e3b501f57ae0af324df0d9c7f0055e3f08eff26ae66a3ee5149cd01e4799d6fa",
+      "bytes": 1029
+    },
+    {
+      "path": "ggml/include/ggml-metal.h",
+      "git_blob_sha1": "b8d3f678b71576eee3a085cbf0deffc76ddfc11a",
+      "sha256": "2b7234fb969550521d6ba101454727aacb3fdc91f1467877e2dad6804f4899dd",
+      "bytes": 2375
+    },
+    {
+      "path": "ggml/include/ggml-rpc.h",
+      "git_blob_sha1": "d5796736821f4badd3e573e414b89935afbde06f",
+      "sha256": "174eb65549df6d227a213ed95ed55aa6a52dbeef008fe4502861081cfa09f559",
+      "bytes": 774
+    },
+    {
+      "path": "ggml/include/ggml-sycl.h",
+      "git_blob_sha1": "03b698e61b9d40e7ede6a4f67e2fba98b6e329fc",
+      "sha256": "dbd7d3e528ba8522249ac120b48433a6ea70e7258d10a79ba1d9dcde1d22e98d",
+      "bytes": 1413
+    },
+    {
+      "path": "ggml/include/ggml-vulkan.h",
+      "git_blob_sha1": "e074042efae1a3eebaa016da49f2e2e97d9f3157",
+      "sha256": "48f2dfa1ffceabd68e917803c3b811856ba1eaad9783295f1d3553e44b76599d",
+      "bytes": 876
+    },
+    {
+      "path": "ggml/include/ggml.h",
+      "git_blob_sha1": "4508da4fb3a41607fcf81e6bd939490af599cf25",
+      "sha256": "d43ba0d99fe6e6b4a4186d0e79cb30e551cb2ecce33ad9d86b9d20759edf9148",
+      "bytes": 98859
+    },
+    {
+      "path": "ggml/src/CMakeLists.txt",
+      "git_blob_sha1": "676f85a369bc6ef7efaa1ee8171fb9375e080193",
+      "sha256": "55ad52fbf54cededdedd443235110e54cba77f96fc962b30ee40351294810084",
+      "bytes": 53174
+    },
+    {
+      "path": "ggml/src/ggml-aarch64.c",
+      "git_blob_sha1": "b27f411474f4c40a18d6b31b59f1001277d89684",
+      "sha256": "e9b961eb3a7e143e19f8e7f597e20f380076ab30bae7bf0b93d98ea86f92fc5e",
+      "bytes": 192677
+    },
+    {
+      "path": "ggml/src/ggml-aarch64.h",
+      "git_blob_sha1": "517babaf1691bbd9cc8434c5d81b853d3f7d6105",
+      "sha256": "9ad6ba0472b7b14cfb7f062f0e30a63d9883533cd152acf4df5143a43c210fde",
+      "bytes": 2011
+    },
+    {
+      "path": "ggml/src/ggml-alloc.c",
+      "git_blob_sha1": "041de9e3efc6927568fe7d2525091a32dbe4b5e4",
+      "sha256": "0af7e9eb2de044e18a295385cf98e0bce246f4dd58d7b4c2f9664664c9a865fb",
+      "bytes": 38425
+    },
+    {
+      "path": "ggml/src/ggml-backend-impl.h",
+      "git_blob_sha1": "fd3deae0097998ad5524e41e511ccb916401978a",
+      "sha256": "c23a4c9d51a692fb074537af6a5dea12961d7e7e16cd85ea212a2bd3cd2747b7",
+      "bytes": 10767
+    },
+    {
+      "path": "ggml/src/ggml-backend.cpp",
+      "git_blob_sha1": "15d650150a5f346fae1e8cc38b739c1fdbac0ed6",
+      "sha256": "1f4feec7f5f86d63e4f1b8b9a8829019ba4929ae07cc1b9dacc1e6b3515f7080",
+      "bytes": 96900
+    },
+    {
+      "path": "ggml/src/ggml-blas.cpp",
+      "git_blob_sha1": "7875ec86d0836ad15e30291b1ac33ea411035b6a",
+      "sha256": "9cec3c280511af16859823b7f97c5a2b2d447e28bf5cd355bb70609e56db1493",
+      "bytes": 17191
+    },
+    {
+      "path": "ggml/src/ggml-cann.cpp",
+      "git_blob_sha1": "ec3c0a6889a2ec3c6bab2afc35fe583f520833ba",
+      "sha256": "02c49410e5e41a6e6d3128bef32c7d77abafd7d52a1861a0ad5fe2f14ab43594",
+      "bytes": 71192
+    },
+    {
+      "path": "ggml/src/ggml-common.h",
+      "git_blob_sha1": "050161393456e91d8fddbe35e935bca9deaad980",
+      "sha256": "6acaabec29d667f5f781ee5e95ba60d1cfce6465eb5c2ba2c5bc72f4dba97524",
+      "bytes": 133505
+    },
+    {
+      "path": "ggml/src/ggml-cpu-impl.h",
+      "git_blob_sha1": "5b45155b028f1c6e0da236ded0949d3314364392",
+      "sha256": "877a4f903c38cad0a4809eee4719d38cc64cd21ffb3340e4838a70f0cfe23afe",
+      "bytes": 15940
+    },
+    {
+      "path": "ggml/src/ggml-cuda.cu",
+      "git_blob_sha1": "1338bd45836bb58e7841b6184ce52e6333c34241",
+      "sha256": "ffe0f3ac421084cdf166ad29b824058bd4d56b20b1c7dba9e024b5ad26f2cbeb",
+      "bytes": 133225
+    },
+    {
+      "path": "ggml/src/ggml-impl.h",
+      "git_blob_sha1": "d3f4bad8c0a84b5ff29f075028296f72e304c1de",
+      "sha256": "999712ace1a6cdb9ad8e5c53c04c014b89c7d22ea1c1e0d7377b23ecc760eee7",
+      "bytes": 6262
+    },
+    {
+      "path": "ggml/src/ggml-kompute.cpp",
+      "git_blob_sha1": "2c926aaeecefc69ad31efcfe10c8b0d0f20885f8",
+      "sha256": "8dd590beef035718f2f14002cd1d6dee706657a7f5e042da53265ca717e8e39f",
+      "bytes": 80218
+    },
+    {
+      "path": "ggml/src/ggml-metal.m",
+      "git_blob_sha1": "172a0f925d316968d695160cc5dfede12374dd98",
+      "sha256": "0b6c8bcb03159d37549f7e1ab17bdfaa197226b3556daaf61689696231ec8ae9",
+      "bytes": 203930
+    },
+    {
+      "path": "ggml/src/ggml-metal.metal",
+      "git_blob_sha1": "2b200032394b1f041f647ec519ffc3a7fc9e7f98",
+      "sha256": "a0c465d8180dc2c47881f00d4d8b6117428766c493540f386b65a4afab95f9fe",
+      "bytes": 233831
+    },
+    {
+      "path": "ggml/src/ggml-quants.c",
+      "git_blob_sha1": "7aa6dce8907f5c9c9129fad1117848b1302486f1",
+      "sha256": "2cfa26a747abf4ec403ee8ee43cf42793ef8ecfcd132bf9a84067bcc4b17be8e",
+      "bytes": 693356
+    },
+    {
+      "path": "ggml/src/ggml-quants.h",
+      "git_blob_sha1": "df9c4b24ae74fa351ed1cfbdfff0b42ed308fefd",
+      "sha256": "17f8704512dbb93d93dfad9b889a5c3f4df1efad4961904cdc0f8827a224a1c3",
+      "bytes": 12892
+    },
+    {
+      "path": "ggml/src/ggml-rpc.cpp",
+      "git_blob_sha1": "13c7dd4364c33130251e98040644fd7b0c28d960",
+      "sha256": "b735d106d1205b1d803d613996bcfd3d8137bb4bfed510b6b0d720b720f697c1",
+      "bytes": 51929
+    },
+    {
+      "path": "ggml/src/ggml-sycl.cpp",
+      "git_blob_sha1": "4d3f1c5ce048656fe7d8fd86231ff98cfaa309b6",
+      "sha256": "5680ae7bd6b5affada96fd11a1f10244b2f6962ab080634e508eac135e454d0a",
+      "bytes": 210749
+    },
+    {
+      "path": "ggml/src/ggml-vulkan.cpp",
+      "git_blob_sha1": "374c6ecd7ade5b0789ab1bdd0011603a06ee0618",
+      "sha256": "b824942e2aee1c508f6b57c7a99975093181029586a9a0d6c3eeec08e4c3e441",
+      "bytes": 419474
+    },
+    {
+      "path": "ggml/src/ggml.c",
+      "git_blob_sha1": "3f01092d9f59aebc47ea51c7ac2810d5d4dcd866",
+      "sha256": "08226d50b9a67f55dd7875eb8cb79b9d6804305cad637901caa3dafa16d74393",
+      "bytes": 782737
+    },
+    {
+      "path": "include/llama.h",
+      "git_blob_sha1": "02bc7f087c62b71904865f83599114e0a05c460a",
+      "sha256": "ad344781770cee683c0e49ff1553da5035aa0c066863ae265e7ed50d9c5109a1",
+      "bytes": 61174
+    },
+    {
+      "path": "src/CMakeLists.txt",
+      "git_blob_sha1": "46a6ad56202f7f017bb8783140755edd3c6528af",
+      "sha256": "97a117e357aa789bf36f85534a662d9e702936bb9f7585a2a37506ecee820847",
+      "bytes": 749
+    },
+    {
+      "path": "src/llama-grammar.cpp",
+      "git_blob_sha1": "74e9f64b393b2f2e144f78b1e30830771e91099b",
+      "sha256": "c6e41d5ff43607e4ff76dcd909d67d90656327354df9d6b834e848c1c991bcac",
+      "bytes": 42152
+    },
+    {
+      "path": "src/llama-grammar.h",
+      "git_blob_sha1": "f529ce351e4167d03cbeb538018047a6287c1c02",
+      "sha256": "a8c4eaaefae55b1cb993cb2f72be5b3519cba621efef147bfe2973b1d7f7e16d",
+      "bytes": 4649
+    },
+    {
+      "path": "src/llama-impl.h",
+      "git_blob_sha1": "70f16b61c12e07f6e5735030639b894dd9c110a6",
+      "sha256": "24e9729ab874f186dcfd465a9c2275777ce86689d3587987ee39437124d47db3",
+      "bytes": 4680
+    },
+    {
+      "path": "src/llama-sampling.cpp",
+      "git_blob_sha1": "2e655068272b8adaa1fc21c4039baf2fbf6d393d",
+      "sha256": "5854b2a4808311e1133dc48fd7b92b3f3ab479f6aad42d332308531d53a9b1b4",
+      "bytes": 62235
+    },
+    {
+      "path": "src/llama-sampling.h",
+      "git_blob_sha1": "2683f1b92696f1a7c30a88282f327a07e145cf08",
+      "sha256": "6b2687106ec9371d0252574eaabd4beb29b8f74255bebecbabd73f660d13fff7",
+      "bytes": 666
+    },
+    {
+      "path": "src/llama-vocab.cpp",
+      "git_blob_sha1": "070de936536e0d1bf1ca4c3c27a667cd3cbc766d",
+      "sha256": "3cf0d6f7f0d191756569cfe0e079891996b7824d9a3824fb90c710500ccb448d",
+      "bytes": 77299
+    },
+    {
+      "path": "src/llama-vocab.h",
+      "git_blob_sha1": "d958d0073be95699b5c5b0e3c85e4d6ce1a01154",
+      "sha256": "4b14037dd8bc04470abaae1d27e80613a967e4b408892ca046764c027634c6ff",
+      "bytes": 6058
+    },
+    {
+      "path": "src/llama.cpp",
+      "git_blob_sha1": "c51b49c563156c8ed9c4b414beec52da4f381479",
+      "sha256": "951f2dfa5a16f8f3b598e13256286b389a0445a5469db0f8e8f7ec06391b0f59",
+      "bytes": 942071
+    },
+    {
+      "path": "src/unicode-data.cpp",
+      "git_blob_sha1": "04dcd7fcfbcea90a4b23a2e62855b4ccbbb3521c",
+      "sha256": "95170cd1c105a5b41a1b2dce73b0fae8ce8011ef7897600828bb2babe8b26e5d",
+      "bytes": 168374
+    },
+    {
+      "path": "src/unicode-data.h",
+      "git_blob_sha1": "f6973ebd2e3506e7ace1dd8cfe7d252ce6d25c3d",
+      "sha256": "1854f4494e5666db6036f0bf4cf818e01588b40b48a89e3372e775c4d5174402",
+      "bytes": 630
+    },
+    {
+      "path": "src/unicode.cpp",
+      "git_blob_sha1": "50b35bbbc918ce6c9a02c70aa0a93e6d0b97c876",
+      "sha256": "30b6ddfbcfff3b76e749cf53ab41ea3a5184db9e983f8b385032a6955f971e17",
+      "bytes": 30994
+    },
+    {
+      "path": "src/unicode.h",
+      "git_blob_sha1": "008532a242ab8d44141577e65b2445df8060fee5",
+      "sha256": "e3e49a52c0fb43610b6e01df16d22ce2bc47e4a6511f004fda8d06c7026295bb",
+      "bytes": 2194
+    }
+  ],
+  "seconds": 63.457382900000084,
+  "integration_profile": {
+    "compatibility": "API19 wrappers only",
+    "cached_prefix": "one Chinese sentence <=25characters; no claims of hardware actions",
+    "generation_default_tokens": 24,
+    "history_characters_per_side": 24,
+    "new_profile_phone_verified": false
+  }
+}

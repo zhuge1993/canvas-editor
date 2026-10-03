@@ -1,0 +1,916 @@
+Subject: [PATCH] qdsp6v2: complete PCM copies and preserve per-stream buffer ownership
+
+The downstream PCM .copy callbacks truncate an ALSA request to one DSP
+buffer and return success, discarding playback data or unread capture data.
+Keep partial buffers per stream and transfer every requested byte across
+buffer boundaries. Return errors for signals, timeouts and failed transfers.
+
+Accumulate small playback writes before RUN, record each submitted length,
+and send queued writes from process context. Serialize STOP/EOS behind any
+write already selected, cancel work before freeing the client, and keep
+capture metadata and wait queues local to the stream. Propagate prepare
+errors and constrain period counts to those supported by the Q6 ring mask.
+
+Source: msfkonsole/android_kernel_xiaomi_dior
+Base: 12f40d54ab4e34dabaeb8dd7979bedc3cc8fa064
+This does not change mixer routes, gain, firmware, DTB or ramdisk.
+
+diff --git a/sound/soc/msm/qdsp6v2/msm-pcm-q6-v2.c b/sound/soc/msm/qdsp6v2/msm-pcm-q6-v2.c
+index 413d93bb..1f43ec87 100644
+--- a/sound/soc/msm/qdsp6v2/msm-pcm-q6-v2.c
++++ b/sound/soc/msm/qdsp6v2/msm-pcm-q6-v2.c
+@@ -102,7 +102,6 @@ static unsigned int supported_sample_rates[] = {
+ 	88200, 96000, 176400, 192000
+ };
+ 
+-static uint32_t in_frame_info[CAPTURE_MAX_NUM_PERIODS][2];
+ 
+ static struct snd_pcm_hw_constraint_list constraints_sample_rates = {
+ 	.count = ARRAY_SIZE(supported_sample_rates),
+@@ -110,10 +109,130 @@ static struct snd_pcm_hw_constraint_list constraints_sample_rates = {
+ 	.mask = 0,
+ };
+ 
++static const unsigned int msm_pcm_period_counts[] = {2, 4, 8};
++static struct snd_pcm_hw_constraint_list msm_pcm_period_constraints = {
++	.count = ARRAY_SIZE(msm_pcm_period_counts),
++	.list = msm_pcm_period_counts,
++};
++
++static void msm_pcm_copy_abort(struct msm_audio *prtd, int error)
++{
++	unsigned long flags;
++
++	spin_lock_irqsave(&prtd->copy_state_lock, flags);
++	if (!prtd->abort || prtd->abort == -EPIPE)
++		prtd->abort = error;
++	atomic_set(&prtd->start, 0);
++	spin_unlock_irqrestore(&prtd->copy_state_lock, flags);
++	wake_up(&prtd->write_wait);
++	wake_up(&prtd->read_wait);
++}
++
++/* Serialize enqueue with abort so close cannot miss a late callback work item. */
++static void msm_pcm_schedule_tx(struct msm_audio *prtd)
++{
++	unsigned long flags;
++
++	spin_lock_irqsave(&prtd->copy_state_lock, flags);
++	if (!prtd->abort || prtd->tx_eos_pending)
++		schedule_work(&prtd->tx_work);
++	spin_unlock_irqrestore(&prtd->copy_state_lock, flags);
++}
++
++/* Caller holds copy_state_lock. Publish only bytes already copied. */
++static void msm_pcm_publish_tx(struct msm_audio *prtd)
++{
++	if (!prtd->tx_data || !prtd->tx_filled || prtd->tx_copy_busy)
++		return;
++	prtd->tx_queued[prtd->tx_idx] = prtd->tx_filled;
++	atomic_inc(&prtd->out_needed);
++	prtd->tx_data = NULL;
++	prtd->tx_filled = 0;
++	prtd->tx_capacity = 0;
++}
++
++/* APR callbacks publish/schedule only; mutex/RPC execution stays here. */
++static void msm_pcm_tx_work(struct work_struct *work)
++{
++	struct msm_audio *prtd = container_of(work, struct msm_audio, tx_work);
++	unsigned long flags;
++	uint32_t idx, bytes;
++	int ret;
++	bool eos;
++
++	mutex_lock(&prtd->tx_lock);
++	for (;;) {
++		spin_lock_irqsave(&prtd->copy_state_lock, flags);
++		eos = prtd->tx_eos_pending;
++		if (eos) {
++			prtd->tx_eos_pending = false;
++			spin_unlock_irqrestore(&prtd->copy_state_lock, flags);
++			ret = q6asm_cmd_nowait(prtd->audio_client, CMD_EOS);
++			if (ret < 0) {
++				clear_bit(CMD_EOS, &prtd->cmd_pending);
++				wake_up(&prtd->eos_wait);
++			}
++			continue;
++		}
++		idx = prtd->tx_next;
++		if (prtd->abort || !atomic_read(&prtd->start) ||
++		    !prtd->tx_queued[idx]) {
++			spin_unlock_irqrestore(&prtd->copy_state_lock, flags);
++			break;
++		}
++		bytes = prtd->tx_queued[idx];
++		prtd->tx_queued[idx] = 0;
++		prtd->tx_submitted[idx] = bytes;
++		prtd->tx_next = (idx + 1) % prtd->periods;
++		atomic_dec(&prtd->out_needed);
++		spin_unlock_irqrestore(&prtd->copy_state_lock, flags);
++		ret = q6asm_write(prtd->audio_client, bytes, 0, 0, NO_TIMESTAMP);
++		if (ret < 0) {
++			msm_pcm_copy_abort(prtd, ret);
++			break;
++		}
++	}
++	mutex_unlock(&prtd->tx_lock);
++}
++
++static int msm_pcm_reset_copy_state(struct msm_audio *prtd)
++{
++	unsigned long flags;
++	int ret = 0;
++
++	msm_pcm_copy_abort(prtd, -EPIPE);
++	cancel_work_sync(&prtd->tx_work);
++	mutex_lock(&prtd->copy_lock);
++	if (prtd->enabled) {
++		ret = q6asm_cmd(prtd->audio_client, CMD_FLUSH);
++		if (ret < 0)
++			goto out;
++	}
++	spin_lock_irqsave(&prtd->copy_state_lock, flags);
++	memset(prtd->tx_queued, 0, sizeof(prtd->tx_queued));
++	memset(prtd->tx_submitted, 0, sizeof(prtd->tx_submitted));
++	memset(prtd->in_frame_info, 0, sizeof(prtd->in_frame_info));
++	prtd->tx_data = NULL;
++	prtd->tx_filled = prtd->tx_capacity = prtd->tx_next = 0;
++	prtd->tx_copy_busy = false;
++	prtd->tx_eos_pending = false;
++	prtd->rx_data = NULL;
++	prtd->rx_remaining = prtd->rx_offset = 0;
++	prtd->abort = 0;
++	atomic_set(&prtd->start, 0);
++	atomic_set(&prtd->out_needed, 0);
++	atomic_set(&prtd->in_count, 0);
++	spin_unlock_irqrestore(&prtd->copy_state_lock, flags);
++out:
++	mutex_unlock(&prtd->copy_lock);
++	return ret;
++}
++
+ static void msm_pcm_route_event_handler(enum msm_pcm_routing_event event,
+ 					void *priv_data)
+ {
+ 	struct msm_audio *prtd = priv_data;
++	int i, ret;
+ 
+ 	BUG_ON(!prtd);
+ 
+@@ -121,12 +240,30 @@ static void msm_pcm_route_event_handler(enum msm_pcm_routing_event event,
+ 
+ 	switch (event) {
+ 	case MSM_PCM_RT_EVT_BUF_RECFG:
+-		q6asm_cmd(prtd->audio_client, CMD_PAUSE);
+-		q6asm_cmd(prtd->audio_client, CMD_FLUSH);
+-		q6asm_run(prtd->audio_client, 0, 0, 0);
++		/* Routing calls in process context. Retire a partial copy before FLUSH. */
++		msm_pcm_copy_abort(prtd, -EPIPE);
++		ret = q6asm_cmd(prtd->audio_client, CMD_PAUSE);
++		if (ret < 0)
++			goto fail;
++		ret = msm_pcm_reset_copy_state(prtd);
++		if (ret < 0)
++			goto fail;
++		/* Keep the hardware byte position: FLUSH does not consume PCM frames. */
++		for (i = 0; i < prtd->periods; i++) {
++			ret = q6asm_read(prtd->audio_client);
++			if (ret < 0)
++				goto fail;
++		}
++		ret = q6asm_run(prtd->audio_client, 0, 0, 0);
++		if (ret < 0)
++			goto fail;
++		break;
+ 	default:
+ 		break;
+ 	}
++	return;
++fail:
++	msm_pcm_copy_abort(prtd, ret);
+ }
+ 
+ static void event_handler(uint32_t opcode,
+@@ -134,52 +271,78 @@ static void event_handler(uint32_t opcode,
+ {
+ 	struct msm_audio *prtd = priv;
+ 	struct snd_pcm_substream *substream = prtd->substream;
+-	uint32_t *ptrmem = (uint32_t *)payload;
+ 	uint32_t idx = 0;
+ 	uint32_t size = 0;
+ 
+ 	switch (opcode) {
+ 	case ASM_DATA_EVENT_WRITE_DONE_V2: {
+-		pr_debug("ASM_DATA_EVENT_WRITE_DONE_V2\n");
+-		pr_debug("Buffer Consumed = 0x%08x\n", *ptrmem);
+-		prtd->pcm_irq_pos += prtd->pcm_count;
++		unsigned long flags;
++		uint32_t completed;
++
++		if (token >= prtd->periods || token >= PLAYBACK_MAX_NUM_PERIODS) {
++			msm_pcm_copy_abort(prtd, -EIO);
++			break;
++		}
++		spin_lock_irqsave(&prtd->copy_state_lock, flags);
++		completed = prtd->mmap_flag ? prtd->pcm_count : prtd->tx_submitted[token];
++		prtd->tx_submitted[token] = 0;
++		if (!prtd->abort && completed && prtd->pcm_size)
++			prtd->pcm_irq_pos = (prtd->pcm_irq_pos + completed) % prtd->pcm_size;
++		spin_unlock_irqrestore(&prtd->copy_state_lock, flags);
++		/* A flush can return an already-retired token; do not recount it. */
++		if (!completed)
++			break;
+ 		if (atomic_read(&prtd->start))
+ 			snd_pcm_period_elapsed(substream);
+ 		atomic_inc(&prtd->out_count);
+-		wake_up(&the_locks.write_wait);
+-		if (!atomic_read(&prtd->start))
+-			break;
+-		if (!prtd->mmap_flag)
++		wake_up(&prtd->write_wait);
++		if (!atomic_read(&prtd->start) || !prtd->mmap_flag)
+ 			break;
+-		if (q6asm_is_cpu_buf_avail_nolock(IN,
+-				prtd->audio_client,
+-				&size, &idx)) {
+-			pr_debug("%s:writing %d bytes of buffer to dsp 2\n",
+-					__func__, prtd->pcm_count);
+-			q6asm_write_nolock(prtd->audio_client,
+-				prtd->pcm_count, 0, 0, NO_TIMESTAMP);
+-		}
++		if (q6asm_is_cpu_buf_avail_nolock(IN, prtd->audio_client, &size, &idx))
++			q6asm_write_nolock(prtd->audio_client, prtd->pcm_count, 0, 0, NO_TIMESTAMP);
+ 		break;
+ 	}
+ 	case ASM_DATA_EVENT_RENDERED_EOS:
+ 		pr_debug("ASM_DATA_EVENT_RENDERED_EOS\n");
+ 		clear_bit(CMD_EOS, &prtd->cmd_pending);
+-		wake_up(&the_locks.eos_wait);
++		wake_up(&prtd->eos_wait);
+ 		break;
+ 	case ASM_DATA_EVENT_READ_DONE_V2: {
++		struct audio_buffer *buffer;
++		unsigned long flags;
++
++		if (ACCESS_ONCE(prtd->abort))
++			break;
++		if (token >= prtd->periods || token >= CAPTURE_MAX_NUM_PERIODS) {
++			msm_pcm_copy_abort(prtd, -EIO);
++			break;
++		}
++		spin_lock_irqsave(&prtd->copy_state_lock, flags);
++		if (prtd->abort) {
++			spin_unlock_irqrestore(&prtd->copy_state_lock, flags);
++			break;
++		}
++		buffer = &prtd->audio_client->port[OUT].buf[token];
++		if (payload[5] > buffer->size || payload[4] > buffer->size - payload[5]) {
++			spin_unlock_irqrestore(&prtd->copy_state_lock, flags);
++			msm_pcm_copy_abort(prtd, -EIO);
++			break;
++		}
+ 		pr_debug("ASM_DATA_EVENT_READ_DONE_V2\n");
+ 		pr_debug("token = 0x%08x\n", token);
+-		in_frame_info[token][0] = payload[4];
+-		in_frame_info[token][1] = payload[5];
++		prtd->in_frame_info[token][0] = payload[4];
++		prtd->in_frame_info[token][1] = payload[5];
++		spin_unlock_irqrestore(&prtd->copy_state_lock, flags);
+ 		/* assume data size = 0 during flushing */
+-		if (in_frame_info[token][0]) {
+-			prtd->pcm_irq_pos += in_frame_info[token][0];
++		if (prtd->in_frame_info[token][0]) {
++			if (prtd->pcm_size)
++				prtd->pcm_irq_pos = (prtd->pcm_irq_pos + prtd->in_frame_info[token][0]) % prtd->pcm_size;
+ 			pr_debug("pcm_irq_pos=%d\n", prtd->pcm_irq_pos);
+ 			if (atomic_read(&prtd->start))
+ 				snd_pcm_period_elapsed(substream);
+ 			if (atomic_read(&prtd->in_count) <= prtd->periods)
+ 				atomic_inc(&prtd->in_count);
+-			wake_up(&the_locks.read_wait);
++			wake_up(&prtd->read_wait);
+ 			if (prtd->mmap_flag &&
+ 			    q6asm_is_cpu_buf_avail_nolock(OUT,
+ 				prtd->audio_client,
+@@ -188,46 +351,44 @@ static void event_handler(uint32_t opcode,
+ 		} else {
+ 			pr_debug("%s: reclaim flushed buf in_count %x\n",
+ 				__func__, atomic_read(&prtd->in_count));
+-			prtd->pcm_irq_pos += prtd->pcm_count;
++			if (prtd->pcm_size)
++				prtd->pcm_irq_pos = (prtd->pcm_irq_pos + prtd->pcm_count) % prtd->pcm_size;
+ 			atomic_inc(&prtd->in_count);
+ 			if (atomic_read(&prtd->in_count) == prtd->periods) {
+ 				pr_info("%s: reclaimed all bufs\n", __func__);
+ 				if (atomic_read(&prtd->start))
+ 					snd_pcm_period_elapsed(substream);
+-				wake_up(&the_locks.read_wait);
++				wake_up(&prtd->read_wait);
+ 			}
+ 		}
+ 		break;
+ 	}
+ 	case APR_BASIC_RSP_RESULT: {
+ 		switch (payload[0]) {
+-		case ASM_SESSION_CMD_RUN_V2:
+-			if (substream->stream
+-				!= SNDRV_PCM_STREAM_PLAYBACK) {
+-				atomic_set(&prtd->start, 1);
++		case ASM_SESSION_CMD_RUN_V2: {
++			unsigned long flags;
++
++			if (payload[1]) {
++				msm_pcm_copy_abort(prtd, -EIO);
+ 				break;
+ 			}
+-			if (prtd->mmap_flag) {
+-				pr_debug("%s:writing %d bytes of buffer to dsp\n",
+-					__func__,
+-					prtd->pcm_count);
+-				q6asm_write_nolock(prtd->audio_client,
+-					prtd->pcm_count,
+-					0, 0, NO_TIMESTAMP);
+-			} else {
+-				while (atomic_read(&prtd->out_needed)) {
+-					pr_debug("%s:writing %d bytes of buffer to dsp\n",
+-						__func__,
+-						prtd->pcm_count);
+-					q6asm_write_nolock(prtd->audio_client,
+-						prtd->pcm_count,
+-						0, 0, NO_TIMESTAMP);
+-					atomic_dec(&prtd->out_needed);
+-					wake_up(&the_locks.write_wait);
+-				};
++			spin_lock_irqsave(&prtd->copy_state_lock, flags);
++			if (prtd->abort) {
++				spin_unlock_irqrestore(&prtd->copy_state_lock, flags);
++				break;
+ 			}
+ 			atomic_set(&prtd->start, 1);
++			if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK && !prtd->mmap_flag)
++				msm_pcm_publish_tx(prtd);
++			spin_unlock_irqrestore(&prtd->copy_state_lock, flags);
++			if (substream->stream != SNDRV_PCM_STREAM_PLAYBACK)
++				break;
++			if (prtd->mmap_flag)
++				q6asm_write_nolock(prtd->audio_client, prtd->pcm_count, 0, 0, NO_TIMESTAMP);
++			else
++				msm_pcm_schedule_tx(prtd);
+ 			break;
++		}
+ 		default:
+ 			pr_debug("%s:Payload = [0x%x]stat[0x%x]\n",
+ 				__func__, payload[0], payload[1]);
+@@ -248,15 +409,17 @@ static int msm_pcm_playback_prepare(struct snd_pcm_substream *substream)
+ 	int ret;
+ 	uint16_t bits_per_sample = 16;
+ 
++	ret = msm_pcm_reset_copy_state(prtd);
++	if (ret < 0)
++		return ret;
+ 	pr_debug("%s\n", __func__);
++	prtd->periods = runtime->periods;
+ 	prtd->pcm_size = snd_pcm_lib_buffer_bytes(substream);
+ 	prtd->pcm_count = snd_pcm_lib_period_bytes(substream);
+ 	prtd->pcm_irq_pos = 0;
+ 	/* rate and channels are sent to audio driver */
+ 	prtd->samp_rate = runtime->rate;
+ 	prtd->channel_mode = runtime->channels;
+-	if (prtd->enabled)
+-		return 0;
+ 
+ 	switch (runtime->format) {
+ 	case SNDRV_PCM_FORMAT_S16_LE:
+@@ -271,8 +434,10 @@ static int msm_pcm_playback_prepare(struct snd_pcm_substream *substream)
+ 			prtd->audio_client, runtime->rate,
+ 			runtime->channels, !prtd->set_channel_map,
+ 			prtd->channel_map, bits_per_sample);
+-	if (ret < 0)
+-		pr_info("%s: CMD Format block failed\n", __func__);
++	if (ret < 0) {
++		msm_pcm_copy_abort(prtd, ret);
++		return ret;
++	}
+ 
+ 	atomic_set(&prtd->out_count, runtime->periods);
+ 
+@@ -291,7 +456,11 @@ static int msm_pcm_capture_prepare(struct snd_pcm_substream *substream)
+ 	int i = 0;
+ 	uint16_t bits_per_sample = 16;
+ 
++	ret = msm_pcm_reset_copy_state(prtd);
++	if (ret < 0)
++		return ret;
+ 	pr_debug("%s\n", __func__);
++	prtd->periods = runtime->periods;
+ 	prtd->pcm_size = snd_pcm_lib_buffer_bytes(substream);
+ 	prtd->pcm_count = snd_pcm_lib_period_bytes(substream);
+ 	prtd->pcm_irq_pos = 0;
+@@ -300,8 +469,6 @@ static int msm_pcm_capture_prepare(struct snd_pcm_substream *substream)
+ 	prtd->samp_rate = runtime->rate;
+ 	prtd->channel_mode = runtime->channels;
+ 
+-	if (prtd->enabled)
+-		return 0;
+ 
+ 	switch (runtime->format) {
+ 	case SNDRV_PCM_FORMAT_S16_LE:
+@@ -316,11 +483,19 @@ static int msm_pcm_capture_prepare(struct snd_pcm_substream *substream)
+ 	ret = q6asm_enc_cfg_blk_pcm_format_support(prtd->audio_client,
+ 					prtd->samp_rate, prtd->channel_mode,
+ 					bits_per_sample);
+-	if (ret < 0)
+-		pr_debug("%s: cmd cfg pcm was block failed", __func__);
+-
+-	for (i = 0; i < runtime->periods; i++)
+-		q6asm_read(prtd->audio_client);
++	if (ret < 0) {
++		msm_pcm_copy_abort(prtd, ret);
++		return ret;
++	}
++	/* A partial prime must be flushed on a subsequent prepare. */
++	prtd->enabled = 1;
++	for (i = 0; i < runtime->periods; i++) {
++		ret = q6asm_read(prtd->audio_client);
++		if (ret < 0) {
++			msm_pcm_copy_abort(prtd, ret);
++			return ret;
++		}
++	}
+ 	prtd->periods = runtime->periods;
+ 
+ 	prtd->enabled = 1;
+@@ -331,6 +506,7 @@ static int msm_pcm_capture_prepare(struct snd_pcm_substream *substream)
+ static int msm_pcm_trigger(struct snd_pcm_substream *substream, int cmd)
+ {
+ 	int ret = 0;
++	unsigned long flags;
+ 	struct snd_pcm_runtime *runtime = substream->runtime;
+ 	struct msm_audio *prtd = runtime->private_data;
+ 
+@@ -342,6 +518,7 @@ static int msm_pcm_trigger(struct snd_pcm_substream *substream, int cmd)
+ 		ret = q6asm_run_nowait(prtd->audio_client, 0, 0, 0);
+ 		break;
+ 	case SNDRV_PCM_TRIGGER_STOP:
++		msm_pcm_copy_abort(prtd, -EPIPE);
+ 		pr_debug("SNDRV_PCM_TRIGGER_STOP\n");
+ 		atomic_set(&prtd->start, 0);
+ 		if (substream->stream != SNDRV_PCM_STREAM_PLAYBACK)
+@@ -349,9 +526,17 @@ static int msm_pcm_trigger(struct snd_pcm_substream *substream, int cmd)
+ 		/* pending CMD_EOS isn't expected */
+ 		WARN_ON_ONCE(test_bit(CMD_EOS, &prtd->cmd_pending));
+ 		set_bit(CMD_EOS, &prtd->cmd_pending);
+-		ret = q6asm_cmd_nowait(prtd->audio_client, CMD_EOS);
+-		if (ret)
+-			clear_bit(CMD_EOS, &prtd->cmd_pending);
++		if (prtd->mmap_flag) {
++			ret = q6asm_cmd_nowait(prtd->audio_client, CMD_EOS);
++			if (ret)
++				clear_bit(CMD_EOS, &prtd->cmd_pending);
++		} else {
++			/* Serialize EOS after any process-context WRITE already selected. */
++			spin_lock_irqsave(&prtd->copy_state_lock, flags);
++			prtd->tx_eos_pending = true;
++			spin_unlock_irqrestore(&prtd->copy_state_lock, flags);
++			msm_pcm_schedule_tx(prtd);
++		}
+ 		break;
+ 	case SNDRV_PCM_TRIGGER_SUSPEND:
+ 	case SNDRV_PCM_TRIGGER_PAUSE_PUSH:
+@@ -379,6 +564,13 @@ static int msm_pcm_open(struct snd_pcm_substream *substream)
+ 		return -ENOMEM;
+ 	}
+ 	prtd->substream = substream;
++	mutex_init(&prtd->copy_lock);
++	mutex_init(&prtd->tx_lock);
++	spin_lock_init(&prtd->copy_state_lock);
++	init_waitqueue_head(&prtd->read_wait);
++	init_waitqueue_head(&prtd->write_wait);
++	init_waitqueue_head(&prtd->eos_wait);
++	INIT_WORK(&prtd->tx_work, msm_pcm_tx_work);
+ 	prtd->audio_client = q6asm_audio_client_alloc(
+ 				(app_cb)event_handler, prtd);
+ 	if (!prtd->audio_client) {
+@@ -398,6 +590,14 @@ static int msm_pcm_open(struct snd_pcm_substream *substream)
+ 		return -EINVAL;
+ 	}
+ 
++	ret = snd_pcm_hw_constraint_list(runtime, 0, SNDRV_PCM_HW_PARAM_PERIODS,
++				&msm_pcm_period_constraints);
++	if (ret < 0) {
++		q6asm_audio_client_free(prtd->audio_client);
++		kfree(prtd);
++		return ret;
++	}
++
+ 	ret = snd_pcm_hw_constraint_list(runtime, 0,
+ 				SNDRV_PCM_HW_PARAM_RATE,
+ 				&constraints_sample_rates);
+@@ -450,66 +650,86 @@ static int msm_pcm_open(struct snd_pcm_substream *substream)
+ 	return 0;
+ }
+ 
+-static int msm_pcm_playback_copy(struct snd_pcm_substream *substream, int a,
++static int msm_pcm_playback_copy(struct snd_pcm_substream *substream, int channel,
+ 	snd_pcm_uframes_t hwoff, void __user *buf, snd_pcm_uframes_t frames)
+ {
+-	int ret = 0;
+-	int fbytes = 0;
+-	int xfer = 0;
+-	char *bufptr = NULL;
+-	void *data = NULL;
+-	uint32_t idx = 0;
+-	uint32_t size = 0;
+-
+ 	struct snd_pcm_runtime *runtime = substream->runtime;
+ 	struct msm_audio *prtd = runtime->private_data;
+-
+-	fbytes = frames_to_bytes(runtime, frames);
+-	pr_debug("%s: prtd->out_count = %d\n",
+-				__func__, atomic_read(&prtd->out_count));
+-	ret = wait_event_timeout(the_locks.write_wait,
+-			(atomic_read(&prtd->out_count)), 5 * HZ);
+-	if (!ret) {
+-		pr_err("%s: wait_event_timeout failed\n", __func__);
+-		goto fail;
+-	}
+-
+-	if (!atomic_read(&prtd->out_count)) {
+-		pr_err("%s: pcm stopped out_count 0\n", __func__);
+-		return 0;
+-	}
+-
+-	data = q6asm_is_cpu_buf_avail(IN, prtd->audio_client, &size, &idx);
+-	if (size < fbytes) {
+-		fbytes = size;
+-	}
+-	bufptr = data;
+-	if (bufptr) {
+-		pr_debug("%s:fbytes =%d: xfer=%d size=%d\n",
+-					__func__, fbytes, xfer, size);
+-		xfer = fbytes;
+-		if (copy_from_user(bufptr, buf, xfer)) {
+-			ret = -EFAULT;
+-			goto fail;
++	char __user *user = buf;
++	unsigned int remaining = frames_to_bytes(runtime, frames);
++	unsigned long flags, deadline = jiffies + 5 * HZ;
++	uint32_t idx, available;
++	void *data, *destination;
++	unsigned int xfer;
++	long waited;
++	bool send;
++
++	while (remaining) {
++		if (prtd->abort)
++			return prtd->abort;
++		spin_lock_irqsave(&prtd->copy_state_lock, flags);
++		data = prtd->tx_data;
++		spin_unlock_irqrestore(&prtd->copy_state_lock, flags);
++		if (!data) {
++			if (time_after_eq(jiffies, deadline))
++				return -ETIMEDOUT;
++			waited = wait_event_interruptible_timeout(prtd->write_wait,
++				atomic_read(&prtd->out_count) || prtd->abort,
++				deadline - jiffies);
++			if (waited < 0)
++				return waited;
++			if (!waited)
++				return -ETIMEDOUT;
++			if (prtd->abort)
++				return prtd->abort;
++			data = q6asm_is_cpu_buf_avail(IN, prtd->audio_client, &available, &idx);
++			if (!data || idx >= prtd->periods)
++				return -EIO;
++			available = prtd->audio_client->port[IN].buf[idx].size;
++			if (!available)
++				return -EIO;
++			atomic_dec(&prtd->out_count);
++			spin_lock_irqsave(&prtd->copy_state_lock, flags);
++			prtd->tx_data = data;
++			prtd->tx_idx = idx;
++			prtd->tx_capacity = available;
++			prtd->tx_filled = 0;
++			spin_unlock_irqrestore(&prtd->copy_state_lock, flags);
+ 		}
+-		buf += xfer;
+-		fbytes -= xfer;
+-		pr_debug("%s:fbytes = %d: xfer=%d\n", __func__, fbytes, xfer);
+-		if (atomic_read(&prtd->start)) {
+-			pr_debug("%s:writing %d bytes of buffer to dsp\n",
+-					__func__, xfer);
+-			ret = q6asm_write(prtd->audio_client, xfer,
+-						0, 0, NO_TIMESTAMP);
+-			if (ret < 0) {
+-				ret = -EFAULT;
+-				goto fail;
+-			}
+-		} else
+-			atomic_inc(&prtd->out_needed);
+-		atomic_dec(&prtd->out_count);
++		spin_lock_irqsave(&prtd->copy_state_lock, flags);
++		/* RUN can publish a prior partial cursor before this claim. */
++		if (!prtd->tx_data) {
++			spin_unlock_irqrestore(&prtd->copy_state_lock, flags);
++			continue;
++		}
++		xfer = min(remaining, prtd->tx_capacity - prtd->tx_filled);
++		destination = (char *)prtd->tx_data + prtd->tx_filled;
++		prtd->tx_copy_busy = true;
++		spin_unlock_irqrestore(&prtd->copy_state_lock, flags);
++		if (!xfer || copy_from_user(destination, user, xfer)) {
++			spin_lock_irqsave(&prtd->copy_state_lock, flags);
++			prtd->tx_copy_busy = false;
++			spin_unlock_irqrestore(&prtd->copy_state_lock, flags);
++			return xfer ? -EFAULT : -EIO;
++		}
++		spin_lock_irqsave(&prtd->copy_state_lock, flags);
++		if (prtd->abort) {
++			prtd->tx_copy_busy = false;
++			spin_unlock_irqrestore(&prtd->copy_state_lock, flags);
++			return prtd->abort;
++		}
++		prtd->tx_filled += xfer;
++		prtd->tx_copy_busy = false;
++		send = atomic_read(&prtd->start);
++		if (prtd->tx_filled == prtd->tx_capacity || send)
++			msm_pcm_publish_tx(prtd);
++		spin_unlock_irqrestore(&prtd->copy_state_lock, flags);
++		if (send)
++			msm_pcm_schedule_tx(prtd);
++		user += xfer;
++		remaining -= xfer;
+ 	}
+-fail:
+-	return  ret;
++	return 0;
+ }
+ 
+ static int msm_pcm_playback_close(struct snd_pcm_substream *substream)
+@@ -522,9 +742,15 @@ static int msm_pcm_playback_close(struct snd_pcm_substream *substream)
+ 
+ 	pr_debug("%s: cmd_pending 0x%lx\n", __func__, prtd->cmd_pending);
+ 
++	msm_pcm_copy_abort(prtd, -EPIPE);
++	/* STOP may have queued EOS; execute it before cancelling submission work. */
++	flush_work(&prtd->tx_work);
++	cancel_work_sync(&prtd->tx_work);
++	mutex_lock(&prtd->copy_lock);
++
+ 	if (prtd->audio_client) {
+ 		dir = IN;
+-		ret = wait_event_timeout(the_locks.eos_wait,
++		ret = wait_event_timeout(prtd->eos_wait,
+ 					 !test_bit(CMD_EOS, &prtd->cmd_pending),
+ 					 5 * HZ);
+ 		if (!ret)
+@@ -537,82 +763,76 @@ static int msm_pcm_playback_close(struct snd_pcm_substream *substream)
+ 	}
+ 	msm_pcm_routing_dereg_phy_stream(soc_prtd->dai_link->be_id,
+ 						SNDRV_PCM_STREAM_PLAYBACK);
++	mutex_unlock(&prtd->copy_lock);
+ 	kfree(prtd);
+ 	return 0;
+ }
+ 
+-static int msm_pcm_capture_copy(struct snd_pcm_substream *substream,
+-		 int channel, snd_pcm_uframes_t hwoff, void __user *buf,
+-						 snd_pcm_uframes_t frames)
++static int msm_pcm_capture_copy(struct snd_pcm_substream *substream, int channel,
++	snd_pcm_uframes_t hwoff, void __user *buf, snd_pcm_uframes_t frames)
+ {
+-	int ret = 0;
+-	int fbytes = 0;
+-	int xfer;
+-	char *bufptr;
+-	void *data = NULL;
+-	static uint32_t idx;
+-	static uint32_t size;
+-	uint32_t offset = 0;
+ 	struct snd_pcm_runtime *runtime = substream->runtime;
+-	struct msm_audio *prtd = substream->runtime->private_data;
+-
+-
+-	pr_debug("%s\n", __func__);
+-	fbytes = frames_to_bytes(runtime, frames);
+-
+-	pr_debug("appl_ptr %d\n", (int)runtime->control->appl_ptr);
+-	pr_debug("hw_ptr %d\n", (int)runtime->status->hw_ptr);
+-	pr_debug("avail_min %d\n", (int)runtime->control->avail_min);
++	struct msm_audio *prtd = runtime->private_data;
++	char __user *user = buf;
++	unsigned int remaining = frames_to_bytes(runtime, frames), xfer;
++	unsigned long flags, deadline = jiffies + 5 * HZ;
++	uint32_t size, idx, offset, capacity;
++	void *data;
++	long waited;
++	int ret;
+ 
+-	ret = wait_event_timeout(the_locks.read_wait,
+-			(atomic_read(&prtd->in_count)), 5 * HZ);
+-	if (!ret) {
+-		pr_debug("%s: wait_event_timeout failed\n", __func__);
+-		goto fail;
+-	}
+-	if (!atomic_read(&prtd->in_count)) {
+-		pr_debug("%s: pcm stopped in_count 0\n", __func__);
+-		return 0;
+-	}
+-	pr_debug("Checking if valid buffer is available...%08x\n",
+-						(unsigned int) data);
+-	data = q6asm_is_cpu_buf_avail(OUT, prtd->audio_client, &size, &idx);
+-	bufptr = data;
+-	pr_debug("Size = %d\n", size);
+-	pr_debug("fbytes = %d\n", fbytes);
+-	pr_debug("idx = %d\n", idx);
+-	if (bufptr) {
+-		xfer = fbytes;
+-		if (xfer > size)
+-			xfer = size;
+-		offset = in_frame_info[idx][1];
+-		pr_debug("Offset value = %d\n", offset);
+-		if (copy_to_user(buf, bufptr+offset, xfer)) {
+-			pr_err("Failed to copy buf to user\n");
+-			ret = -EFAULT;
+-			goto fail;
++	while (remaining) {
++		if (prtd->abort)
++			return prtd->abort;
++		if (!prtd->rx_data) {
++			if (time_after_eq(jiffies, deadline))
++				return -ETIMEDOUT;
++			waited = wait_event_interruptible_timeout(prtd->read_wait,
++				atomic_read(&prtd->in_count) || prtd->abort,
++				deadline - jiffies);
++			if (waited < 0)
++				return waited;
++			if (!waited)
++				return -ETIMEDOUT;
++			if (prtd->abort)
++				return prtd->abort;
++			data = q6asm_is_cpu_buf_avail(OUT, prtd->audio_client, &size, &idx);
++			if (!data || idx >= prtd->periods)
++				return -EIO;
++			spin_lock_irqsave(&prtd->copy_state_lock, flags);
++			offset = prtd->in_frame_info[idx][1];
++			spin_unlock_irqrestore(&prtd->copy_state_lock, flags);
++			capacity = prtd->audio_client->port[OUT].buf[idx].size;
++			if (offset > capacity || size > capacity - offset)
++				return -EIO;
++			prtd->rx_data = data;
++			prtd->rx_idx = idx;
++			prtd->rx_remaining = size;
++			prtd->rx_offset = offset;
+ 		}
+-		fbytes -= xfer;
+-		size -= xfer;
+-		in_frame_info[idx][1] += xfer;
+-		pr_debug("%s:fbytes = %d: size=%d: xfer=%d\n",
+-					__func__, fbytes, size, xfer);
+-		pr_debug(" Sending next buffer to dsp\n");
+-		memset(&in_frame_info[idx], 0,
+-			sizeof(uint32_t) * 2);
+-		atomic_dec(&prtd->in_count);
+-		ret = q6asm_read(prtd->audio_client);
+-		if (ret < 0) {
+-			pr_err("q6asm read failed\n");
+-			ret = -EFAULT;
+-			goto fail;
++		xfer = min(remaining, prtd->rx_remaining);
++		if (xfer && copy_to_user(user, (char *)prtd->rx_data + prtd->rx_offset, xfer))
++			return -EFAULT;
++		if (prtd->abort)
++			return prtd->abort;
++		user += xfer;
++		remaining -= xfer;
++		prtd->rx_remaining -= xfer;
++		prtd->rx_offset += xfer;
++		if (!prtd->rx_remaining) {
++			spin_lock_irqsave(&prtd->copy_state_lock, flags);
++			memset(prtd->in_frame_info[prtd->rx_idx], 0, sizeof(prtd->in_frame_info[0]));
++			spin_unlock_irqrestore(&prtd->copy_state_lock, flags);
++			prtd->rx_data = NULL;
++			atomic_dec(&prtd->in_count);
++			ret = q6asm_read(prtd->audio_client);
++			if (ret < 0)
++				return ret;
+ 		}
+-	} else
+-		pr_err("No valid buffer\n");
+-
+-	pr_debug("Returning from capture_copy... %d\n", ret);
+-fail:
+-	return ret;
++		if (time_after_eq(jiffies, deadline) && remaining)
++			return -ETIMEDOUT;
++	}
++	return 0;
+ }
+ 
+ static int msm_pcm_capture_close(struct snd_pcm_substream *substream)
+@@ -623,6 +843,10 @@ static int msm_pcm_capture_close(struct snd_pcm_substream *substream)
+ 	int dir = OUT;
+ 
+ 	pr_debug("%s\n", __func__);
++	msm_pcm_copy_abort(prtd, -EPIPE);
++	cancel_work_sync(&prtd->tx_work);
++	mutex_lock(&prtd->copy_lock);
++
+ 	if (prtd->audio_client) {
+ 		q6asm_cmd(prtd->audio_client, CMD_CLOSE);
+ 		q6asm_audio_client_buf_free_contiguous(dir,
+@@ -632,20 +856,27 @@ static int msm_pcm_capture_close(struct snd_pcm_substream *substream)
+ 
+ 	msm_pcm_routing_dereg_phy_stream(soc_prtd->dai_link->be_id,
+ 		SNDRV_PCM_STREAM_CAPTURE);
++	mutex_unlock(&prtd->copy_lock);
+ 	kfree(prtd);
+ 
+ 	return 0;
+ }
+ 
+-static int msm_pcm_copy(struct snd_pcm_substream *substream, int a,
+-	 snd_pcm_uframes_t hwoff, void __user *buf, snd_pcm_uframes_t frames)
++static int msm_pcm_copy(struct snd_pcm_substream *substream, int channel,
++	snd_pcm_uframes_t hwoff, void __user *buf, snd_pcm_uframes_t frames)
+ {
+-	int ret = 0;
++	struct msm_audio *prtd = substream->runtime->private_data;
++	int ret = mutex_lock_interruptible(&prtd->copy_lock);
+ 
++	if (ret)
++		return ret;
+ 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
+-		ret = msm_pcm_playback_copy(substream, a, hwoff, buf, frames);
+-	else if (substream->stream == SNDRV_PCM_STREAM_CAPTURE)
+-		ret = msm_pcm_capture_copy(substream, a, hwoff, buf, frames);
++		ret = msm_pcm_playback_copy(substream, channel, hwoff, buf, frames);
++	else
++		ret = msm_pcm_capture_copy(substream, channel, hwoff, buf, frames);
++	if (ret < 0)
++		msm_pcm_copy_abort(prtd, ret);
++	mutex_unlock(&prtd->copy_lock);
+ 	return ret;
+ }
+ 
+@@ -789,6 +1020,11 @@ static int msm_pcm_hw_params(struct snd_pcm_substream *substream,
+ 							ret);
+ 		return -ENOMEM;
+ 	}
++	if (prtd->audio_client->port[dir].max_buf_cnt != params_periods(params) ||
++	    params_periods(params) > PLAYBACK_MAX_NUM_PERIODS) {
++		q6asm_audio_client_buf_free_contiguous(dir, prtd->audio_client);
++		return -EIO;
++	}
+ 	buf = prtd->audio_client->port[dir].buf;
+ 	if (buf == NULL || buf[0].data == NULL)
+ 		return -ENOMEM;
+@@ -985,9 +1221,6 @@ static struct platform_driver msm_pcm_driver = {
+ static int __init msm_soc_platform_init(void)
+ {
+ 	init_waitqueue_head(&the_locks.enable_wait);
+-	init_waitqueue_head(&the_locks.eos_wait);
+-	init_waitqueue_head(&the_locks.write_wait);
+-	init_waitqueue_head(&the_locks.read_wait);
+ 
+ 	return platform_driver_register(&msm_pcm_driver);
+ }
+diff --git a/sound/soc/msm/qdsp6v2/msm-pcm-q6-v2.h b/sound/soc/msm/qdsp6v2/msm-pcm-q6-v2.h
+index 5d5c9957..70545114 100644
+--- a/sound/soc/msm/qdsp6v2/msm-pcm-q6-v2.h
++++ b/sound/soc/msm/qdsp6v2/msm-pcm-q6-v2.h
+@@ -18,6 +18,8 @@
+ 
+ #ifndef _MSM_PCM_H
+ #define _MSM_PCM_H
++#include <linux/mutex.h>
++#include <linux/workqueue.h>
+ #include <sound/apr_audio-v2.h>
+ #include <sound/q6asm-v2.h>
+ 
+@@ -54,6 +56,24 @@ struct audio_locks {
+ 
+ struct msm_audio {
+ 	struct snd_pcm_substream *substream;
++
++	/* User copies serialize separately from the process-context DSP sender. */
++	struct mutex copy_lock;
++	struct mutex tx_lock;
++	spinlock_t copy_state_lock;
++	struct work_struct tx_work;
++	wait_queue_head_t read_wait;
++	wait_queue_head_t write_wait;
++	wait_queue_head_t eos_wait;
++	void *tx_data;
++	uint32_t tx_idx, tx_capacity, tx_filled, tx_next;
++	bool tx_copy_busy;
++	bool tx_eos_pending;
++	uint32_t tx_queued[8];
++	uint32_t tx_submitted[8];
++	void *rx_data;
++	uint32_t rx_idx, rx_remaining, rx_offset;
++	uint32_t in_frame_info[8][2];
+ 	unsigned int pcm_size;
+ 	unsigned int pcm_count;
+ 	unsigned int pcm_irq_pos;       /* IRQ position */

@@ -1,0 +1,315 @@
+{
+  "status": "PASS_GENERATION_ONLY",
+  "gpu_used": false,
+  "microphone_used": false,
+  "skills_executed": false,
+  "cases": [
+    {
+      "name": "verify_state",
+      "messages": [
+        {
+          "role": "system",
+          "content": "你叫二狗，简短中文回答。"
+        },
+        {
+          "role": "user",
+          "content": "你好"
+        }
+      ],
+      "native": {
+        "cache_restore_checked": true,
+        "cache_verification": {
+          "argmax_equal": true,
+          "baseline_argmax": 109266,
+          "bitwise_equal": true,
+          "cached_argmax": 109266,
+          "finite": true,
+          "logits_compared": 248320,
+          "max_abs_delta": 0.0,
+          "mean_abs_delta": 0.0
+        },
+        "cached_path_prefill_seconds": 10.821812453999883,
+        "checkpoint_bytes_total": 40896664,
+        "dialogue_cache_hit": false,
+        "dialogue_checkpoint_bytes": 20485268,
+        "dialogue_checkpoint_tokens": 23,
+        "finish_reason": "token_limit",
+        "first_token_seconds": 21.28537408700504,
+        "generated_tokens": 1,
+        "gpu_used": false,
+        "history_persisted": false,
+        "id": "verify_state",
+        "input_tokens": 27,
+        "max_rss_kib": 677472,
+        "non_thinking": true,
+        "prefill_seconds": 21.277058488994953,
+        "prefix_cache_build_seconds": 6.5098179309861735,
+        "prefix_cache_hit": false,
+        "prefix_cache_requested": true,
+        "prefix_checkpoint_bytes": 20411396,
+        "prefix_checkpoint_tokens": 17,
+        "prefix_restore_seconds": 0.013804502988932654,
+        "prefix_tokens_reused": 0,
+        "status": "complete",
+        "text": "你好",
+        "total_seconds": 21.294317085994408,
+        "type": "done",
+        "verification_generation_uses_uncached_reference": true,
+        "verification_uncached_seconds": 10.434926055007963
+      },
+      "wall_seconds": 21.30840966499818,
+      "peak_thermal_c": 56.0,
+      "thermal_cancel": false
+    },
+    {
+      "name": "identity",
+      "messages": [
+        {
+          "role": "system",
+          "content": "你是手机上的中文语音助手。自然、简洁地交流，不声称已执行未经工具确认的操作。\n当前助手名和唤醒词：二狗。"
+        },
+        {
+          "role": "user",
+          "content": "你叫什么名字？"
+        }
+      ],
+      "native": {
+        "cache_restore_checked": false,
+        "cache_verification": null,
+        "cached_path_prefill_seconds": 20.987981537997257,
+        "checkpoint_bytes_total": 41524576,
+        "dialogue_cache_hit": false,
+        "dialogue_checkpoint_bytes": 20817692,
+        "dialogue_checkpoint_tokens": 50,
+        "finish_reason": "eos",
+        "first_token_seconds": 20.99556567099353,
+        "generated_tokens": 6,
+        "gpu_used": false,
+        "history_persisted": false,
+        "id": "identity",
+        "input_tokens": 54,
+        "max_rss_kib": 678304,
+        "non_thinking": true,
+        "prefill_seconds": 20.98798367299605,
+        "prefix_cache_build_seconds": 15.575054093002109,
+        "prefix_cache_hit": false,
+        "prefix_cache_requested": true,
+        "prefix_checkpoint_bytes": 20706884,
+        "prefix_checkpoint_tokens": 41,
+        "prefix_restore_seconds": 0.0,
+        "prefix_tokens_reused": 0,
+        "status": "complete",
+        "text": "你好，我是二狗。",
+        "total_seconds": 25.415354789001867,
+        "type": "done",
+        "verification_generation_uses_uncached_reference": false,
+        "verification_uncached_seconds": 0.0
+      },
+      "wall_seconds": 25.42703125200933,
+      "peak_thermal_c": 58.0,
+      "thermal_cancel": false
+    },
+    {
+      "name": "set_name",
+      "messages": [
+        {
+          "role": "system",
+          "content": "你是手机上的中文语音助手。自然、简洁地交流，不声称已执行未经工具确认的操作。\n当前助手名和唤醒词：二狗。"
+        },
+        {
+          "role": "user",
+          "content": "你叫什么名字？"
+        },
+        {
+          "role": "assistant",
+          "content": "你好，我是二狗。"
+        },
+        {
+          "role": "user",
+          "content": "请叫我小林。"
+        }
+      ],
+      "native": {
+        "cache_restore_checked": false,
+        "cache_verification": null,
+        "cached_path_prefill_seconds": 9.593453144989326,
+        "checkpoint_bytes_total": 41770816,
+        "dialogue_cache_hit": true,
+        "dialogue_checkpoint_bytes": 21063932,
+        "dialogue_checkpoint_tokens": 70,
+        "finish_reason": "eos",
+        "first_token_seconds": 9.601026288000867,
+        "generated_tokens": 6,
+        "gpu_used": false,
+        "history_persisted": false,
+        "id": "set_name",
+        "input_tokens": 74,
+        "max_rss_kib": 678544,
+        "non_thinking": true,
+        "prefill_seconds": 9.593454967995058,
+        "prefix_cache_build_seconds": 0.0,
+        "prefix_cache_hit": true,
+        "prefix_cache_requested": true,
+        "prefix_checkpoint_bytes": 20706884,
+        "prefix_checkpoint_tokens": 41,
+        "prefix_restore_seconds": 0.019781070004682988,
+        "prefix_tokens_reused": 50,
+        "status": "complete",
+        "text": "你好，我是二狗。",
+        "total_seconds": 13.996858100988902,
+        "type": "done",
+        "verification_generation_uses_uncached_reference": false,
+        "verification_uncached_seconds": 0.0
+      },
+      "wall_seconds": 14.008460602999548,
+      "peak_thermal_c": 58.0,
+      "thermal_cancel": false
+    },
+    {
+      "name": "web_interleave",
+      "messages": [
+        {
+          "role": "system",
+          "content": "你是FlowBoard网站助手，简短中文回答。"
+        },
+        {
+          "role": "user",
+          "content": "你好"
+        }
+      ],
+      "native": {
+        "cache_restore_checked": false,
+        "cache_verification": null,
+        "cached_path_prefill_seconds": 10.80806758700055,
+        "checkpoint_bytes_total": 41770816,
+        "dialogue_cache_hit": false,
+        "dialogue_checkpoint_bytes": 21063932,
+        "dialogue_checkpoint_tokens": 70,
+        "finish_reason": "token_limit",
+        "first_token_seconds": 10.815828074992169,
+        "generated_tokens": 1,
+        "gpu_used": false,
+        "history_persisted": false,
+        "id": "web_interleave",
+        "input_tokens": 28,
+        "max_rss_kib": 678544,
+        "non_thinking": true,
+        "prefill_seconds": 10.808068992992048,
+        "prefix_cache_build_seconds": 0.0,
+        "prefix_cache_hit": false,
+        "prefix_cache_requested": false,
+        "prefix_checkpoint_bytes": 20706884,
+        "prefix_checkpoint_tokens": 41,
+        "prefix_restore_seconds": 0.0,
+        "prefix_tokens_reused": 0,
+        "status": "complete",
+        "text": "你好",
+        "total_seconds": 10.825123317001271,
+        "type": "done",
+        "verification_generation_uses_uncached_reference": false,
+        "verification_uncached_seconds": 0.0
+      },
+      "wall_seconds": 10.842288476997055,
+      "peak_thermal_c": 57.0,
+      "thermal_cancel": false
+    },
+    {
+      "name": "recall_name",
+      "messages": [
+        {
+          "role": "system",
+          "content": "你是手机上的中文语音助手。自然、简洁地交流，不声称已执行未经工具确认的操作。\n当前助手名和唤醒词：二狗。"
+        },
+        {
+          "role": "user",
+          "content": "你叫什么名字？"
+        },
+        {
+          "role": "assistant",
+          "content": "你好，我是二狗。"
+        },
+        {
+          "role": "user",
+          "content": "请叫我小林。"
+        },
+        {
+          "role": "assistant",
+          "content": "你好，我是二狗。"
+        },
+        {
+          "role": "user",
+          "content": "我叫什么名字？"
+        }
+      ],
+      "native": {
+        "cache_restore_checked": false,
+        "cache_verification": null,
+        "cached_path_prefill_seconds": 9.977676188005717,
+        "checkpoint_bytes_total": 42017056,
+        "dialogue_cache_hit": true,
+        "dialogue_checkpoint_bytes": 21310172,
+        "dialogue_checkpoint_tokens": 90,
+        "finish_reason": "eos",
+        "first_token_seconds": 9.985308499002713,
+        "generated_tokens": 6,
+        "gpu_used": false,
+        "history_persisted": false,
+        "id": "recall_name",
+        "input_tokens": 94,
+        "max_rss_kib": 678784,
+        "non_thinking": true,
+        "prefill_seconds": 9.977677855000366,
+        "prefix_cache_build_seconds": 0.0,
+        "prefix_cache_hit": true,
+        "prefix_cache_requested": true,
+        "prefix_checkpoint_bytes": 20706884,
+        "prefix_checkpoint_tokens": 41,
+        "prefix_restore_seconds": 0.02332329000637401,
+        "prefix_tokens_reused": 70,
+        "status": "complete",
+        "text": "你好，我是二狗。",
+        "total_seconds": 14.694325350006693,
+        "type": "done",
+        "verification_generation_uses_uncached_reference": false,
+        "verification_uncached_seconds": 0.0
+      },
+      "wall_seconds": 14.70606462500291,
+      "peak_thermal_c": 60.0,
+      "thermal_cancel": false
+    }
+  ],
+  "threads": 2,
+  "model_sha256": "57d1997790d1744fba5b40a7317df71ea5e2acee28c47e78f0cce39c0703f8cf",
+  "binary_sha256": "33f4841a351693b4d628a1961a616ec78a8411bf31970a545cd8235be032192e",
+  "ready": {
+    "backend": "CPU_ARMV7_NEON",
+    "context_tokens": 1024,
+    "engine_pin": "99b95488cac0f00ce3f05af113a8c1e287753f87",
+    "engine_tag": "b11371",
+    "gpu_used": false,
+    "max_generated_tokens": 128,
+    "max_messages": 12,
+    "max_rss_kib": 623820,
+    "message_bytes_limit": 8192,
+    "model_load_count": 1,
+    "model_load_seconds": 4.069745923989103,
+    "non_thinking": true,
+    "prefix_cache_checkpoint_limit_bytes": 67108864,
+    "prefix_cache_key": "exact system/user-open tokens in this fixed loaded model/template",
+    "prefix_cache_slots": 2,
+    "threads": 2,
+    "type": "ready"
+  },
+  "load_seconds": 4.080636285012588,
+  "canonical_history_scope": "synthetic full-playback receipt for native benchmark; not actual microphone or speaker test",
+  "cache_clear": {
+    "cache_slots": 0,
+    "checkpoint_bytes": 0,
+    "id": "clear_after_probe",
+    "model_load_count": 1,
+    "type": "cache_cleared"
+  },
+  "native_exit": -15,
+  "native_stderr_tail": ".....................................................\n",
+  "old_service_restored": true
+}

@@ -10,8 +10,11 @@ lerna-debug.log*
 node_modules
 dist
 flowboard.env.cmd
+flowboard.env
 dist-ssr
 *.local
+/.playwright-cli/
+/output/
 
 # 运行时数据（业务数据：用户凭据 / 画布内容 / 日志）——不入库
 FlowBoard-发布包/auth-data

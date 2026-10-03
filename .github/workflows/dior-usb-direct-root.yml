@@ -1,0 +1,155 @@
+name: Dior direct root userdata delivery
+on:
+  push:
+    branches: [linux-server-armhf]
+    paths:
+      - 'tools/dior-usb-repair/make-direct-root.py'
+      - '.github/workflows/dior-usb-direct-root.yml'
+      - 'tools/dior-hw/**'
+      - 'tools/dior-usb-repair/inject-dior-hardware.sh'
+      - 'linux/dior/flowboard-apk/dior-firmware.initd'
+      - 'linux/dior/flowboard-apk/dior-adsp.initd'
+      - 'linux/dior/flowboard-apk/dior-bluetooth.initd'
+      - 'linux/dior/flowboard-apk/dior-hw-report.initd'
+      - 'tools/dior-flash/flash-directroot.ps1'
+      - 'tools/dior-flash/flash-directroot.cmd'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  extract:
+    if: github.repository == 'zhuge1993/canvas-editor'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install ext4 verification tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends e2fsprogs
+      - name: Download verified USB repair artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: DiorLinux-V1-USB-NCM-ACM-dda9441c592d27f4ec0e80b4b4f4e43daf10c16d
+          run-id: 36679534347
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/usb-repair
+      - name: Extract direct pmOS_root image and verify boot UUID contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/raw" "$RUNNER_TEMP/release"
+          unzip -q "$RUNNER_TEMP/usb-repair/DiorLinux-V1-USB-NCM-ACM.zip" -d "$RUNNER_TEMP/raw"
+          raw="$RUNNER_TEMP/raw/DiorLinux-V1-USB-NCM-ACM/xiaomi-dior-usb-ncm-acm.img"
+          out="$RUNNER_TEMP/release/xiaomi-dior-pmOS-root-direct.img"
+          python3 tools/dior-usb-repair/make-direct-root.py "$raw" "$out" | tee "$RUNNER_TEMP/release/VERIFICATION.json"
+          test "$(stat -c %s "$out")" -lt 838860800
+          sudo e2fsck -fy "$out"
+          mkdir -p "$RUNNER_TEMP/rootmnt"
+          sudo modprobe loop || true
+          root_loop="$(sudo losetup --find --show "$out")"
+          cleanup() {
+            sudo umount "$RUNNER_TEMP/rootmnt" 2>/dev/null || true
+            sudo losetup -d "$root_loop" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          sudo mount -v -t ext4 "$root_loop" "$RUNNER_TEMP/rootmnt"
+          sudo cp "$RUNNER_TEMP/rootmnt/etc/fstab" "$RUNNER_TEMP/release/FSTAB-BEFORE.txt"
+          sudo sh tools/dior-usb-repair/inject-dior-hardware.sh "$RUNNER_TEMP/rootmnt"
+          # Verify the actual mounted filesystem, not just the injection script exit code.
+          sudo test -s "$RUNNER_TEMP/rootmnt/opt/flowboard/server-bundle.cjs"
+          sudo test -s "$RUNNER_TEMP/rootmnt/opt/flowboard/dist/index.html"
+          sudo test -x "$RUNNER_TEMP/rootmnt/opt/flowboard/start-server.sh"
+          sudo test -x "$RUNNER_TEMP/rootmnt/etc/init.d/flowboard"
+          sudo test -x "$RUNNER_TEMP/rootmnt/etc/init.d/wcnss-wlan"
+          sudo test -x "$RUNNER_TEMP/rootmnt/etc/init.d/dior-firmware"
+          sudo test -x "$RUNNER_TEMP/rootmnt/etc/init.d/dior-adsp"
+          sudo test -x "$RUNNER_TEMP/rootmnt/etc/init.d/dior-hw-report"
+          sudo test -x "$RUNNER_TEMP/rootmnt/usr/local/sbin/dior-hw-verify"
+          sudo test -x "$RUNNER_TEMP/rootmnt/usr/local/sbin/dior-hw-probe"
+          sudo test -x "$RUNNER_TEMP/rootmnt/usr/local/sbin/dior-hw-smoke"
+          sudo test -s "$RUNNER_TEMP/rootmnt/lib/firmware/wcnss.mdt"
+          sudo test -s "$RUNNER_TEMP/rootmnt/lib/firmware/venus.mdt"
+          sudo test -s "$RUNNER_TEMP/rootmnt/etc/firmware/cpp_firmware_v1_2_0.fw"
+          sudo test -s "$RUNNER_TEMP/rootmnt/lib/firmware/a330_pm4.fw"
+          sudo test -s "$RUNNER_TEMP/rootmnt/etc/acdbdata/MTP/MTP_Speaker_cal.acdb"
+          sudo grep -q 'Missing /lib/firmware/wcnss.mdt required by downstream PIL/Pronto' "$RUNNER_TEMP/rootmnt/etc/init.d/wcnss-wlan"
+          grep -q '2b3bcea5-5043-47de-a4f3-4959104f4762[[:space:]]\+/[[:space:]]' "$RUNNER_TEMP/rootmnt/etc/fstab"
+          sudo sed -i '\|[[:space:]]/boot[[:space:]]|d' "$RUNNER_TEMP/rootmnt/etc/fstab"
+          ! grep -q '[[:space:]]/boot[[:space:]]' "$RUNNER_TEMP/rootmnt/etc/fstab"
+          sudo cp "$RUNNER_TEMP/rootmnt/etc/fstab" "$RUNNER_TEMP/release/FSTAB-AFTER.txt"
+          sync
+          cleanup
+          trap - EXIT
+          sudo e2fsck -fy "$out"
+          test "$(blkid -s UUID -o value "$out")" = 2b3bcea5-5043-47de-a4f3-4959104f4762
+          test "$(blkid -s LABEL -o value "$out")" = pmOS_root
+          final_sha="$(sha256sum "$out" | cut -d' ' -f1)"
+          python3 -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); d.update(output_sha256=sys.argv[2], separate_boot_fstab_entry_removed=True, boot_image_change_required=False, merged_init_2nd_verified_in_current_boot=True); open(p,"w").write(json.dumps(d,indent=2)+"\n")' "$RUNNER_TEMP/release/VERIFICATION.json" "$final_sha"
+          python3 -m json.tool "$RUNNER_TEMP/release/VERIFICATION.json" >/dev/null
+          (cd "$RUNNER_TEMP/release" && sha256sum xiaomi-dior-pmOS-root-direct.img > SHA256SUMS)
+          cat > "$RUNNER_TEMP/release/README.txt" <<'EOF'
+          DiorLinux / FlowBoard DirectRoot for Xiaomi Redmi Note 4G single-SIM (dior)
+
+          FLASH CONTRACT
+          - userdata only
+          - DO NOT flash boot, system or recovery
+          - keep the already proven 13,113,344-byte QCDT-trimmed boot unchanged
+          - this image is raw ext4 pmOS_root and avoids nested GPT discovery on the downstream Linux 3.4 kernel
+          - the stale /boot fstab entry has been removed offline and e2fsck is run afterward
+
+          INCLUDED HARDWARE INTEGRATION
+          - legacy WCNSS/Prima Wi-Fi firmware paths
+          - Dior Venus/CPP camera/video firmware
+          - Dior Adreno a300/a330 firmware
+          - Dior MTP ACDB audio calibration files
+          - stock firmware/modem partition bridge for ADSP/MBA/modem firmware
+          - Q6/ADSP startup service
+          - Qualcomm WCNSS HCI-SMD Bluetooth activation service
+          - expanded hardware probe, passive verifier and non-destructive active smoke test
+
+          WINDOWS FLASH
+          1. Extract this ZIP to a normal local folder.
+          2. Put Android platform-tools in a platform-tools subfolder, OR make fastboot.exe available in PATH.
+          3. Put the phone in Fastboot mode and connect exactly one Xiaomi dior.
+          4. Double-click flash-directroot.cmd.
+          5. The flasher verifies checksums, product=dior, userdata capacity and the verification receipt.
+          6. Type DIOR only when prompted. The script writes userdata only and preserves boot.
+
+          AFTER BOOT
+          - automatic report: /var/log/dior-hardware-firstboot.log
+          - run: dior-hw-verify
+          - run: dior-hw-smoke
+          - run: dior-hw-probe
+          - save the complete output for final real-device validation
+          - verify wlan0, ALSA card, VIDC/camera, battery/charger, backlight, vibrator,
+            Bluetooth HCI, FM radio, GPS/NMEA/SMD, rmnet modem interfaces and sensors
+
+          Physical-device functionality is not claimed until tested on the target phone.
+          EOF
+          cp tools/dior-flash/flash-directroot.ps1 "$RUNNER_TEMP/release/flash-directroot.ps1"
+          cp tools/dior-flash/flash-directroot.cmd "$RUNNER_TEMP/release/flash-directroot.cmd"
+          mkdir -p "$RUNNER_TEMP/package"
+          (
+            cd "$RUNNER_TEMP/release"
+            zip -9 "$RUNNER_TEMP/package/DiorLinux-V1-DirectRoot-Userdata.zip" \
+              xiaomi-dior-pmOS-root-direct.img VERIFICATION.json SHA256SUMS README.txt FSTAB-BEFORE.txt FSTAB-AFTER.txt \
+              flash-directroot.ps1 flash-directroot.cmd
+          )
+          unzip -t "$RUNNER_TEMP/package/DiorLinux-V1-DirectRoot-Userdata.zip"
+          unzip -p "$RUNNER_TEMP/package/DiorLinux-V1-DirectRoot-Userdata.zip" VERIFICATION.json | python3 -m json.tool >/dev/null
+          (
+            cd "$RUNNER_TEMP/package"
+            sha256sum DiorLinux-V1-DirectRoot-Userdata.zip > DiorLinux-V1-DirectRoot-Userdata.zip.sha256
+          )
+      - name: Upload direct-root candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: DiorLinux-V1-DirectRoot-${{ github.sha }}
+          path: ${{ runner.temp }}/package/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7

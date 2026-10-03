@@ -1,0 +1,18 @@
+{
+  "scope": "Root device automation using generated PCM and derived prefix controls",
+  "native_model_load_once": true,
+  "derived_long_command_prefix_cases": "0.45/0.55/0.65/0.75seconds plus1.5seconds paced zero tail all hit complete二狗 at default1.5/.35",
+  "derived_prefix_hit_wall_seconds": [
+    0.945,
+    0.957
+  ],
+  "single_二_negative": "no hit",
+  "dynamic_keyword_new_小猪哥": "hit1.286seconds",
+  "dynamic_replacement_old_known_positive_max_wav": "native raw keyword empty after changing active name",
+  "standalone_piper_二狗_0.904_seconds": "no hit, including lower3.0/.15 diagnostic profile",
+  "standalone_espeak_short": "no hit as reported by root",
+  "human_voice_tested": false,
+  "exact_derived_keyword_end_manually_annotated": false,
+  "noise_or_long_soak_accuracy_claim": false,
+  "must_not_infer_general_true_positive_or_false_alarm_rate": true
+}

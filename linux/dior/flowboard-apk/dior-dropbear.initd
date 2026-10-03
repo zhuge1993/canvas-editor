@@ -1,0 +1,15 @@
+#!/sbin/openrc-run
+description="Dior USB-only Dropbear SSH fallback for old 3.4 kernels"
+command="/usr/sbin/dropbear"
+pidfile="/run/dior-dropbear.pid"
+command_args="-R -p 172.16.42.1:2222 -P $pidfile -w"
+
+depend() {
+    need localmount
+    after networkmanager
+}
+
+start_pre() {
+    checkpath -d -m 0700 /etc/dropbear
+    return 0
+}

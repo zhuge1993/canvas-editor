@@ -1,0 +1,107 @@
+{
+  "version": 1,
+  "weights_in_repository": false,
+  "gpu_used": false,
+  "models": [
+    {
+      "role": "selected_bilingual32",
+      "name": "sherpa-ncnn-streaming-zipformer-small-bilingual-zh-en-2023-02-16",
+      "model_type": "streaming_zipformer_transducer",
+      "official_documentation": "https://k2-fsa.github.io/sherpa/ncnn/pretrained_models/zipformer-transucer-models.html",
+      "download_url": "https://github.com/k2-fsa/sherpa-ncnn/releases/download/models/sherpa-ncnn-streaming-zipformer-small-bilingual-zh-en-2023-02-16.tar.bz2",
+      "archive": {
+        "bytes": 147405156,
+        "sha256": "ecd7f49183c003a1e4bffb952e424ec576ec4b135b7b8cc3e6e9f998b653f7fe"
+      },
+      "author_revision": "5fb2fb06fe78a776dbda78226c42d435359064f7",
+      "files": [
+        {
+          "path": "decoder_jit_trace-pnnx.ncnn.bin",
+          "bytes": 6412296,
+          "sha256": "4d1bb6ff7176907da2d19f451ba5ac13d72b56c675c8c41abd6e2f35e99bd435"
+        },
+        {
+          "path": "decoder_jit_trace-pnnx.ncnn.param",
+          "bytes": 439,
+          "sha256": "cb88f5894978fd3e85369d2f8ea55621809fceb2b5158243fb0cd025eb4f1aaf"
+        },
+        {
+          "path": "encoder_jit_trace-pnnx.ncnn.bin",
+          "bytes": 39222748,
+          "sha256": "0d3678d99dbb821d127511552c5c8451319a24469c5e5fbd9da1f7084254240f"
+        },
+        {
+          "path": "encoder_jit_trace-pnnx.ncnn.param",
+          "bytes": 111810,
+          "sha256": "8025162b7d5042a4b06f3794fcd6bda7533eec65ce50533df7d8b0d91ff70887"
+        },
+        {
+          "path": "joiner_jit_trace-pnnx.ncnn.bin",
+          "bytes": 7219652,
+          "sha256": "2ee60ac939e61494ef3cacf2768e0d786ed7461e636664f078dd6829877b6377"
+        },
+        {
+          "path": "joiner_jit_trace-pnnx.ncnn.param",
+          "bytes": 490,
+          "sha256": "75f733e68e479904181fdcf48a6a717b2b0fecbd364413e73bd44f25828922ce"
+        },
+        {
+          "path": "tokens.txt",
+          "bytes": 56317,
+          "sha256": "a8e0e4ec53810e433789b54a5c0134a7eaa2ffca595a6334d54c00da858841d3"
+        }
+      ],
+      "streaming_chunk": 32
+    },
+    {
+      "role": "comparison_zh14m",
+      "name": "sherpa-ncnn-streaming-zipformer-zh-14M-2023-02-23",
+      "model_type": "streaming_zipformer_transducer",
+      "official_documentation": "https://k2-fsa.github.io/sherpa/ncnn/pretrained_models/zipformer-transucer-models.html",
+      "download_url": "https://github.com/k2-fsa/sherpa-ncnn/releases/download/models/sherpa-ncnn-streaming-zipformer-zh-14M-2023-02-23.tar.bz2",
+      "archive": {
+        "bytes": 23247105,
+        "sha256": "b12f7af0ee53b9ec7089579349b8536d03ec0b4a0e1f4d8ea26be14c395e597f"
+      },
+      "author_revision": "caf018c3b4ab7fabb313cbf89066283d38324682",
+      "files": [
+        {
+          "path": "decoder_jit_trace-pnnx.ncnn.bin",
+          "bytes": 3548808,
+          "sha256": "efe0670c3303ddb5988885b9004c0dc7df1a7c77dad0aad4ee2bc00b904fe4fd"
+        },
+        {
+          "path": "decoder_jit_trace-pnnx.ncnn.param",
+          "bytes": 438,
+          "sha256": "2e72cd5dfd2299150b3e7389c5a97ecd8dee6f937e77162294646ae3d91c0b17"
+        },
+        {
+          "path": "encoder_jit_trace-pnnx.ncnn.bin",
+          "bytes": 17353204,
+          "sha256": "ab6627f0bad28738e3a4a7ea0c6dbb7c231f18e1f16c7454465dae22557eb6ce"
+        },
+        {
+          "path": "encoder_jit_trace-pnnx.ncnn.param",
+          "bytes": 131638,
+          "sha256": "461946e4d609c50ad56e05997e8b0574b85c5a054c97078f9774ba2f288d1515"
+        },
+        {
+          "path": "joiner_jit_trace-pnnx.ncnn.bin",
+          "bytes": 3875600,
+          "sha256": "837f13b40a01ff8af10bbe33d32fb0273d46f7470ac9fc6e242980c80d8d86dc"
+        },
+        {
+          "path": "joiner_jit_trace-pnnx.ncnn.param",
+          "bytes": 489,
+          "sha256": "8f01409278f72e8ab5c5fe3c94ffe1c7c533ceaa25965887cb56bb9314b2b8ea"
+        },
+        {
+          "path": "tokens.txt",
+          "bytes": 48697,
+          "sha256": "8b294db9045d6e5f94647f4c1eec1af4da143a75053c399611444b378ff966ac"
+        }
+      ],
+      "streaming_chunk": 32
+    }
+  ]
+}

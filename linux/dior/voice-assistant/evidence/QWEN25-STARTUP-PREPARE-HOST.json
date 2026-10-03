@@ -1,0 +1,63 @@
+{
+  "status": "PASS_HOST_STARTUP_PREPARE_PATH",
+  "cpp_protocol_tests": 11,
+  "startup_python_tests": 8,
+  "adapter_tests": 17,
+  "bridge_tests": 20,
+  "messages_tests": 23,
+  "phone_executed": false,
+  "scope": "host startup ordering, queue priority, authorization, ACK and actual C++ protocol with fake model CAPI; no model quality claim",
+  "files": {
+    "llm/llm-worker.cpp": {
+      "bytes": 20712,
+      "sha256": "152f7a562c0b6feb9f823d958be330032ddfccae8e548c2a8660526058aa7598"
+    },
+    "llm/adapter.py": {
+      "bytes": 13665,
+      "sha256": "21d3c9f4aa2ccabf9832bf257c14cc1aa4b716da6fa3de7c7a5fd9fbf17aa405"
+    },
+    "bridge/protocol.py": {
+      "bytes": 6420,
+      "sha256": "da5e4289c183a19a11cbb668acb7cb777ca2ef84d67555fdb45de726ec9c0b04"
+    },
+    "bridge/server.py": {
+      "bytes": 19782,
+      "sha256": "fd6fcff9c22d7ba46519913df134b0d81df5be7f4285504d6bf45295aefc0f6f"
+    },
+    "bridge/client.py": {
+      "bytes": 10822,
+      "sha256": "66bb60734638b9427c36502250516c045a3fc52ad8bd9e1e35e3ac1e8f5dfd51"
+    },
+    "bridge/providers.py": {
+      "bytes": 12668,
+      "sha256": "17b0f3931187377979b5e3a9d704e74fc7569a4098ea7a7e9a521fe4246486af"
+    },
+    "runtime/run_assistant.py": {
+      "bytes": 8895,
+      "sha256": "58c640ec091af281b0e88422dfd439f24055f7bc934640c6c9921788f3614b09"
+    }
+  },
+  "native": {
+    "engine_tag": "b3927",
+    "engine_pin": "10433e8b457c4cfd759cbb41fc55fc398db4a5da",
+    "bytes": 3172972,
+    "sha256": "31e9a5c8d92093af7a198e0b4091ca1be9133b2aa1cd4bdf3b208687253e2b6a",
+    "wrapper_source_sha256": "152f7a562c0b6feb9f823d958be330032ddfccae8e548c2a8660526058aa7598",
+    "existing_library_sha256": {
+      "build\\src\\libllama.a": "9574dcaab9bd2a1b2ec6b3006ebdce8ea3df5348145ef463a75f2d56990a8322",
+      "build\\ggml\\src\\libggml.a": "d551d365e90639487b82de56fe0b5594310d01a2ae9d3f9e7945176066818a8d"
+    },
+    "context_tokens": 1024,
+    "output_tokens": 96,
+    "deadline_ms": 30000,
+    "explicit_messages_supported": true,
+    "clear_history_supported": true,
+    "prepare_system_supported": true,
+    "cache_retains_user_suffix": false,
+    "model_expected_sha256": "7671c0c304e6ce5a7fc577bcb12aba01e2c155cc2efd29b2213c95b18edaf6ed",
+    "model_expected_bytes": 428730208,
+    "model_changed": false,
+    "big_libraries_rebuilt": false,
+    "phone_execution_verified": false
+  }
+}

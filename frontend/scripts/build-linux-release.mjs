@@ -24,7 +24,7 @@ run(process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm', [
   'server.ts',
   '--bundle',
   '--platform=node',
-  '--target=node18',
+  '--target=node20',
   `--outfile=${bundlePath}`,
   '--external:node:*',
   '--format=cjs',
@@ -37,16 +37,19 @@ fs.rmSync(releaseDir, { recursive: true, force: true })
 fs.mkdirSync(releaseDir, { recursive: true })
 fs.copyFileSync(bundlePath, path.join(releaseDir, 'server-bundle.cjs'))
 fs.cpSync(distDir, path.join(releaseDir, 'dist'), { recursive: true })
-for (const file of ['start-server.sh', 'flowboard.env.example', 'flowboard.service', 'nginx.flowboard.conf.example']) {
+for (const file of ['start-server.sh', 'healthcheck.cjs', 'install-linux.sh', 'LINUX-ARMHF.md', 'PMOS-DIOR.md', 'DIOR-ALWAYS-ON.md', 'flowboard.env.example', 'flowboard.service', 'flowboard.openrc', 'nginx.flowboard.conf.example']) {
   ensureFile(path.join(root, file), file)
-  fs.copyFileSync(path.join(root, file), path.join(releaseDir, file))
+  // A Windows checkout may use CRLF. Linux shebangs and service scripts need LF.
+  fs.writeFileSync(path.join(releaseDir, file), fs.readFileSync(path.join(root, file), 'utf8').replace(/\r\n/g, '\n'), 'utf8')
 }
 fs.writeFileSync(
   path.join(releaseDir, 'BUILD.txt'),
-  `FlowBoard Linux release\nBuilt: ${new Date().toISOString()}\nRuntime: Node.js 18+\n`,
+  `FlowBoard ARMv7 Linux release\nBuilt: ${new Date().toISOString()}\nRuntime: postmarketOS/Alpine OpenRC or Debian 13 armhf / Node.js 20.19+\nDefault admin: 804559340@qq.com\n`,
   'utf8',
 )
 fs.chmodSync(path.join(releaseDir, 'start-server.sh'), 0o755)
+fs.chmodSync(path.join(releaseDir, 'install-linux.sh'), 0o755)
+fs.chmodSync(path.join(releaseDir, 'flowboard.openrc'), 0o755)
 
 if (fs.existsSync(archivePath)) fs.unlinkSync(archivePath)
 run('tar', ['-czf', archivePath, '-C', releaseDir, '.'])

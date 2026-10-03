@@ -8,6 +8,9 @@
     "build": "tsc -b && vite build",
     "build:exe": "node scripts/build-exe.mjs",
     "build:linux": "node scripts/build-linux-release.mjs",
+    "test:server-lifetime": "node tests/server-lifetime.mjs && node tests/tunnel-notifications.mjs",
+    "test:workspace": "node tests/management-stats.mjs && node tests/management-export.mjs && node tests/management-fields-notifications.mjs && node tests/management-workflow-pure.mjs && node tests/management-invites-pure.mjs && node tests/management-invites-http.mjs && node tests/management-live.mjs && node tests/management-core.mjs && node tests/management-workflow-backup.mjs && node tests/workspace-integration.mjs && node tests/management-access.mjs && node tests/management-collaboration.mjs && node tests/management-delete-example.mjs",
+    "test:long-running": "node tests/bounded-logs.mjs && node tests/client-logger.mjs && node tests/runtime-growth.mjs && node tests/management-growth.mjs && node tests/browser-retention.mjs && node tests/server-cache-growth.mjs",
     "lint": "oxlint",
     "preview": "node scripts/show-logs.mjs && vite preview",
     "logs": "node scripts/show-logs.mjs"

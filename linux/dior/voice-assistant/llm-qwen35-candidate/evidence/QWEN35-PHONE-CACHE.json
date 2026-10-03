@@ -1,0 +1,271 @@
+{
+  "status": "PASS_GENERATION_ONLY",
+  "gpu_used": false,
+  "microphone_used": false,
+  "skills_executed": false,
+  "cases": [
+    {
+      "name": "verify_state",
+      "messages": [
+        {
+          "role": "system",
+          "content": "你叫二狗，简短中文回答。"
+        },
+        {
+          "role": "user",
+          "content": "你好"
+        }
+      ],
+      "native": {
+        "cache_restore_checked": true,
+        "cache_verification": {
+          "argmax_equal": true,
+          "baseline_argmax": 109266,
+          "bitwise_equal": true,
+          "cached_argmax": 109266,
+          "finite": true,
+          "logits_compared": 248320,
+          "max_abs_delta": 0.0,
+          "mean_abs_delta": 0.0
+        },
+        "cached_path_prefill_seconds": 10.650460136006586,
+        "finish_reason": "token_limit",
+        "first_token_seconds": 21.11477833800018,
+        "generated_tokens": 1,
+        "gpu_used": false,
+        "history_persisted": false,
+        "id": "verify_state",
+        "input_tokens": 27,
+        "max_rss_kib": 657468,
+        "non_thinking": true,
+        "prefill_seconds": 21.106644928993774,
+        "prefix_cache_build_seconds": 6.51238972399733,
+        "prefix_cache_hit": false,
+        "prefix_cache_requested": true,
+        "prefix_checkpoint_bytes": 20411396,
+        "prefix_checkpoint_tokens": 17,
+        "prefix_restore_seconds": 0.01312329899519682,
+        "prefix_tokens_reused": 0,
+        "status": "complete",
+        "text": "你好",
+        "total_seconds": 21.12367274299322,
+        "type": "done",
+        "verification_generation_uses_uncached_reference": true,
+        "verification_uncached_seconds": 10.436822166011552
+      },
+      "wall_seconds": 21.138367307008593,
+      "peak_thermal_c": 58.0,
+      "thermal_cancel": false
+    },
+    {
+      "name": "plain_identity",
+      "messages": [
+        {
+          "role": "system",
+          "content": "你是手机上的中文语音助手。自然、简洁地交流，不声称已执行未经工具确认的操作。\n当前助手名和唤醒词：二狗。"
+        },
+        {
+          "role": "user",
+          "content": "你叫什么名字？"
+        }
+      ],
+      "native": {
+        "cache_restore_checked": false,
+        "cache_verification": null,
+        "cached_path_prefill_seconds": 20.701122208993183,
+        "finish_reason": "eos",
+        "first_token_seconds": 20.709217908995925,
+        "generated_tokens": 6,
+        "gpu_used": false,
+        "history_persisted": false,
+        "id": "plain_identity",
+        "input_tokens": 54,
+        "max_rss_kib": 657684,
+        "non_thinking": true,
+        "prefill_seconds": 20.70112397999037,
+        "prefix_cache_build_seconds": 0.0,
+        "prefix_cache_hit": false,
+        "prefix_cache_requested": false,
+        "prefix_checkpoint_bytes": 20411396,
+        "prefix_checkpoint_tokens": 17,
+        "prefix_restore_seconds": 0.0,
+        "prefix_tokens_reused": 0,
+        "status": "complete",
+        "text": "你好，我是二狗。",
+        "total_seconds": 25.095434475995717,
+        "type": "done",
+        "verification_generation_uses_uncached_reference": false,
+        "verification_uncached_seconds": 0.0
+      },
+      "wall_seconds": 25.106483798008412,
+      "peak_thermal_c": 60.0,
+      "thermal_cancel": false
+    },
+    {
+      "name": "cold_identity",
+      "messages": [
+        {
+          "role": "system",
+          "content": "你是手机上的中文语音助手。自然、简洁地交流，不声称已执行未经工具确认的操作。\n当前助手名和唤醒词：二狗。"
+        },
+        {
+          "role": "user",
+          "content": "你叫什么名字？"
+        }
+      ],
+      "native": {
+        "cache_restore_checked": false,
+        "cache_verification": null,
+        "cached_path_prefill_seconds": 20.971163620997686,
+        "finish_reason": "eos",
+        "first_token_seconds": 20.979012651994708,
+        "generated_tokens": 6,
+        "gpu_used": false,
+        "history_persisted": false,
+        "id": "cold_identity",
+        "input_tokens": 54,
+        "max_rss_kib": 657972,
+        "non_thinking": true,
+        "prefill_seconds": 20.971165911993012,
+        "prefix_cache_build_seconds": 15.581057376999524,
+        "prefix_cache_hit": false,
+        "prefix_cache_requested": true,
+        "prefix_checkpoint_bytes": 20706884,
+        "prefix_checkpoint_tokens": 41,
+        "prefix_restore_seconds": 0.0,
+        "prefix_tokens_reused": 0,
+        "status": "complete",
+        "text": "你好，我是二狗。",
+        "total_seconds": 25.704365854995558,
+        "type": "done",
+        "verification_generation_uses_uncached_reference": false,
+        "verification_uncached_seconds": 0.0
+      },
+      "wall_seconds": 25.71537736299797,
+      "peak_thermal_c": 63.0,
+      "thermal_cancel": false
+    },
+    {
+      "name": "warm_identity",
+      "messages": [
+        {
+          "role": "system",
+          "content": "你是手机上的中文语音助手。自然、简洁地交流，不声称已执行未经工具确认的操作。\n当前助手名和唤醒词：二狗。"
+        },
+        {
+          "role": "user",
+          "content": "你叫什么名字？"
+        }
+      ],
+      "native": {
+        "cache_restore_checked": false,
+        "cache_verification": null,
+        "cached_path_prefill_seconds": 5.221221656000125,
+        "finish_reason": "eos",
+        "first_token_seconds": 5.229122094009654,
+        "generated_tokens": 6,
+        "gpu_used": false,
+        "history_persisted": false,
+        "id": "warm_identity",
+        "input_tokens": 54,
+        "max_rss_kib": 657972,
+        "non_thinking": true,
+        "prefill_seconds": 5.221224364009686,
+        "prefix_cache_build_seconds": 0.0,
+        "prefix_cache_hit": true,
+        "prefix_cache_requested": true,
+        "prefix_checkpoint_bytes": 20706884,
+        "prefix_checkpoint_tokens": 41,
+        "prefix_restore_seconds": 0.01480607500707265,
+        "prefix_tokens_reused": 41,
+        "status": "complete",
+        "text": "你好，我是二狗。",
+        "total_seconds": 9.619081092008855,
+        "type": "done",
+        "verification_generation_uses_uncached_reference": false,
+        "verification_uncached_seconds": 0.0
+      },
+      "wall_seconds": 9.63464253800339,
+      "peak_thermal_c": 56.0,
+      "thermal_cancel": false
+    },
+    {
+      "name": "followup",
+      "messages": [
+        {
+          "role": "system",
+          "content": "你是手机上的中文语音助手。自然、简洁地交流，不声称已执行未经工具确认的操作。\n当前助手名和唤醒词：二狗。"
+        },
+        {
+          "role": "user",
+          "content": "我叫小林，请记住我的称呼。"
+        },
+        {
+          "role": "assistant",
+          "content": "好的，小林。"
+        },
+        {
+          "role": "user",
+          "content": "我刚才让你怎么称呼我？"
+        }
+      ],
+      "native": {
+        "cache_restore_checked": false,
+        "cache_verification": null,
+        "cached_path_prefill_seconds": 14.39779333100887,
+        "finish_reason": "eos",
+        "first_token_seconds": 14.405644758007838,
+        "generated_tokens": 7,
+        "gpu_used": false,
+        "history_persisted": false,
+        "id": "followup",
+        "input_tokens": 78,
+        "max_rss_kib": 657972,
+        "non_thinking": true,
+        "prefill_seconds": 14.397795883007348,
+        "prefix_cache_build_seconds": 0.0,
+        "prefix_cache_hit": true,
+        "prefix_cache_requested": true,
+        "prefix_checkpoint_bytes": 20706884,
+        "prefix_checkpoint_tokens": 41,
+        "prefix_restore_seconds": 0.021797128007165156,
+        "prefix_tokens_reused": 41,
+        "status": "complete",
+        "text": "小林，你叫我二狗。",
+        "total_seconds": 19.69127424999897,
+        "type": "done",
+        "verification_generation_uses_uncached_reference": false,
+        "verification_uncached_seconds": 0.0
+      },
+      "wall_seconds": 19.702336019996437,
+      "peak_thermal_c": 62.0,
+      "thermal_cancel": false
+    }
+  ],
+  "threads": 2,
+  "model_sha256": "57d1997790d1744fba5b40a7317df71ea5e2acee28c47e78f0cce39c0703f8cf",
+  "binary_sha256": "7991443ca1b3cef17d662e700d4507477e07e2f6bfb6a2321b6eb058cf5b43af",
+  "ready": {
+    "backend": "CPU_ARMV7_NEON",
+    "context_tokens": 1024,
+    "engine_pin": "99b95488cac0f00ce3f05af113a8c1e287753f87",
+    "engine_tag": "b11371",
+    "gpu_used": false,
+    "max_generated_tokens": 128,
+    "max_messages": 12,
+    "max_rss_kib": 623828,
+    "message_bytes_limit": 8192,
+    "model_load_count": 1,
+    "model_load_seconds": 4.023480807009037,
+    "non_thinking": true,
+    "prefix_cache_checkpoint_limit_bytes": 67108864,
+    "prefix_cache_key": "exact system/user-open tokens in this fixed loaded model/template",
+    "prefix_cache_slots": 1,
+    "threads": 2,
+    "type": "ready"
+  },
+  "load_seconds": 4.0344549199944595,
+  "native_exit": -15,
+  "native_stderr_tail": ".....................................................\n",
+  "old_service_restored": true
+}

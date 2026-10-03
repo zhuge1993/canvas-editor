@@ -1,0 +1,439 @@
+{
+  "samples": [
+    {
+      "seconds": 0.004,
+      "thermal_c": 48.0,
+      "state": null,
+      "role": null,
+      "error": "none"
+    },
+    {
+      "seconds": 0.509,
+      "thermal_c": 49.0,
+      "state": null,
+      "role": null,
+      "error": "none"
+    },
+    {
+      "seconds": 0.761,
+      "thermal_c": 49.0,
+      "state": "cooling",
+      "role": "chat",
+      "error": "none"
+    },
+    {
+      "seconds": 1.6,
+      "thermal_c": 44.0,
+      "state": "running",
+      "role": "chat",
+      "error": "none"
+    },
+    {
+      "seconds": 2.609,
+      "thermal_c": 55.0,
+      "state": "running",
+      "role": "chat",
+      "error": "none"
+    },
+    {
+      "seconds": 3.617,
+      "thermal_c": 57.0,
+      "state": "running",
+      "role": "chat",
+      "error": "none"
+    },
+    {
+      "seconds": 4.626,
+      "thermal_c": 58.0,
+      "state": "running",
+      "role": "chat",
+      "error": "none"
+    },
+    {
+      "seconds": 6.644,
+      "thermal_c": 59.0,
+      "state": "running",
+      "role": "chat",
+      "error": "none"
+    },
+    {
+      "seconds": 7.652,
+      "thermal_c": 60.0,
+      "state": "running",
+      "role": "chat",
+      "error": "none"
+    },
+    {
+      "seconds": 11.687,
+      "thermal_c": 61.0,
+      "state": "running",
+      "role": "chat",
+      "error": "none"
+    },
+    {
+      "seconds": 13.704,
+      "thermal_c": 62.0,
+      "state": "running",
+      "role": "chat",
+      "error": "none"
+    },
+    {
+      "seconds": 19.763,
+      "thermal_c": 63.0,
+      "state": "running",
+      "role": "chat",
+      "error": "none"
+    },
+    {
+      "seconds": 21.027,
+      "thermal_c": 63.0,
+      "state": "cooling",
+      "role": "chat",
+      "error": "none"
+    },
+    {
+      "seconds": 21.79,
+      "thermal_c": 53.0,
+      "state": "cooling",
+      "role": "chat",
+      "error": "none"
+    },
+    {
+      "seconds": 22.797,
+      "thermal_c": 49.0,
+      "state": "cooling",
+      "role": "chat",
+      "error": "none"
+    },
+    {
+      "seconds": 23.805,
+      "thermal_c": 48.0,
+      "state": "cooling",
+      "role": "chat",
+      "error": "none"
+    },
+    {
+      "seconds": 24.811,
+      "thermal_c": 47.0,
+      "state": "cooling",
+      "role": "chat",
+      "error": "none"
+    },
+    {
+      "seconds": 25.818,
+      "thermal_c": 46.0,
+      "state": "cooling",
+      "role": "chat",
+      "error": "none"
+    },
+    {
+      "seconds": 26.825,
+      "thermal_c": 45.0,
+      "state": "running",
+      "role": "chat",
+      "error": "none"
+    },
+    {
+      "seconds": 27.834,
+      "thermal_c": 55.0,
+      "state": "running",
+      "role": "chat",
+      "error": "none"
+    },
+    {
+      "seconds": 28.842,
+      "thermal_c": 56.0,
+      "state": "running",
+      "role": "chat",
+      "error": "none"
+    },
+    {
+      "seconds": 29.851,
+      "thermal_c": 57.0,
+      "state": "running",
+      "role": "chat",
+      "error": "none"
+    },
+    {
+      "seconds": 30.86,
+      "thermal_c": 58.0,
+      "state": "running",
+      "role": "chat",
+      "error": "none"
+    },
+    {
+      "seconds": 32.877,
+      "thermal_c": 62.0,
+      "state": "running",
+      "role": "chat",
+      "error": "none"
+    },
+    {
+      "seconds": 33.885,
+      "thermal_c": 63.0,
+      "state": "running",
+      "role": "chat",
+      "error": "none"
+    },
+    {
+      "seconds": 40.95,
+      "thermal_c": 64.0,
+      "state": "running",
+      "role": "chat",
+      "error": "none"
+    },
+    {
+      "seconds": 41.708,
+      "thermal_c": 64.0,
+      "state": "cooling",
+      "role": "tts",
+      "error": "none"
+    },
+    {
+      "seconds": 41.96,
+      "thermal_c": 55.0,
+      "state": "cooling",
+      "role": "tts",
+      "error": "none"
+    },
+    {
+      "seconds": 42.967,
+      "thermal_c": 51.0,
+      "state": "cooling",
+      "role": "tts",
+      "error": "none"
+    },
+    {
+      "seconds": 43.974,
+      "thermal_c": 49.0,
+      "state": "cooling",
+      "role": "tts",
+      "error": "none"
+    },
+    {
+      "seconds": 44.981,
+      "thermal_c": 48.0,
+      "state": "cooling",
+      "role": "tts",
+      "error": "none"
+    },
+    {
+      "seconds": 47.009,
+      "thermal_c": 47.0,
+      "state": "cooling",
+      "role": "tts",
+      "error": "none"
+    },
+    {
+      "seconds": 48.016,
+      "thermal_c": 46.0,
+      "state": "cooling",
+      "role": "tts",
+      "error": "none"
+    },
+    {
+      "seconds": 50.033,
+      "thermal_c": 45.0,
+      "state": "running",
+      "role": "tts",
+      "error": "none"
+    },
+    {
+      "seconds": 51.043,
+      "thermal_c": 51.0,
+      "state": "running",
+      "role": "tts",
+      "error": "none"
+    },
+    {
+      "seconds": 53.315,
+      "thermal_c": 52.0,
+      "state": "running",
+      "role": "tts",
+      "error": "none"
+    },
+    {
+      "seconds": 54.324,
+      "thermal_c": 53.0,
+      "state": "running",
+      "role": "tts",
+      "error": "none"
+    },
+    {
+      "seconds": 57.352,
+      "thermal_c": 54.0,
+      "state": "running",
+      "role": "tts",
+      "error": "none"
+    },
+    {
+      "seconds": 62.912,
+      "thermal_c": 54.0,
+      "state": null,
+      "role": null,
+      "error": "none"
+    },
+    {
+      "seconds": 64.426,
+      "thermal_c": 53.0,
+      "state": null,
+      "role": null,
+      "error": "none"
+    },
+    {
+      "seconds": 66.445,
+      "thermal_c": 54.0,
+      "state": null,
+      "role": null,
+      "error": "none"
+    },
+    {
+      "seconds": 72.511,
+      "thermal_c": 56.0,
+      "state": null,
+      "role": null,
+      "error": "none"
+    },
+    {
+      "seconds": 73.521,
+      "thermal_c": 54.0,
+      "state": null,
+      "role": null,
+      "error": "none"
+    },
+    {
+      "seconds": 77.562,
+      "thermal_c": 55.0,
+      "state": null,
+      "role": null,
+      "error": "none"
+    },
+    {
+      "seconds": 78.824,
+      "thermal_c": 55.0,
+      "state": "cooling",
+      "role": "prepare_system",
+      "error": "none"
+    },
+    {
+      "seconds": 79.58,
+      "thermal_c": 50.0,
+      "state": "cooling",
+      "role": "prepare_system",
+      "error": "none"
+    },
+    {
+      "seconds": 80.587,
+      "thermal_c": 48.0,
+      "state": "cooling",
+      "role": "prepare_system",
+      "error": "none"
+    },
+    {
+      "seconds": 81.594,
+      "thermal_c": 47.0,
+      "state": "cooling",
+      "role": "prepare_system",
+      "error": "none"
+    },
+    {
+      "seconds": 82.604,
+      "thermal_c": 48.0,
+      "state": "cooling",
+      "role": "prepare_system",
+      "error": "none"
+    },
+    {
+      "seconds": 84.619,
+      "thermal_c": 46.0,
+      "state": "cooling",
+      "role": "prepare_system",
+      "error": "none"
+    },
+    {
+      "seconds": 85.627,
+      "thermal_c": 45.0,
+      "state": "running",
+      "role": "prepare_system",
+      "error": "none"
+    },
+    {
+      "seconds": 86.637,
+      "thermal_c": 55.0,
+      "state": "running",
+      "role": "prepare_system",
+      "error": "none"
+    },
+    {
+      "seconds": 87.646,
+      "thermal_c": 56.0,
+      "state": "running",
+      "role": "prepare_system",
+      "error": "none"
+    },
+    {
+      "seconds": 88.656,
+      "thermal_c": 57.0,
+      "state": "running",
+      "role": "prepare_system",
+      "error": "none"
+    },
+    {
+      "seconds": 89.665,
+      "thermal_c": 58.0,
+      "state": "running",
+      "role": "prepare_system",
+      "error": "none"
+    },
+    {
+      "seconds": 90.675,
+      "thermal_c": 59.0,
+      "state": "running",
+      "role": "prepare_system",
+      "error": "none"
+    },
+    {
+      "seconds": 92.694,
+      "thermal_c": 60.0,
+      "state": "running",
+      "role": "prepare_system",
+      "error": "none"
+    },
+    {
+      "seconds": 94.714,
+      "thermal_c": 59.0,
+      "state": "running",
+      "role": "prepare_system",
+      "error": "none"
+    },
+    {
+      "seconds": 94.966,
+      "thermal_c": 59.0,
+      "state": null,
+      "role": null,
+      "error": "none"
+    },
+    {
+      "seconds": 95.723,
+      "thermal_c": 54.0,
+      "state": null,
+      "role": null,
+      "error": "none"
+    },
+    {
+      "seconds": 96.735,
+      "thermal_c": 50.0,
+      "state": null,
+      "role": null,
+      "error": "none"
+    },
+    {
+      "seconds": 97.752,
+      "thermal_c": 49.0,
+      "state": null,
+      "role": null,
+      "error": "none"
+    }
+  ],
+  "max_thermal_c": 64.0
+}

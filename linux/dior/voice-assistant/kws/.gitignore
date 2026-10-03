@@ -1,0 +1,17 @@
+pypinyin-vendor/
+model-small/
+runtime/
+gnu-dev/
+**/gnu-dev/
+**/__pycache__/
+*.onnx
+*.whl
+*.deb
+*.tar.gz
+*.tar.bz2
+*.wav
+*.o
+*.obj
+*.exe
+*.so*
+native/kws-worker

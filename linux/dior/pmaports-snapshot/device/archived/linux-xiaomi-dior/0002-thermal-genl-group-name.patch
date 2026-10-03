@@ -1,0 +1,27 @@
+From: Masatake YAMATO <yamato@redhat.com>
+Subject: [PATCH] thermal: shorten too long mcast group name
+
+Upstream-commit: 73214f5d9f33b79918b1f7babddd5c8af28dd23d
+Upstream: https://github.com/torvalds/linux/commit/73214f5d9f33b79918b1f7babddd5c8af28dd23d
+
+Backport the upstream one-line fix to the locked dior kernel. The old
+16-character name fills name[GENL_NAMSIZ] without a NUL terminator;
+modern libnl rejects the resulting multicast group name and aborts
+the generic-netlink controller cache before nl80211 initialization.
+
+Signed-off-by: Masatake YAMATO <yamato@redhat.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+diff --git a/include/linux/thermal.h b/include/linux/thermal.h
+index faf98fe5..e746571c 100644
+--- a/include/linux/thermal.h
++++ b/include/linux/thermal.h
+@@ -144,7 +144,7 @@ struct thermal_zone_device {
+ /* Adding event notification support elements */
+ #define THERMAL_GENL_FAMILY_NAME                "thermal_event"
+ #define THERMAL_GENL_VERSION                    0x01
+-#define THERMAL_GENL_MCAST_GROUP_NAME           "thermal_mc_group"
++#define THERMAL_GENL_MCAST_GROUP_NAME           "thermal_mc_grp"
+ 
+ enum events {
+ 	THERMAL_AUX0,

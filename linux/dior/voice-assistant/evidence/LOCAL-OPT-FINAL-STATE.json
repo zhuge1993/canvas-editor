@@ -1,0 +1,41 @@
+{
+  "scope": "read-only final status and five-second Piper idle observation",
+  "kernel": "3.4.0-msf",
+  "tainted": "0",
+  "source_sha256": {
+    "/opt/dior-voice/llm-worker": "31e9a5c8d92093af7a198e0b4091ca1be9133b2aa1cd4bdf3b208687253e2b6a",
+    "/opt/dior-voice/adapter.py": "f23d6fc9c9a5860278bc7ee7c052fe1bd945355d3f65c16339bbae3dd15df07d",
+    "/opt/dior-voice/tts/offline_tts.py": "bdccded070673539c224811e876fbc1d533c7e824c17300641be1270b79c99a9",
+    "/opt/dior-voice/tts/persistent_tts.py": "84ebacb3adead38249aed3a05845c316bb8443a20f8139623c11e5163e54ed61",
+    "/opt/dior-inference/bridge/providers.py": "79e56fbaac642b1c3ee68a3764f74ec147139bc810bd23085747a3529ff4c88b",
+    "/opt/dior-asr/stream-worker": "1403dc4c3b4c489a35e23408f41d99bc4cd4c4a64926346e1d94838ad847eee8"
+  },
+  "qa_processes_remaining": [],
+  "voice_ready": true,
+  "model_ready": true,
+  "warmup": {
+    "scope": "startup_only",
+    "attempted": true,
+    "initialized": true,
+    "warmup_skipped": false,
+    "status": "complete",
+    "prefix_tokens": 38,
+    "generated_tokens": 0,
+    "elapsed_seconds": 10.681
+  },
+  "native_threads": 2,
+  "model_thermal_admit_c": 45,
+  "tts_thermal_admit_c": 50,
+  "tts_state": {
+    "persistent": true,
+    "lazy_started": false,
+    "closed": false,
+    "cloud_used": false,
+    "audio_file_persisted": false,
+    "worker_start_count": 0,
+    "cpu_affinity_requested_max": 2,
+    "state": "not_started",
+    "last_error": "none"
+  },
+  "scope_note": "read-only snapshot after all automated model/GPU tests; no human acoustic claim"
+}

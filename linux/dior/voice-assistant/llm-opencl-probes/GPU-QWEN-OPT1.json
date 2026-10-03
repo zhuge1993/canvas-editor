@@ -1,0 +1,306 @@
+{
+  "scope": "private Qwen real-weight GPU operator qualification",
+  "llm_acceleration_qualified": false,
+  "model_generation": false,
+  "service_operations": false,
+  "production_or_SDK_files_changed": false,
+  "cases": [
+    {
+      "batch": 1,
+      "returncode": 0,
+      "wall_seconds": 0.29932111500238534,
+      "abort_reason": null,
+      "peak_child_rss_kib": 11212,
+      "child_RSS_exceeds_64MiB": false,
+      "child_RSS_limit_kib": 131072,
+      "explicit_benchmark_buffers_limit_mib": 64,
+      "thermal_before_c": 48.0,
+      "maximum_thermal_c": 48.0,
+      "stderr": "",
+      "phone_model_generation": false,
+      "native": {
+        "K": 896,
+        "M": 896,
+        "absolute_tolerance": 0.001,
+        "baseline_gpu_weight_buffer_bytes": 3211264,
+        "batch": 1,
+        "build_log": "Pass",
+        "build_options": "device default OpenCL C 1.x; no CL2/subgroups/FP16",
+        "candidate": "opt1_Q4_0_CL11_cooperative_tiled",
+        "caps": {
+          "kernel_local_bytes": 256,
+          "kernel_max_group": 128,
+          "local_memory_bytes": 8192,
+          "max_work_group_size": 256,
+          "max_work_item_sizes": [
+            256,
+            256,
+            256
+          ],
+          "requested_group": 64,
+          "requested_local_bytes": 256
+        },
+        "cpu_fallback_permitted": false,
+        "cpu_graph_compute_ms": [
+          0.8776140020927414,
+          0.6987050001043826
+        ],
+        "cpu_math": "existing b3927 GGML Q4_0 x F32 MUL_MAT; internal Q8 activation dot path",
+        "cpu_quantized_difference_vs_reference": {
+          "max_absolute_error": 0.01070624589920044,
+          "mismatched_elements": 0,
+          "nonfinite": 0,
+          "rms_error": 0.0021260655268675144
+        },
+        "cpu_threads": 2,
+        "device_name": "QUALCOMM Adreno(TM)",
+        "device_type": 4,
+        "device_version": "OpenCL 1.1 Adreno(TM) 305",
+        "explicit_planned_peak_bytes": 3795968,
+        "ggml_type": "Q4_0",
+        "gpu_cold_setup_upload_dispatch_readback_wall_ms": 217.8180560003966,
+        "gpu_library": "/opt/dior-android/system/vendor/lib/libOpenCL.so",
+        "gpu_math": "original Q4_0 nibbles + host-expanded float scales x original F32 activation; FP32 accumulation",
+        "gpu_requested": true,
+        "gpu_setup_plus_weight_upload_ms": 200.07609600725118,
+        "gpu_used": true,
+        "gpu_weight_buffer_bytes": 501760,
+        "host_expand_scales_preserve_nibbles_ms": 0.5619849980575964,
+        "inputs_are_synthetic_not_model_activation": true,
+        "kernel_source_bytes": 1307,
+        "kernel_tuning_sweep_performed": false,
+        "llm_acceleration_qualified": false,
+        "math_paths_identical": false,
+        "opencl_c_version": "OpenCL C 1.1 Adreno(TM) 305",
+        "program_build_ms": 169.2857140005799,
+        "reference_math": "independent PC binary64 accumulation then F32 cast",
+        "relative_tolerance": 0.0002,
+        "rounds": [
+          {
+            "difference_vs_quantized_cpu": {
+              "max_absolute_error": 0.01070624589920044,
+              "mismatched_elements": 0,
+              "nonfinite": 0,
+              "rms_error": 0.0021260655268675144
+            },
+            "fp32_error_vs_pc_reference": {
+              "max_absolute_error": 0.0,
+              "mismatched_elements": 0,
+              "nonfinite": 0,
+              "rms_error": 0.0
+            },
+            "gpu_kernel_event_ms": 16.983,
+            "input_dispatch_readback_wall_ms": 17.581334002898075,
+            "input_upload_event_ms": 0.007,
+            "number": 1,
+            "pass": true,
+            "readback_event_ms": 0.056,
+            "weight_reuploaded": false
+          },
+          {
+            "difference_vs_quantized_cpu": {
+              "max_absolute_error": 0.01070624589920044,
+              "mismatched_elements": 0,
+              "nonfinite": 0,
+              "rms_error": 0.0021260655268675144
+            },
+            "fp32_error_vs_pc_reference": {
+              "max_absolute_error": 0.0,
+              "mismatched_elements": 0,
+              "nonfinite": 0,
+              "rms_error": 0.0
+            },
+            "gpu_kernel_event_ms": 16.872,
+            "input_dispatch_readback_wall_ms": 18.070922000333667,
+            "input_upload_event_ms": 0.008,
+            "number": 2,
+            "pass": true,
+            "readback_event_ms": 0.052,
+            "weight_reuploaded": false
+          },
+          {
+            "difference_vs_quantized_cpu": {
+              "max_absolute_error": 0.01070624589920044,
+              "mismatched_elements": 0,
+              "nonfinite": 0,
+              "rms_error": 0.0021260655268675144
+            },
+            "fp32_error_vs_pc_reference": {
+              "max_absolute_error": 0.0,
+              "mismatched_elements": 0,
+              "nonfinite": 0,
+              "rms_error": 0.0
+            },
+            "gpu_kernel_event_ms": 17.499,
+            "input_dispatch_readback_wall_ms": 18.060506001347676,
+            "input_upload_event_ms": 0.007,
+            "number": 3,
+            "pass": true,
+            "readback_event_ms": 0.057,
+            "weight_reuploaded": false
+          }
+        ],
+        "scope": "Qwen2.5 real weight operator only; not model offload",
+        "speedup_claimed": false,
+        "status": "PASS_GPU_OPERATOR",
+        "tensor": "blk.0.attn_q.weight",
+        "weight_upload_event_ms": 0.441,
+        "weight_upload_wall_ms": 4.516922999755479
+      },
+      "pass": true
+    },
+    {
+      "batch": 32,
+      "returncode": 0,
+      "wall_seconds": 0.9858437110087834,
+      "abort_reason": null,
+      "peak_child_rss_kib": 11868,
+      "child_RSS_exceeds_64MiB": false,
+      "child_RSS_limit_kib": 131072,
+      "explicit_benchmark_buffers_limit_mib": 64,
+      "thermal_before_c": 48.0,
+      "maximum_thermal_c": 48.0,
+      "stderr": "",
+      "phone_model_generation": false,
+      "native": {
+        "K": 896,
+        "M": 896,
+        "absolute_tolerance": 0.001,
+        "baseline_gpu_weight_buffer_bytes": 3211264,
+        "batch": 32,
+        "build_log": "Pass",
+        "build_options": "device default OpenCL C 1.x; no CL2/subgroups/FP16",
+        "candidate": "opt1_Q4_0_CL11_cooperative_tiled",
+        "caps": {
+          "kernel_local_bytes": 3072,
+          "kernel_max_group": 128,
+          "local_memory_bytes": 8192,
+          "max_work_group_size": 256,
+          "max_work_item_sizes": [
+            256,
+            256,
+            256
+          ],
+          "requested_group": 128,
+          "requested_local_bytes": 3072
+        },
+        "cpu_fallback_permitted": false,
+        "cpu_graph_compute_ms": [
+          17.977743002120405,
+          17.810085992095992
+        ],
+        "cpu_math": "existing b3927 GGML Q4_0 x F32 MUL_MAT; internal Q8 activation dot path",
+        "cpu_quantized_difference_vs_reference": {
+          "max_absolute_error": 0.022244691848754883,
+          "mismatched_elements": 0,
+          "nonfinite": 0,
+          "rms_error": 0.002066407692220945
+        },
+        "cpu_threads": 2,
+        "device_name": "QUALCOMM Adreno(TM)",
+        "device_type": 4,
+        "device_version": "OpenCL 1.1 Adreno(TM) 305",
+        "explicit_planned_peak_bytes": 4240384,
+        "ggml_type": "Q4_0",
+        "gpu_cold_setup_upload_dispatch_readback_wall_ms": 392.18825299758464,
+        "gpu_library": "/opt/dior-android/system/vendor/lib/libOpenCL.so",
+        "gpu_math": "original Q4_0 nibbles + host-expanded float scales x original F32 activation; FP32 accumulation",
+        "gpu_requested": true,
+        "gpu_setup_plus_weight_upload_ms": 133.55377099651378,
+        "gpu_used": true,
+        "gpu_weight_buffer_bytes": 501760,
+        "host_expand_scales_preserve_nibbles_ms": 0.8107389876386151,
+        "inputs_are_synthetic_not_model_activation": true,
+        "kernel_source_bytes": 1307,
+        "kernel_tuning_sweep_performed": false,
+        "llm_acceleration_qualified": false,
+        "math_paths_identical": false,
+        "opencl_c_version": "OpenCL C 1.1 Adreno(TM) 305",
+        "program_build_ms": 103.93470300186891,
+        "reference_math": "independent PC binary64 accumulation then F32 cast",
+        "relative_tolerance": 0.0002,
+        "rounds": [
+          {
+            "difference_vs_quantized_cpu": {
+              "max_absolute_error": 0.022244691848754883,
+              "mismatched_elements": 0,
+              "nonfinite": 0,
+              "rms_error": 0.002066407686060186
+            },
+            "fp32_error_vs_pc_reference": {
+              "max_absolute_error": 1.1920928955078125e-07,
+              "mismatched_elements": 0,
+              "nonfinite": 0,
+              "rms_error": 7.04013692232272e-10
+            },
+            "gpu_kernel_event_ms": 253.713,
+            "input_dispatch_readback_wall_ms": 256.1932069947943,
+            "input_upload_event_ms": 0.115,
+            "number": 1,
+            "pass": true,
+            "readback_event_ms": 1.324,
+            "weight_reuploaded": false
+          },
+          {
+            "difference_vs_quantized_cpu": {
+              "max_absolute_error": 0.022244691848754883,
+              "mismatched_elements": 0,
+              "nonfinite": 0,
+              "rms_error": 0.002066407686060186
+            },
+            "fp32_error_vs_pc_reference": {
+              "max_absolute_error": 1.1920928955078125e-07,
+              "mismatched_elements": 0,
+              "nonfinite": 0,
+              "rms_error": 7.04013692232272e-10
+            },
+            "gpu_kernel_event_ms": 253.649,
+            "input_dispatch_readback_wall_ms": 255.72945100429934,
+            "input_upload_event_ms": 0.102,
+            "number": 2,
+            "pass": true,
+            "readback_event_ms": 1.28,
+            "weight_reuploaded": false
+          },
+          {
+            "difference_vs_quantized_cpu": {
+              "max_absolute_error": 0.022244691848754883,
+              "mismatched_elements": 0,
+              "nonfinite": 0,
+              "rms_error": 0.002066407686060186
+            },
+            "fp32_error_vs_pc_reference": {
+              "max_absolute_error": 1.1920928955078125e-07,
+              "mismatched_elements": 0,
+              "nonfinite": 0,
+              "rms_error": 7.04013692232272e-10
+            },
+            "gpu_kernel_event_ms": 253.616,
+            "input_dispatch_readback_wall_ms": 255.5462720047217,
+            "input_upload_event_ms": 0.11,
+            "number": 3,
+            "pass": true,
+            "readback_event_ms": 1.241,
+            "weight_reuploaded": false
+          }
+        ],
+        "scope": "Qwen2.5 real weight operator only; not model offload",
+        "speedup_claimed": false,
+        "status": "PASS_GPU_OPERATOR",
+        "tensor": "blk.0.attn_q.weight",
+        "weight_upload_event_ms": 0.471,
+        "weight_upload_wall_ms": 4.515881999395788
+      },
+      "pass": true
+    }
+  ],
+  "model_sha256": "7671c0c304e6ce5a7fc577bcb12aba01e2c155cc2efd29b2213c95b18edaf6ed",
+  "uid": 10000,
+  "CPU_GPU_math_paths_identical": false,
+  "cpu_baseline": "existing b3927 quantized GGML 2threads",
+  "gpu_path": "opt1 packed Q4_0 CL1.1 decode64 / prefill16x8x32 cooperative tiled",
+  "candidate": "opt1",
+  "status": "PASS_OPERATOR_SCOPE_ONLY",
+  "protected_processes_unchanged": true,
+  "kernel_tainted_after": "0"
+}
