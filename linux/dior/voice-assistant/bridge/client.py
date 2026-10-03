@@ -17,6 +17,12 @@ import wave
 from interfaces import AudioClip,LanguageReply
 sys.dont_write_bytecode=True
 
+class BridgeResponseError(RuntimeError):
+    """A bounded error code received from the private bridge, not local failure."""
+    def __init__(self,code):
+        self.code=code if isinstance(code,str) and re.fullmatch(r'[a-z_]{1,48}',code) else 'invalid_remote_error'
+        super().__init__(self.code)
+
 class IPC:
     def __init__(self,path='/run/dior-inference/inference.sock'):self.path=path
     def request(self,op,cancel=None,deadline=None,**payload):
@@ -35,7 +41,7 @@ class IPC:
                 if end>=0:
                     result=json.loads(bytes(buffer[:end]))
                     if result.get('id')!=ident:raise RuntimeError('response_order')
-                    if not result.get('ok'):raise RuntimeError(result.get('error_code','unavailable'))
+                    if not result.get('ok'):raise BridgeResponseError(result.get('error_code','unavailable'))
                     return result
                 if len(buffer)>=1280*1024:raise ValueError('response_limit')
                 connection.settimeout(min(.1,max(.001,deadline-time.monotonic())))
@@ -45,12 +51,39 @@ class IPC:
                 buffer.extend(part)
 
 class BridgeLanguageModel:
-    def __init__(self,path):self.ipc=IPC(path);self.last_metrics=None
+    def __init__(self,path):self.ipc=IPC(path);self.last_metrics=None;self.mode='unknown'
     def generate(self,user_text,*,cancel,deadline,web_evidence=None):
         # Voice's network evidence is already handled by finite skills. Never
         # reinterpret remote snippets as typed actions through this proxy.
+        self.mode='legacy_current_turn'
         result=self.ipc.request('chat',cancel,deadline,text=user_text)
         self.last_metrics=result.get('metrics');return LanguageReply(result.get('text','')[:120],None)
+    def generate_messages(self,messages,*,cancel,deadline):
+        if not isinstance(messages,list) or not messages or not isinstance(messages[-1],dict):raise ValueError('messages_required')
+        last=messages[-1]
+        if last.get('role')!='user' or not isinstance(last.get('content'),str) or not last['content'].strip():raise ValueError('last_user_required')
+        # Probe each turn: an absent/cold service or a legacy capability must
+        # not pin the client to that mode after a service upgrade/restart.
+        self.mode='unknown'
+        try:status=self.ipc.request('status',cancel,min(deadline,time.monotonic()+.75))
+        except Exception:self.mode='unavailable';raise
+        capabilities=status.get('capabilities')
+        supported=capabilities.get('chat_messages') if isinstance(capabilities,dict) else None
+        if supported is False:return self._legacy_current_turn(last['content'],cancel,deadline)
+        if supported is True:self.mode='structured_history'
+        try:result=self.ipc.request('chat',cancel,deadline,messages=messages)
+        except BridgeResponseError as error:
+            if error.code!='messages_unsupported':raise
+            return self._legacy_current_turn(last['content'],cancel,deadline)
+        self.mode='structured_history'
+        self.last_metrics=result.get('metrics');return LanguageReply(result.get('text','')[:120],None)
+    def _legacy_current_turn(self,text,cancel,deadline):
+        self.mode='legacy_current_turn'
+        # The old bridge may own a tiny generation-time history. Clear that
+        # history before the legacy request; only the current user is sent.
+        # A failed clear is an error, never permission to reuse stale answers.
+        self.ipc.request('clear_history',cancel,min(deadline,time.monotonic()+1.5))
+        return self.generate(text,cancel=cancel,deadline=deadline)
     def clear_history(self):
         try:self.ipc.request('clear_history',deadline=time.monotonic()+1.5)
         except (OSError,RuntimeError,TimeoutError):pass
@@ -68,6 +101,13 @@ class BridgeTTS:
         with wave.open(io.BytesIO(data),'rb') as audio:
             if (audio.getnchannels(),audio.getsampwidth(),audio.getframerate())!=(1,2,16000):raise ValueError('audio_format')
             return AudioClip(audio.readframes(audio.getnframes()),16000)
+    def synthesize_failure(self,cancel):
+        # This exact recovery phrase is already root-owned/hash-verified by
+        # FixedCache. Never wait for a busy/failed model service to say it.
+        if cancel.is_set():raise TimeoutError('cancelled')
+        phrase='这次没有及时回答，请再问一次。'
+        if self.fixed is None or phrase not in self.fixed.audio:raise RuntimeError('failure_cache_unavailable')
+        return self.fixed.audio[phrase]
     def close(self):pass
 
 class VoiceASRLease:
@@ -89,7 +129,8 @@ class VoiceASRLease:
 class FixedCache:
     """Only qualified readonly fixed PCM; no Piper/model fallback is loaded."""
     PHRASES=('我在，请说。','好的，唤醒词已经更新。','好的，保持原来的唤醒词。','请说确认，或者取消。',
-             '音量已设为百分之0。','音量已设为百分之100。','音量已设为百分之50。','我还没听清，请再说一遍。','好的。','请稍等。')
+             '音量已设为百分之0。','音量已设为百分之100。','音量已设为百分之50。','我还没听清，请再说一遍。','好的。','请稍等。',
+             '这次没有及时回答，请再问一次。')
     def __init__(self,root):
         self.audio={};root=Path(root)
         manifest=root/'manifest.json';info=manifest.lstat()

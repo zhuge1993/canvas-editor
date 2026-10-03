@@ -270,7 +270,7 @@ def main():
             plain(base/'tts',True);tts=tree_receipt(base/'tts')
             require(sha(base/'tts/models/zh_CN-huayan-x_low.onnx')=='d30b143fac66d821a1285aa013295adf5cd129d3cc11d70334e51c7b20662c37','tts_model_hash')
             cache=read_json(base/'tts/fixed-cache/manifest.json',MAX_MARKER)
-            require(cache['total_pcm_bytes']<=1024*1024 and len(cache['phrases'])<=10,'fixed_cache_budget')
+            require(cache['total_pcm_bytes']<=1024*1024 and len(cache['phrases'])<=11,'fixed_cache_budget')
             for record in cache['phrases'].values():
                 require(Path(record['file']).name==record['file'] and sha(base/'tts/fixed-cache'/record['file'])==record['sha256'],'fixed_cache_hash')
             transaction['tts_files']=tts

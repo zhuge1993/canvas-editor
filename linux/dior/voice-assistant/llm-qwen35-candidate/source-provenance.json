@@ -1,0 +1,12 @@
+{
+  "source_url": "https://codeload.github.com/ggml-org/llama.cpp/tar.gz/99b95488cac0f00ce3f05af113a8c1e287753f87",
+  "tag": "b11371",
+  "pin": "99b95488cac0f00ce3f05af113a8c1e287753f87",
+  "archive_bytes": 37816065,
+  "archive_sha256": "255b78039d32724d1b5ed3ba87dce1b8f7bd1e3f18a8361f4b9ea7365fec5c8b",
+  "source_dir": "work\\qwen35-build\\source",
+  "core_members_extracted": 1715,
+  "excluded_tools_and_ui": true,
+  "full_extract_failed_windows_long_UI_path": true,
+  "vendor_members_extracted": 38
+}

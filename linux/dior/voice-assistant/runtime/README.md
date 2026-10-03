@@ -67,8 +67,22 @@ mixer值。控制器不自行执行alsamixer、shell或PCM录音命令。
 “以后叫你X/你的名字改成X/唤醒词改成X”由安全规则解析。
 当前LocalLanguageModel适配器始终intent=None；TypedIntent是经契约测试的扩展接口，
 这里不声称实际小模型已经能解析修改意图。“你是谁/你叫什么名字/叫啥”直接引用
-当前设置回答，改名后同步新名。对话结束/取消/改词后和关闭时清除可用provider的
-两轮短期内存摘要；clear_history不在捕获回调里执行，不保存聊天记录。
+当前设置回答，改名后同步新名。新的 Conversation 使用 system/user/assistant
+角色消息、turn ticket 与会话 epoch。生成完成仅暂存候选，实际播放成功后才提交
+助手消息；取消、播放失败、迟到或重复回调不能污染下一轮。ACK/cue/失败提示不进入
+历史。默认最多五轮、十二条消息、8KiB、1024 context/128 output 预留；没有本地
+tokenizer 时使用明确标注的保守字节估算，按整轮裁剪。对话结束/取消/改词和关闭
+会清理会话；native clear 由 bridge 唯一推理 worker 执行，不进入音频捕获回调。
+不保存聊天记录。
+
+支持结构化消息的 provider 才实际接收完整历史。共享旧 Qwen2.5 backend 通过明确
+能力协商保留当前轮兼容路径，状态显示 `legacy_current_turn`，不会假报完整上下文。
+Qwen3.5 两份候选的语义对照尚未达标，当前没有切换生产模型，见
+`../llm-qwen35-candidate/README.md`。
+
+模型抛错/空回答可播放一次本地已校验的固定失败短句，不等待模型 IPC，不递归重试，
+不记录为模型答复。音量等技能 I/O 异常有 ASR 调度边界，避免退出识别线程。
+可选诊断 trace 默认关闭，最长180秒、最多16项且 JSON UTF8 总量不超过1024B。
 
 ## provider/启动候选
 

@@ -2,22 +2,39 @@
 import base64
 import collections
 import json
+import math
 import socket
 import threading
 import time
 
 class Span:
+    FRAME_BYTES=640
+    FRAME_SAMPLES=320
+    MAX_PREROLL_FRAMES=50
+    MAX_FRAMES=250
     def __init__(self,generation,mode,now,preroll,max_seconds=4):
+        if type(max_seconds) not in (int,float) or not 0<max_seconds<=30 or not math.isfinite(max_seconds):
+            raise ValueError('span_audio_budget')
         self.generation=generation;self.mode=mode;self.origin_mode=mode;self.created=now;self.max_seconds=max_seconds
         self.cancel=threading.Event();self.closed=False;self.overflow=False
-        self.frames=collections.deque(preroll,maxlen=50);self.condition=threading.Condition()
-        self.samples=len(preroll)*320;self.last_voice=now
+        # Leave four seconds of bounded headroom after a one-second KWS
+        # replay while lease/ready handshakes run on the recognition thread.
+        # Explicit checks prevent deque's silent oldest-frame eviction.
+        self.frames=collections.deque();self.condition=threading.Condition()
+        for pcm in preroll:
+            if len(self.frames)>=self.MAX_PREROLL_FRAMES:raise ValueError('span_preroll_limit')
+            if not isinstance(pcm,bytes) or len(pcm)!=self.FRAME_BYTES:raise ValueError('span_pcm_frame')
+            self.frames.append(pcm)
+        self.samples=len(self.frames)*self.FRAME_SAMPLES;self.last_voice=now
+        if self.samples>int(self.max_seconds*16000):raise ValueError('span_audio_budget')
     def push(self,frame,voiced):
         with self.condition:
             if self.closed or self.cancel.is_set():return False
-            if len(self.frames)>=50:self.overflow=True;self.cancel.set();self.condition.notify_all();return False
-            if self.samples+320>int(self.max_seconds*16000):self.closed=True;self.condition.notify_all();return False
-            self.frames.append(frame.pcm16);self.samples+=320
+            if not isinstance(frame.pcm16,bytes) or len(frame.pcm16)!=self.FRAME_BYTES:
+                self.cancel.set();self.closed=True;self.condition.notify_all();return False
+            if len(self.frames)>=self.MAX_FRAMES:self.overflow=True;self.cancel.set();self.condition.notify_all();return False
+            if self.samples+self.FRAME_SAMPLES>int(self.max_seconds*16000):self.closed=True;self.condition.notify_all();return False
+            self.frames.append(frame.pcm16);self.samples+=self.FRAME_SAMPLES
             if voiced:self.last_voice=frame.at_monotonic
             self.condition.notify_all();return True
     def finish(self):

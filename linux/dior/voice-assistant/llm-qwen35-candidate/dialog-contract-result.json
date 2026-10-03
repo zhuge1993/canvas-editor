@@ -1,0 +1,6 @@
+{
+  "tests_run": 3,
+  "failures": 0,
+  "errors": 0,
+  "scope": "actual C++ receipt/token-prefix helper execution; native does not prove playback; voice caller supplies confirmed canonical history"
+}

@@ -188,7 +188,7 @@ class Contracts(unittest.TestCase):
         self.assertEqual(provider.summary()['last_model_diagnostics'],{'status':'not_reported'})
         self.assertEqual(provider.summary()['last_error_type'],'empty_unreported')
     def test_model_diagnostics_reject_unbounded_values_and_exception_messages(self):
-        poisoned={'status':'private-status','generated_tokens':65,'input_tokens':True,
+        poisoned={'status':'private-status','generated_tokens':129,'input_tokens':True,
             'first_token_seconds':float('inf'),'prefill_seconds':float('nan'),
             'total_seconds':10**1000,'max_rss_kib':-1,'gpu_used':'private-string'}
         self.assertEqual(model_diagnostics(poisoned),{'status':'unknown_status'})

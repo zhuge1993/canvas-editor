@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Pre-generate only ten fixed phrases; runtime cache is readonly and <=1MiB."""
+"""Pre-generate the finite phrase allowlist; runtime cache is readonly and <=1MiB."""
 import argparse
 import hashlib
 import json
@@ -33,7 +33,7 @@ engine=OfflineTTS(base,args.engine,args.timeout,use_fixed_cache=False)
 temporary=Path(tempfile.mkdtemp(prefix='.fixed-cache-build-',dir=output.parent)).resolve()
 if not temporary.is_relative_to(output.parent): raise RuntimeError('cache stage escaped target parent')
 manifest={'schema':1,'engine':args.engine,'model_sha256':model_sha,'readonly_runtime':True,
-    'dynamic_transcripts_cached':False,'max_phrases':10,'max_pcm_bytes':FIXED_CACHE_LIMIT_BYTES,
+    'dynamic_transcripts_cached':False,'max_phrases':len(FIXED_PHRASES),'max_pcm_bytes':FIXED_CACHE_LIMIT_BYTES,
     'voice_dataset_license':'Unknown' if args.engine=='piper' else 'GPL-3.0-or-later eSpeak data',
     'phrases':{},'skipped_byte_budget':[]}
 total=0

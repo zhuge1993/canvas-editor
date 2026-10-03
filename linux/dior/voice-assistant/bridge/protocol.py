@@ -7,6 +7,9 @@ import time
 
 MAX_FRAME=1024*1024
 MAX_RESPONSE=1280*1024
+MAX_CHAT_FRAME=16384
+MAX_MESSAGES_BYTES=8192
+MAX_MESSAGES=12
 OPS={'status','chat','tts','transcribe','clear_history','begin_voice_asr','end_voice_asr'}
 class BridgeError(Exception):
     def __init__(self,code):self.code=code;super().__init__(code)
@@ -49,6 +52,24 @@ def receive(connection,deadline,buffer=None,limit=MAX_FRAME):
         except socket.timeout:raise BridgeError('deadline')
         if not part:raise BridgeError('disconnected')
         buffer.extend(part)
+
+def validate_messages(messages):
+    # Only the authenticated voice controller owns a conversation. Native chat
+    # templates must receive roles, never a flattened string of role markers.
+    if not isinstance(messages,list) or not 2<=len(messages)<=MAX_MESSAGES:raise BridgeError('invalid_messages')
+    total=0
+    for index,message in enumerate(messages):
+        if not isinstance(message,dict) or set(message)!={'role','content'}:raise BridgeError('invalid_messages')
+        expected='system' if index==0 else 'user' if index%2 else 'assistant'
+        content=message.get('content')
+        if message.get('role')!=expected or not isinstance(content,str) or not content.strip():raise BridgeError('invalid_messages')
+        if any(ord(ch)<32 and ch not in ('\n','\t') for ch in content):raise BridgeError('invalid_messages')
+        try:total+=len(content.encode('utf8'))
+        except UnicodeError:raise BridgeError('invalid_messages')
+        if total>MAX_MESSAGES_BYTES:raise BridgeError('messages_limit')
+    if messages[-1]['role']!='user':raise BridgeError('invalid_messages')
+    return total
+
 def validate(request,role):
     if type(request.get('v')) is not int or request.get('v')!=1 or not isinstance(request.get('id'),str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,64}',request['id']):raise BridgeError('invalid_request')
     op=request.get('op')
@@ -59,9 +80,16 @@ def validate(request,role):
     if type(timeout) is not int or not 1000<=timeout<=30000:raise BridgeError('invalid_request')
     allowed={'v','id','op','deadline_ms'}
     if op=='chat':
-        allowed|={'text','context'};text=request.get('text');context=request.get('context','')
-        if not isinstance(text,str) or not text.strip() or len(text)>1000 or len(text.encode())>3000 or not isinstance(context,str) or len(context.encode())>1536:raise BridgeError('invalid_request')
-        if role=='voice' and context:raise BridgeError('invalid_request')
+        try:encode(request,MAX_CHAT_FRAME)
+        except BridgeError:raise BridgeError('frame_limit')
+        except UnicodeError:raise BridgeError('invalid_request')
+        if 'messages' in request:
+            if role!='voice':raise BridgeError('forbidden')
+            allowed.add('messages');validate_messages(request['messages'])
+        else:
+            allowed|={'text','context'};text=request.get('text');context=request.get('context','')
+            if not isinstance(text,str) or not text.strip() or len(text)>1000 or len(text.encode())>3000 or not isinstance(context,str) or len(context.encode())>1536:raise BridgeError('invalid_request')
+            if role=='voice' and context:raise BridgeError('invalid_request')
     if op=='tts':
         allowed.add('text');text=request.get('text')
         if not isinstance(text,str) or not text.strip() or len(text)>120 or len(text.encode())>480:raise BridgeError('invalid_request')

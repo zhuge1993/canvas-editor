@@ -60,6 +60,7 @@ FIXED_PHRASES=(
     "我还没听清，请再说一遍。",
     "好的。",
     "请稍等。",
+    "这次没有及时回答，请再问一次。",
 )
 FIXED_CACHE_LIMIT_BYTES=1024*1024
 PIPER_MODEL_SHA256='d30b143fac66d821a1285aa013295adf5cd129d3cc11d70334e51c7b20662c37'
@@ -149,7 +150,7 @@ class OfflineTTS:
             data=json.loads(manifest.read_text(encoding='utf8'))
             if not isinstance(data,dict): raise ValueError('invalid fixed cache object')
             phrases=data.get('phrases')
-            if type(data.get('schema')) is not int or data.get('schema')!=1 or data.get('engine')!=self.engine or not isinstance(phrases,dict) or len(phrases)>10:
+            if type(data.get('schema')) is not int or data.get('schema')!=1 or data.get('engine')!=self.engine or not isinstance(phrases,dict) or len(phrases)>len(FIXED_PHRASES):
                 raise ValueError('fixed cache engine/schema mismatch')
             if self.engine=='piper' and data.get('model_sha256')!=PIPER_MODEL_SHA256: raise ValueError('fixed cache model mismatch')
             cache={}; total=0

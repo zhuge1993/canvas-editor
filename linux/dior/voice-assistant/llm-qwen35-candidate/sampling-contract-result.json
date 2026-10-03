@@ -1,0 +1,6 @@
+{
+  "tests_run": 3,
+  "failures": 0,
+  "errors": 0,
+  "scope": "actual C++ parameter validator execution; RNG/model output reproducibility and semantics require device tests"
+}

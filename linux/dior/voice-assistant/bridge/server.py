@@ -31,6 +31,7 @@ class InferenceBridge:
         self.thermal_admit_c=thermal_admit_c
         self.condition=threading.Condition();self.pending=collections.deque();self.active=None
         self.voice_history=collections.deque(maxlen=2);self.history_epoch=0
+        self.pending_clear_epoch=0;self.cleared_epoch=0;self.cache_clearing=False;self.cache_clear_error=False
         self.voice_asr_until=0;self.voice_lease=None
         self.stopping=threading.Event();self.slots=threading.BoundedSemaphore(8)
         self.clients=set();self.handlers=set();self.socket=None;self.bound=False
@@ -50,6 +51,7 @@ class InferenceBridge:
         job.reason=job.reason or reason;job.cancel.set()
         if self.active is job and job.request['op']=='transcribe':self.provider.abort_asr()
     def submit(self,request,role):
+        validate(request,role)
         job=Job(request,role)
         with self.condition:
             if role=='web' and time.monotonic()<self.voice_asr_until:raise BridgeError('busy')
@@ -74,12 +76,22 @@ class InferenceBridge:
                     'cooling':self.temperature is not None and self.temperature>self.thermal_admit_c,
                     'thermal_admit_c':self.thermal_admit_c,
                     'voice_asr_active':time.monotonic()<self.voice_asr_until,'thermal_c':self.temperature,
-                    'limits':{'connections':8,'jobs':4,'stt_seconds':20,'chat_model_bytes':768,'tts_chars':120},
+                    'voice_cache_clear_pending':self.pending_clear_epoch>self.cleared_epoch,
+                    'voice_cache_clearing':self.cache_clearing,'voice_cache_clear_error':self.cache_clear_error,
+                    'limits':{'connections':8,'jobs':4,'stt_seconds':20,'chat_model_bytes':768,
+                              'voice_messages_bytes':8192,'voice_messages':12,'chat_frame_bytes':16384,'tts_chars':120},
                     **self.provider.summary()}
         if role!='voice':raise BridgeError('forbidden')
         if op=='clear_history':
-            with self.condition:self.voice_history.clear();self.history_epoch+=1
-            return {'ok':True}
+            with self.condition:
+                self.voice_history.clear();self.history_epoch+=1;self.pending_clear_epoch=self.history_epoch
+                if self.active and self.active.role=='voice' and self.active.request['op']=='chat':self._cancel(self.active,'cancelled')
+                for job in list(self.pending):
+                    if job.role=='voice' and job.request['op']=='chat':
+                        self.pending.remove(job);self._cancel(job,'cancelled')
+                        job.result={'ok':False,'error_code':'cancelled'};job.done.set()
+                self.condition.notify_all()
+            return {'ok':True,'cache_clear_queued':True}
         if op=='begin_voice_asr':
             with self.condition:
                 self.voice_lease=request['lease_id'];self.voice_asr_until=time.monotonic()+request.get('ttl_ms',20000)/1000
@@ -127,6 +139,13 @@ class InferenceBridge:
         cached=op=='tts' and self.provider.cached(request['text'])
         self._admit(job,cached)
         if op=='chat':
+            if 'messages' in request:
+                if self.cache_clear_error:raise BridgeError('unavailable')
+                # The controller commits only speech which drained successfully.
+                # This path has no bridge-side history or generation-time commit.
+                result=self.provider.chat_messages(request['messages'],job.cancel,job.deadline)
+                if not result.get('text'):raise BridgeError('deadline' if time.monotonic()>=job.deadline else 'unavailable')
+                return {'ok':True,**result,'web_stateless':False,'conversation_owner':'voice_controller'}
             prompt,epoch,metadata=self._prompt(job)
             result=self.provider.chat(prompt,job.cancel,job.deadline)
             if not result.get('text'):raise BridgeError('deadline' if time.monotonic()>=job.deadline else 'unavailable')
@@ -143,13 +162,27 @@ class InferenceBridge:
         raise BridgeError('invalid_request')
     def _worker(self):
         while not self.stopping.is_set():
+            clear_epoch=None
             with self.condition:
-                self.condition.wait_for(lambda:self.stopping.is_set() or bool(self.pending),timeout=.5)
+                self.condition.wait_for(lambda:self.stopping.is_set() or self.pending_clear_epoch>self.cleared_epoch or bool(self.pending),timeout=.5)
                 if self.stopping.is_set():return
-                if not self.pending:continue
-                job=next((j for j in self.pending if j.role=='voice'),self.pending[0])
-                if job.role=='web' and time.monotonic()<self.voice_asr_until:self.condition.wait(timeout=.1);continue
-                self.pending.remove(job);self.active=job
+                if self.pending_clear_epoch>self.cleared_epoch:
+                    clear_epoch=self.pending_clear_epoch;self.cache_clearing=True
+                else:
+                    if not self.pending:continue
+                    job=next((j for j in self.pending if j.role=='voice'),self.pending[0])
+                    if job.role=='web' and time.monotonic()<self.voice_asr_until:self.condition.wait(timeout=.1);continue
+                    self.pending.remove(job);self.active=job
+            if clear_epoch is not None:
+                failed=False
+                try:
+                    clear=getattr(self.provider,'clear_history',None)
+                    if callable(clear):clear()
+                except Exception:failed=True
+                with self.condition:
+                    self.cleared_epoch=clear_epoch;self.cache_clearing=False;self.cache_clear_error=failed
+                    self.condition.notify_all()
+                continue
             try:
                 if job.cancel.is_set() or time.monotonic()>=job.deadline:raise BridgeError(job.reason or 'deadline')
                 result=self._run(job)

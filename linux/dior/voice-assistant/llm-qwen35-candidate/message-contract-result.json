@@ -1,0 +1,9 @@
+{
+  "scope": "actual C++ format_messages host execution compared with pinned official Qwen Jinja; not ARM inference",
+  "tests_run": 5,
+  "failures": 0,
+  "errors": 0,
+  "actual_function_sha256": "4d266514a61fdfe887942f7624e0d5cfbfe3a72ec8bb91206f37bfbec4e1e333",
+  "official_model_revision": "2fc06364715b967f1860aea9cf38778875588b17",
+  "official_tokenizer_config_sha256": "49e2b6e395f959f077f1e992b338919c0d4a9732fc6e613995e06557f843500c"
+}

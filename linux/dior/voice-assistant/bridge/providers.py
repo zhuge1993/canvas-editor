@@ -9,11 +9,12 @@ import stat
 import sys
 import threading
 import time
-from protocol import BridgeError,receive,encode
+from protocol import BridgeError,receive,encode,validate_messages
 sys.dont_write_bytecode=True
 
 FIXED={'我在，请说。','好的，唤醒词已经更新。','好的，保持原来的唤醒词。','请说确认，或者取消。',
-       '音量已设为百分之0。','音量已设为百分之50。','音量已设为百分之100。','我还没听清，请再说一遍。','好的。','请稍等。'}
+       '音量已设为百分之0。','音量已设为百分之50。','音量已设为百分之100。','我还没听清，请再说一遍。','好的。','请稍等。',
+       '这次没有及时回答，请再问一次。'}
 
 MODEL_STATUSES={'complete','cancelled','deadline','decode_error','prompt_context_limit',
                 'token_piece_limit','output_limit','invalid_evidence'}
@@ -28,7 +29,7 @@ def model_diagnostics(metrics):
     if not isinstance(metrics,dict):return {'status':'not_reported'}
     status=metrics.get('status')
     result={'status':status if isinstance(status,str) and status in MODEL_STATUSES else 'unknown_status'}
-    integers={'input_tokens':512,'cached_prefix_tokens':512,'generated_tokens':64,
+    integers={'input_tokens':1024,'cached_prefix_tokens':1024,'generated_tokens':128,
               'max_rss_kib':2**31-1,'history_excerpt_turns':2}
     for key,maximum in integers.items():
         value=metrics.get(key)
@@ -76,19 +77,34 @@ class Providers:
             diagnostics=dict(self.last_model_diagnostics);error_type=self.last_error_type
         native_threads=self.model.ready.get('threads')
         if type(native_threads) is not int or not 1<=native_threads<=4:native_threads=None
+        model_id=self.model.ready.get('model_id','Qwen2.5-0.5B-Instruct-Q4_0')
+        if model_id not in ('Qwen2.5-0.5B-Instruct-Q4_0','Qwen3.5-0.8B-Q4_0'):model_id='unknown'
+        engine_tag=self.model.ready.get('engine_tag','b3927')
+        if engine_tag not in ('b3927','b11371'):engine_tag='unknown'
         return {'model_load_count':self.model.ready.get('model_load_count',1),'native_worker_pid':self.model.process.pid,
-            'native_threads':native_threads,
+            'native_threads':native_threads,'model_id':model_id,'engine_tag':engine_tag,
             'native_alive':self.alive(),'backend':'CPU_NEON','public_tcp':False,'web_history':False,
             'last_model_diagnostics':diagnostics,'last_error_type':error_type,
-            'capabilities':{'chat':self.alive(),'speech':self.tts is not None,'transcribe':asr},
+            'capabilities':{'chat':self.alive(),'chat_messages':callable(getattr(self.model,'generate_messages',None)),
+                            'speech':self.tts is not None,'transcribe':asr},
             'capability_scope':'initialized provider; each call still validates runtime/availability'}
     def chat(self,prompt,cancel,deadline):
+        return self._chat(prompt,cancel,deadline,structured=False)
+    def chat_messages(self,messages,cancel,deadline):
+        validate_messages(messages)
+        if not callable(getattr(self.model,'generate_messages',None)):raise BridgeError('messages_unsupported')
+        return self._chat(messages,cancel,deadline,structured=True)
+    def _chat(self,prompt,cancel,deadline,structured):
+        # Explicit-message adapters own no semantic history. Their bounded
+        # exact-token inference checkpoints survive calls until scheduler clear.
+        legacy_history=getattr(self.model,'explicit_messages',False) is not True
         previous_metrics=self.model.last_metrics
         with self.diagnostics_lock:
             self.last_model_diagnostics={'status':'running'};self.last_error_type='none'
         try:
-            self.model.clear_history()
-            reply=self.model.generate(prompt,cancel=cancel,deadline=deadline,web_evidence=None)
+            if legacy_history:self.model.clear_history()
+            if structured:reply=self.model.generate_messages(prompt,cancel=cancel,deadline=deadline)
+            else:reply=self.model.generate(prompt,cancel=cancel,deadline=deadline,web_evidence=None)
             raw=self.model.last_metrics
             diagnostics=model_diagnostics(raw if raw is not previous_metrics else None)
             error_type='none'
@@ -113,7 +129,11 @@ class Providers:
             with self.diagnostics_lock:
                 self.last_model_diagnostics=diagnostics;self.last_error_type=error_type
             raise
-        finally:self.model.clear_history()
+        finally:
+            if legacy_history:self.model.clear_history()
+    def clear_history(self):
+        # Called only by the inference worker, never the connection handler.
+        self.model.clear_history()
     def speech(self,text,cancel,deadline):
         clip=self.tts.synthesize(text,cancel)
         if cancel.is_set() or time.monotonic()>=deadline:raise BridgeError('cancelled')

@@ -45,6 +45,7 @@ def main():
     parser.add_argument('--llm-seconds',type=float,default=25,metavar='1..30')
     parser.add_argument('--vad-rms',type=int,default=180,metavar='1..10000')
     parser.add_argument('--progress-cue',action='store_true')
+    parser.add_argument('--diagnostic-seconds',type=float,default=0,help='0..180 seconds bounded volatile turn trace, no recording')
     parser.add_argument('--kws-module')
     parser.add_argument('--kws-base')
     parser.add_argument('--kws-tts-base')
@@ -59,6 +60,7 @@ def main():
     args=parser.parse_args()
     if not 1<=args.llm_seconds<=30:parser.error('llm-seconds must be1..30')
     if not 1<=args.vad_rms<=10000:parser.error('vad-rms must be1..10000')
+    if not 0<=args.diagnostic_seconds<=180:parser.error('diagnostic-seconds must be0..180')
     if not args.inference_socket and args.llm_module and not (args.llm_binary and args.llm_model):parser.error('LLM module requires qualified binary and model')
     if args.kws_module and not args.kws_base:parser.error('KWS module requires qualified base')
     audio=load(args.audio_module,'dior_voice_audio').create_device()
@@ -81,7 +83,7 @@ def main():
         wake=KeywordWakeDetector(backend)
     core=Assistant(audio,StreamingASR(args.asr_socket,lease_hooks),tts,settings,llm=llm,wake_detector=wake,
                    config=Config(network_enabled=args.network,llm_seconds=args.llm_seconds,
-                                 vad_rms=args.vad_rms,progress_cue=args.progress_cue),temperature=temperature)
+                                 vad_rms=args.vad_rms,progress_cue=args.progress_cue,diagnostic_seconds=args.diagnostic_seconds),temperature=temperature)
     def snapshot():
         status=core.status()
         if availability:

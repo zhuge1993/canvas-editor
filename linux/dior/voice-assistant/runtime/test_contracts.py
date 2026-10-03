@@ -96,10 +96,17 @@ class Contracts(unittest.TestCase):
         self.assertEqual(len(self.core.preroll),0)
 
     def test_verified_clean_aec_barge_in_invalidates_old_done(self):
+        entered=threading.Event();release=threading.Event()
+        class Detector:
+            def detect(self,span):entered.set();release.wait(1);return WakeDetection('二狗',bytes(640))
+            def close(self):pass
+        self.core.wake_detector=Detector()
         self.audio.aec=True;self.speak('二狗现在几点');old_gen,old_done=self.audio.done
         for _ in range(8):
             self.clock.now+=.02;self.core.on_audio(AudioFrame(struct.pack('<h',3000)*320,True,self.clock.now,True))
-        self.assertGreater(self.core.generation,old_gen);self.assertIn(('interrupt',),self.audio.calls)
+        self.assertTrue(entered.wait(1));self.assertEqual(self.core.generation,old_gen)
+        release.set();wait(self,lambda:self.core.generation>old_gen)
+        self.assertIn(('interrupt',),self.audio.calls)
         old_done(old_gen,True);self.assertFalse(self.core.playing)
         self.assertTrue(self.core.status()['full_duplex'])
 

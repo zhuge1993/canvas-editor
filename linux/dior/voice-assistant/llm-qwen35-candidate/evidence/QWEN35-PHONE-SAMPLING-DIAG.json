@@ -1,0 +1,116 @@
+{
+  "status": "FAIL",
+  "gpu_used": false,
+  "microphone_used": false,
+  "skills_executed": false,
+  "cases": [
+    {
+      "name": "verify_state",
+      "messages": [
+        {
+          "role": "system",
+          "content": "你是手机上的中文语音助手。自然、简洁地交流，不声称已执行未经工具确认的操作。\n当前助手名和唤醒词：二狗。"
+        },
+        {
+          "role": "user",
+          "content": "你叫什么名字？"
+        },
+        {
+          "role": "assistant",
+          "content": "你好，我是二狗。"
+        },
+        {
+          "role": "user",
+          "content": "请叫我小林。"
+        }
+      ],
+      "native": {
+        "cache_restore_checked": true,
+        "cache_verification": {
+          "argmax_equal": true,
+          "baseline_argmax": 109266,
+          "bitwise_equal": true,
+          "cached_argmax": 109266,
+          "finite": true,
+          "logits_compared": 248320,
+          "max_abs_delta": 0.0,
+          "mean_abs_delta": 0.0
+        },
+        "cached_path_prefill_seconds": 28.50412473799952,
+        "checkpoint_bytes_total": 41770816,
+        "dialogue_cache_hit": false,
+        "dialogue_checkpoint_bytes": 21063932,
+        "dialogue_checkpoint_tokens": 70,
+        "finish_reason": "token_limit",
+        "first_token_seconds": 59.068444102987996,
+        "generated_tokens": 1,
+        "gpu_used": false,
+        "history_persisted": false,
+        "id": "verify_state",
+        "input_tokens": 74,
+        "max_rss_kib": 678552,
+        "non_thinking": true,
+        "prefill_seconds": 59.06009220299893,
+        "prefix_cache_build_seconds": 15.561561415001052,
+        "prefix_cache_hit": false,
+        "prefix_cache_requested": true,
+        "prefix_checkpoint_bytes": 20706884,
+        "prefix_checkpoint_tokens": 41,
+        "prefix_restore_seconds": 0.014184820000082254,
+        "prefix_tokens_reused": 0,
+        "sampling": "greedy",
+        "sampling_parameters": null,
+        "seed": 1234,
+        "status": "complete",
+        "text": "你好",
+        "total_seconds": 59.07728767499793,
+        "type": "done",
+        "verification_cooldown_end_c": 45.0,
+        "verification_cooldown_limit_seconds": 45,
+        "verification_cooldown_seconds": 2.2957209800079,
+        "verification_cooldown_sensor_available": true,
+        "verification_cooldown_start_c": 57.0,
+        "verification_cooldown_target_c": 45,
+        "verification_generation_uses_uncached_reference": true,
+        "verification_uncached_seconds": 28.236393397994107,
+        "verify_cooldown_requested": true
+      },
+      "wall_seconds": 59.094179395004176,
+      "peak_thermal_c": 60.0,
+      "thermal_cancel": false
+    }
+  ],
+  "threads": 2,
+  "model_sha256": "57d1997790d1744fba5b40a7317df71ea5e2acee28c47e78f0cce39c0703f8cf",
+  "binary_sha256": "a6756e380ba016cacf3d933169c60c3b98efea170a1cf38f94bec4a589dd2b06",
+  "ready": {
+    "backend": "CPU_ARMV7_NEON",
+    "context_tokens": 1024,
+    "default_sampling": "greedy",
+    "default_seed": 1234,
+    "engine_pin": "99b95488cac0f00ce3f05af113a8c1e287753f87",
+    "engine_tag": "b11371",
+    "gpu_used": false,
+    "max_generated_tokens": 128,
+    "max_messages": 12,
+    "max_rss_kib": 623832,
+    "message_bytes_limit": 8192,
+    "model_load_count": 1,
+    "model_load_seconds": 4.193234049002058,
+    "non_thinking": true,
+    "prefix_cache_checkpoint_limit_bytes": 67108864,
+    "prefix_cache_key": "exact system/user-open tokens in this fixed loaded model/template",
+    "prefix_cache_slots": 2,
+    "sampling_modes": [
+      "greedy",
+      "qwen_recommended"
+    ],
+    "threads": 2,
+    "type": "ready"
+  },
+  "load_seconds": 4.20559968399175,
+  "error": "RuntimeError: {'code': 'generation_limit', 'type': 'error'}",
+  "native_exit": -15,
+  "native_stderr_tail": ".....................................................\n",
+  "old_service_restored": true
+}

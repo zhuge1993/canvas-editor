@@ -2,13 +2,19 @@
 from dataclasses import dataclass
 from datetime import datetime
 import collections
+import json
 import math
+import re
 import threading
 import time
 from asr_stream import Span
+from conversation import Conversation
 from interfaces import AudioClip,AudioCapabilities
 from settings import validate_wake
 from skills import EvidenceSearch,normalize,parse_intent,time_reply
+
+MODEL_FAILURE_PHRASE='这次没有及时回答，请再问一次。'
+DIAGNOSTIC_TRACE_BYTES=1024
 
 @dataclass(frozen=True)
 class Config:
@@ -25,6 +31,7 @@ class Config:
     temperature_limit:float=65
     initial_volume:int=50
     progress_cue:bool=False
+    diagnostic_seconds:float=0
 
 @dataclass
 class PendingChange:
@@ -49,8 +56,19 @@ class Assistant:
         self.cached_temperature=None;self.temperature_checked=-1e9
         self.capture_gap=threading.Event()
         self.history_clear=threading.Event()
+        self.conversation=Conversation(wake_word=settings.wake_word);self.turn_ticket=None
         self.play_token=0
+        self.playback_kind=None;self.last_ack=-1e9
+        self.last_response_error='none'
+        self.diagnostic_until=clock()+min(180,max(0,self.config.diagnostic_seconds))
+        self.trace=collections.deque(maxlen=16)
         self.counters=collections.Counter();self.threads=[]
+
+    def _trace(self,event,**fields):
+        if self.clock()<self.diagnostic_until:
+            self.trace.append({'event':event,'at':round(self.clock(),3),**fields})
+            while self.trace and len(json.dumps(list(self.trace),ensure_ascii=False,separators=(',',':')).encode('utf8'))>DIAGNOSTIC_TRACE_BYTES:
+                self.trace.popleft()
 
     def full_duplex(self):
         cap=self.audio.capabilities()
@@ -65,16 +83,25 @@ class Assistant:
     def _status_locked(self):
         with self.lock:
             caps=self.audio.capabilities()
+            conversation=self.conversation.status()
+            mode=getattr(self.llm,'mode',None)
+            if mode not in ('unknown','unavailable','legacy_current_turn','structured_history'):
+                mode='unavailable' if self.llm is None else 'structured_history' if callable(getattr(self.llm,'generate_messages',None)) else 'legacy_current_turn'
+            conversation.update(mode=mode,history_sent_to_model=mode=='structured_history')
             ready=bool(self.threads) and all(t.is_alive() for t in self.threads) and not self.stopping
             ready=ready and caps.microphone_available and caps.speaker_available and self.phase!='THERMAL_PAUSE'
             return {'phase':self.phase,'ready':ready,'wake_word':self.settings.wake_word,'full_duplex':self.full_duplex(),
-                'barge_in':self.full_duplex(),'aec_verified':self.audio.capabilities().aec_verified,
+                'barge_in':bool(self.full_duplex() and self.wake_detector),'barge_in_mode':'wake_word',
+                'aec_verified':self.audio.capabilities().aec_verified,
                 'pending_wake_change':bool(self.pending),'recording_persisted':False,'transcript_logging':False,
-                'public_listener':False,'queue_limits':{'asr':1,'response':1,'frame':50,'preroll':25},
+                'public_listener':False,'queue_limits':{'asr':1,'response':1,'frame':Span.MAX_FRAMES,'preroll':25},
                 'llm_configured':self.llm is not None,'network_enabled':self.config.network_enabled,
                 'keyword_spotter_configured':self.wake_detector is not None,
                 'thermal_sensor_available':self.cached_temperature is not None,
-                'counters':dict(self.counters)}
+                'conversation':conversation,
+                'last_response_error':self.last_response_error,
+                'counters':dict(self.counters),
+                **({'diagnostic_turns':list(self.trace),'diagnostic_expires_in':round(self.diagnostic_until-self.clock(),1)} if self.clock()<self.diagnostic_until else {})}
 
     def start(self):
         self.tick()
@@ -93,11 +120,33 @@ class Assistant:
         value=self.cached_temperature
         return value is not None and value>self.config.temperature_limit
 
-    def _cancel_response(self):
+    def _cancel_response(self,guard=True):
         self.generation+=1;self.response_cancel.set();self.response_cancel=threading.Event()
         self.response_job=None
-        if self.playing:self.audio.interrupt()
-        self.playing=False;self.counters['interruptions']+=1
+        if self.turn_ticket is not None:self.conversation.cancel(self.turn_ticket)
+        self.turn_ticket=None
+        if self.playing:
+            try:self.audio.interrupt()
+            except Exception:self.last_response_error='speech_unavailable';self.counters['audio_interrupt_failures']+=1
+        self.playing=False;self.playback_kind=None
+        if guard:self.echo_guard_until=self.clock()+.5
+        self.counters['interruptions']+=1
+
+    def _begin_turn(self,text):
+        # A new accepted utterance supersedes pending generation AND playback.
+        # In-memory session methods never call the inference socket.
+        if self.turn_ticket is not None or self.playing or self.response_job is not None or self.phase=='THINKING':
+            self._cancel_response(guard=self.playing)
+        self.last_response_error='none'
+        try:self.turn_ticket=self.conversation.begin_user(text)
+        except ValueError:
+            self.counters['conversation_input_rejected']+=1
+            self._say('这句话太长，请简短说一遍。');return False
+        return True
+
+    def _clear_conversation(self):
+        self.conversation.clear();self.turn_ticket=None
+        self.history_clear.set();self.condition.notify_all()
 
     def on_audio(self,frame):
         # Never let a slow mixer/provider/settings operation back up capture.
@@ -125,9 +174,21 @@ class Assistant:
                 if self.phase!='THERMAL_PAUSE':self._cancel_response()
                 self.phase='THERMAL_PAUSE';self.preroll.clear();return
             if self.phase=='THERMAL_PAUSE':self.phase='IDLE'
+            # Fixed ACK/cue/confirmation speech is not a user command stream.
+            # Keep hardware capture running but do not transcribe its echo.
+            if self.playing and (self.playback_kind in ('ack','cue','say_confirm','failure') or normalize(self.settings.wake_word) in normalize(self.last_spoken)):
+                self.preroll.clear();self.voiced_frames=0;self.counters['prompt_guard_frames']+=1;return
             if (self.playing or frame.reference_active) and not (self.full_duplex() and frame.aec_clean):
                 self.preroll.clear();self.voiced_frames=0;self.counters['aec_degraded_frames']+=1;return
-            if now<self.echo_guard_until and not self.full_duplex():return
+            if now<self.echo_guard_until:
+                if self.span and self.span.origin_mode=='kws_dialog' and frame.aec_clean:
+                    # A confirmed user keyword has already authorized this
+                    # ongoing utterance. Preserve its command suffix while
+                    # preventing a new VAD decision on the speaker tail.
+                    self.span.push(frame,voiced)
+                    if now-self.span.last_voice>=self.config.silence_seconds:self.span.finish()
+                    return
+                self.preroll.clear();self.voiced_frames=0;self.counters['echo_tail_guard_frames']+=1;return
             self.preroll.append(frame.pcm16)
             self.voiced_frames=min(self.voiced_frames+1,self.config.onset_frames+1) if voiced else 0
             if self.span:
@@ -141,7 +202,13 @@ class Assistant:
             active=bool(self.pending) or now<self.dialog_until or self.phase in ('SPEAKING','THINKING')
             if not active and now<self.next_wake:return
             if self.phase in ('SPEAKING','THINKING'):
-                self._cancel_response();self.counters['barge_in_events']+=1
+                # A VAD rise is not proof of a new speaker. Require the actual
+                # current acoustic keyword before cancelling model/playback.
+                if not self.full_duplex() or self.wake_detector is None:
+                    self.preroll.clear();self.voiced_frames=0;return
+                span=Span(self.generation,'barge_wake',now,list(self.preroll),self.config.wake_audio_seconds)
+                self.span=span;self.asr_job=span;self.voiced_frames=0
+                self.counters['barge_candidates']+=1;self.condition.notify_all();return
             mode='confirm' if self.pending else 'dialog' if active else 'wake'
             limit=self.config.wake_audio_seconds if mode=='wake' else self.config.dialog_audio_seconds
             span=Span(self.generation,mode,now,list(self.preroll),limit)
@@ -156,7 +223,7 @@ class Assistant:
             if not self.playing:self.phase='IDLE'
         if self.span and now-self.span.created>20:self.span.abort();self.span=None
         if self.phase=='LISTENING' and not self.span and not self.pending and now>self.dialog_until:
-            self.phase='IDLE';self.history_clear.set();self.condition.notify_all()
+            self.phase='IDLE';self._clear_conversation()
 
     def tick(self):
         now=self.clock()
@@ -165,6 +232,7 @@ class Assistant:
             except OSError:self.cached_temperature=None
             self.temperature_checked=now
         with self.lock:
+            if now>=self.diagnostic_until and self.trace:self.trace.clear()
             self._expire(now)
             if self._too_hot() and self.phase!='THERMAL_PAUSE':
                 if self.span:self.span.abort();self.span=None
@@ -192,19 +260,28 @@ class Assistant:
                 if self.stopping:return
                 span=self.asr_job;self.asr_job=None
             try:
-                if span.origin_mode=='wake' and self.wake_detector is not None:
+                if span.origin_mode in ('wake','barge_wake') and self.wake_detector is not None:
                     detection=self.wake_detector.detect(span)
                     with self.lock:
                         if self.span is span:self.span=None
                         if span.cancel.is_set() or span.generation!=self.generation or self.stopping:continue
                         if detection and normalize(detection.keyword)==normalize(self.settings.wake_word):
+                            if span.origin_mode=='barge_wake':
+                                self._cancel_response();self.counters['barge_in_events']+=1
                             with span.condition:
                                 tail=detection.remaining_pcm16+b''.join(span.frames);span.frames.clear();span.closed=True
-                            frames=[tail[i:i+640] for i in range(0,len(tail),640)][-50:]
-                            follow=Span(self.generation,'kws_dialog',self.clock(),frames,self.config.dialog_audio_seconds)
+                            frames=[tail[i:i+640] for i in range(0,len(tail),640)]
+                            if len(frames)>Span.MAX_FRAMES or any(len(frame)!=640 for frame in frames):
+                                self.counters['wake_replay_overflow']+=1;self._ack();continue
+                            follow=Span(self.generation,'kws_dialog',self.clock(),frames[:50],self.config.dialog_audio_seconds)
+                            from interfaces import AudioFrame
+                            for frame in frames[50:]:follow.push(AudioFrame(frame,True,self.clock()),True)
                             self.span=follow;self.asr_job=follow;self.dialog_until=self.clock()+self.config.dialog_wait_seconds
-                            self.counters['acoustic_keyword_hits']+=1;self._say('我在，请说。');self.condition.notify_all()
-                        else:self.phase='IDLE'
+                            self.phase='LISTENING';self.counters['acoustic_keyword_hits']+=1
+                            # Finish the same utterance before speaking: an
+                            # early ACK otherwise overlaps the user's command.
+                            self._trace('keyword',word=detection.keyword);self.condition.notify_all()
+                        elif span.origin_mode=='wake':self.phase='IDLE'
                     continue
                 text=self.asr.recognize(span,lambda text:self._partial(span,text))
             except Exception:
@@ -216,9 +293,15 @@ class Assistant:
                         self.phase='CONFIRMING' if self.pending else 'LISTENING' if self.clock()<self.dialog_until else 'IDLE'
                     continue
                 if not text:
-                    self.phase='CONFIRMING' if self.pending else 'LISTENING' if self.clock()<self.dialog_until else 'IDLE'
+                    if span.origin_mode=='kws_dialog':self._ack()
+                    else:self.phase='CONFIRMING' if self.pending else 'LISTENING' if self.clock()<self.dialog_until else 'IDLE'
                     continue
-                self.handle_text(text,mode=span.origin_mode)
+                try:self.handle_text(text,mode=span.origin_mode)
+                except Exception:
+                    # A mixer/settings I/O failure must not kill recognition.
+                    self._cancel_response();self.pending=None;self.phase='LISTENING'
+                    self.dialog_until=self.clock()+self.config.dialog_wait_seconds
+                    self.last_response_error='skill_unavailable';self.counters['dispatch_failures']+=1
 
     def handle_text(self,text,*,mode='wake'):
         """Internal recognized text entry; tests may inject a fake ASR result."""
@@ -226,30 +309,44 @@ class Assistant:
             if self.stopping or self._too_hot() or not isinstance(text,str) or len(text)>512:return
             s=normalize(text)
             if not s:return
+            self._trace('recognized',mode=mode,text=text[:160])
             if self.clock()<self.last_spoken_until and s==normalize(self.last_spoken):
                 self.counters['self_voice_rejected']+=1;return
             wake=normalize(self.settings.wake_word)
-            if s.startswith(wake):text=s[len(wake):];s=normalize(text);mode='dialog'
+            acoustic_follow=mode=='kws_dialog'
+            verified_prefix=s.startswith(wake)
+            if re.fullmatch('(?:'+re.escape(wake)+'){1,8}',s):
+                self.counters['wake_only_utterances']+=1;self._ack();return
+            if s.startswith(wake):
+                while s.startswith(wake):s=s[len(wake):]
+                text=s;mode='dialog'
             elif mode=='wake':self.phase='IDLE';return
             if self.pending:
                 if s in ('不','不要','取消','算了','不改','不要改','取消修改'):
+                    if not self._begin_turn(text):return
                     self.pending=None;self._say('好的，保持原来的唤醒词。');return
                 if self.pending.expires is None:return # Prompt has not drained yet.
                 if self.clock()>self.pending.expires:self.pending=None;return
                 if s in ('是','是的','好','好的','确认','确定','改吧','同意','可以'):
+                    if not self._begin_turn(text):return
                     candidate=self.pending.candidate
                     if self.wake_detector is not None:
                         self.pending.expires=None;self.pending.prompt_deadline=self.clock()+5
-                        self.response_job=(self.generation,'commit_wake',candidate,self.response_cancel)
+                        self.response_job=(self.generation,'commit_wake',candidate,self.response_cancel,self.turn_ticket)
                         self.phase='THINKING';self.condition.notify_all();return
                     self.settings.save_wake(candidate);self.pending=None
-                    self.history_clear.set()
+                    self.conversation.set_wake_word(candidate);self._clear_conversation()
+                    self.turn_ticket=self.conversation.begin_user(text)
                     self._say('好的，唤醒词已经更新。');return
+                if not self._begin_turn(text):return
                 self._say('请说确认，或者取消。',confirmation=True);return
             self.dialog_until=self.clock()+self.config.dialog_wait_seconds
-            if not s:self._say('我在，请说。');return
+            if not s:self._ack();return
+            own=normalize(self.last_spoken)
+            if self.clock()<self.last_spoken_until and not self.pending and len(s)>=2 and s in own:
+                self.counters['self_voice_fragment_rejected']+=1;self._trace('self_fragment');return
             intent=parse_intent(text)
-            if mode=='kws_dialog' and intent.kind=='chat':
+            if acoustic_follow and intent.kind=='chat':
                 # Only after acoustic KWS authority: a bounded leading fragment
                 # may be the ASR's wrong transcription of the proven keyword.
                 # No homophone list or single-character generic wake is used.
@@ -257,10 +354,16 @@ class Assistant:
                     candidate_intent=parse_intent(s[offset:])
                     if candidate_intent.kind not in ('chat','unsupported'):
                         intent=candidate_intent;break
-            if intent.kind=='change_wake_word':self._propose_wake(intent.value);return
+                if intent.kind=='chat' and not verified_prefix:
+                    # Initial KWS replay with an unverified free-text prefix is
+                    # not a complete question. Ask for a fresh post-ACK turn.
+                    self.counters['uncertain_wake_replay']+=1;self._ack();return
+            self._trace('intent',kind=intent.kind)
             if intent.kind=='cancel':
                 self._cancel_response();self.phase='IDLE';self.dialog_until=0
-                self.history_clear.set();self.condition.notify_all();return
+                self._clear_conversation();return
+            if not self._begin_turn(text):return
+            if intent.kind=='change_wake_word':self._propose_wake(intent.value);return
             if intent.kind=='identity':self._say('我叫%s。'%self.settings.wake_word);return
             if intent.kind=='time':self._say(time_reply(self.wall_clock));return
             if intent.kind=='status':
@@ -271,20 +374,28 @@ class Assistant:
                 return
             if intent.kind in ('invalid_wake_word','invalid_volume'):
                 self._say('这个设置不符合范围，请重新说。');return
-            self.response_job=(self.generation,'query' if intent.kind=='query' else 'chat',str(intent.value or text)[:512],self.response_cancel)
+            self.response_job=(self.generation,'query' if intent.kind=='query' else 'chat',str(intent.value or text)[:512],self.response_cancel,self.turn_ticket)
             self.phase='THINKING';self.condition.notify_all()
+
+    def _ack(self):
+        self.dialog_until=self.clock()+self.config.dialog_wait_seconds
+        if self.playing and self.playback_kind=='ack' or self.response_job and self.response_job[1]=='ack' or self.clock()-self.last_ack<2:
+            self.counters['duplicate_ack_suppressed']+=1;return
+        if self.turn_ticket is not None or self.playing or self.response_job is not None:self._cancel_response()
+        self.last_ack=self.clock();self.response_job=(self.generation,'ack','我在，请说。',self.response_cancel,None)
+        self.phase='THINKING';self.condition.notify_all()
 
     def _propose_wake(self,candidate):
         try:candidate=validate_wake(candidate)
         except ValueError:self._say('唤醒词格式不符合范围。');return
         if self.wake_detector is not None:
-            self.response_job=(self.generation,'prepare_wake',candidate,self.response_cancel)
+            self.response_job=(self.generation,'prepare_wake',candidate,self.response_cancel,self.turn_ticket)
             self.phase='THINKING';self.condition.notify_all();return
         self.pending=PendingChange(candidate,self.generation,None,self.clock()+25)
         self._say('你想把唤醒词改为%s，请说确认或者取消。'%candidate,confirmation=True)
 
     def _say(self,text,confirmation=False):
-        self.response_job=(self.generation,'say_confirm' if confirmation else 'say',str(text)[:120],self.response_cancel)
+        self.response_job=(self.generation,'say_confirm' if confirmation else 'say',str(text)[:120],self.response_cancel,self.turn_ticket)
         self.phase='THINKING';self.condition.notify_all()
 
     def _response_loop(self):
@@ -298,7 +409,8 @@ class Assistant:
                 try:self.llm.clear_history()
                 except Exception:self.counters['history_clear_failures']+=1
             if job is None:continue
-            generation,kind,text,cancel=job
+            generation,kind,text,cancel,ticket=job
+            stage='prepare'
             try:
                 evidence=None
                 if kind=='prepare_wake':
@@ -321,7 +433,10 @@ class Assistant:
                         with self.lock:
                             if generation!=self.generation or cancel.is_set() or self.stopping or not self.pending or self.pending.candidate!=text:
                                 raise RuntimeError('keyword_commit_cancelled')
-                            self.settings.save_wake(text);self.pending=None;self.history_clear.set()
+                            confirmed_text=self.conversation.simple_chat_messages(ticket)[-1]['content']
+                            self.settings.save_wake(text);self.pending=None
+                            self.conversation.set_wake_word(text);self._clear_conversation()
+                            self.turn_ticket=self.conversation.begin_user(confirmed_text)
                             self._say('好的，唤醒词已经更新。')
                     except Exception:
                         # A lost RPC acknowledgement can leave native state
@@ -339,6 +454,7 @@ class Assistant:
                         if cancel.is_set() or generation!=self.generation or self.stopping:continue
                         self.play_token+=1;token=self.play_token
                         self.playing=True;self.phase='THINKING';self.last_spoken='请稍等。';self.last_spoken_until=self.clock()+25
+                        self.playback_kind='cue'
                         self.audio.play(cue.pcm16,cue.sample_rate,generation=generation,
                             on_done=lambda g,ok,t=token:self._cue_done(g,ok,t))
                 if kind=='query':
@@ -355,39 +471,73 @@ class Assistant:
                 elif kind=='chat':
                     if not self.llm:text='本机对话模型暂时不可用，可以问时间、状态或音量。'
                     else:
-                        reply=self.llm.generate(text,cancel=cancel,deadline=self.clock()+self.config.llm_seconds,web_evidence=None)
+                        stage='model'
+                        with self.lock:
+                            if generation!=self.generation or cancel.is_set() or self.stopping:continue
+                            messages=self.conversation.simple_chat_messages(ticket)
+                        if callable(getattr(self.llm,'generate_messages',None)):
+                            reply=self.llm.generate_messages(messages,cancel=cancel,deadline=self.clock()+self.config.llm_seconds)
+                        else:
+                            # Legacy adapters remain usable for rollback. Only
+                            # the structured provider receives session history.
+                            reply=self.llm.generate(text,cancel=cancel,deadline=self.clock()+self.config.llm_seconds,web_evidence=None)
                         with self.lock:
                             if generation!=self.generation or cancel.is_set():continue
                             if reply.intent and reply.intent.kind=='change_wake_word':self._propose_wake(reply.intent.value);continue
-                        text=reply.text or '这次本机模型没有及时回答，请再问一次。'
+                        if not isinstance(reply.text,str) or not reply.text.strip():raise RuntimeError('empty_model_reply')
+                        text=reply.text
                 if cancel.is_set() or self._too_hot():continue
-                clip=self.tts.synthesize(str(text)[:120],cancel)
+                stage='speech'
+                if kind=='failure':clip=self.tts.synthesize_failure(cancel)
+                else:clip=self.tts.synthesize(str(text)[:120],cancel)
                 if not isinstance(clip,AudioClip):clip=AudioClip(clip.pcm16,clip.sample_rate)
                 with self.lock:
-                    if cancel.is_set() or generation!=self.generation or self.stopping:continue
+                    if cancel.is_set() or generation!=self.generation or self.stopping or self._too_hot():continue
                     self.last_spoken=str(text)[:120];self.last_spoken_until=self.clock()+25
+                    if ticket is not None:self.conversation.model_completed(ticket,self.last_spoken)
+                    self.playback_kind=kind;self._trace('reply',text=str(text)[:160],kind=kind)
                     prior_playing=self.playing
                     self.playing=True;self.phase='SPEAKING';self.counters['spoken_replies']+=1
                     self.play_token+=1;token=self.play_token
                     if prior_playing:self.audio.interrupt()
                     self.audio.play(clip.pcm16,clip.sample_rate,generation=generation,
-                        on_done=lambda g,complete,t=token,c=(kind=='say_confirm'):self._play_done(g,complete,c,t))
+                        on_done=lambda g,complete,t=token,c=(kind=='say_confirm'),turn=ticket,f=(kind=='failure'):self._play_done(g,complete,c,t,turn,f))
             except Exception:
                 with self.lock:
                     if generation==self.generation:
-                        self.playing=False;self.phase='LISTENING';self.counters['response_failures']+=1
+                        if ticket is not None:self.conversation.cancel(ticket)
+                        if self.turn_ticket==ticket:self.turn_ticket=None
+                        self.play_token+=1
+                        if self.playing:
+                            try:self.audio.interrupt()
+                            except Exception:self.counters['audio_interrupt_failures']+=1
+                        self.playing=False;self.playback_kind=None;self.phase='LISTENING';self.counters['response_failures']+=1
+                        self.last_response_error='model_unavailable' if stage=='model' else 'fallback_unavailable' if kind=='failure' else 'speech_unavailable'
+                        if kind=='chat' and stage=='model' and not cancel.is_set() and not self.stopping and not self._too_hot():
+                            # One local-cache-only attempt; no ticket, no model
+                            # retry, and a failed fallback cannot queue itself.
+                            self.response_job=(generation,'failure',MODEL_FAILURE_PHRASE,cancel,None)
+                            self.phase='THINKING';self.counters['model_failure_notices']+=1;self.condition.notify_all()
 
     def _cue_done(self,generation,completed,token):
         with self.lock:
             if generation!=self.generation or token!=self.play_token or self.stopping:return
+            self.play_token+=1 # Consume completion; duplicate drains are stale.
             self.playing=False;self.echo_guard_until=self.clock()+.5
+            self.playback_kind=None
             self.preroll.clear();self.voiced_frames=0
             # Cue drain is not a conversational final reply. Keep THINKING.
 
-    def _play_done(self,generation,completed,confirmation=False,token=None):
+    def _play_done(self,generation,completed,confirmation=False,token=None,ticket=None,failure=False):
         with self.lock:
             if generation!=self.generation or self.stopping or token is not None and token!=self.play_token:return
+            self.play_token+=1 # A completed transport callback is single-use.
+            if not completed:self.last_response_error='fallback_unavailable' if failure else 'speech_unavailable'
+            if ticket is not None:
+                self.conversation.playback_completed(ticket,succeeded=bool(completed))
+                if self.turn_ticket==ticket:self.turn_ticket=None
             self.playing=False;self.echo_guard_until=self.clock()+.5
+            self.playback_kind=None
             if confirmation and self.pending:
                 if completed:
                     self.pending.expires=self.clock()+self.config.confirmation_seconds
@@ -401,6 +551,7 @@ class Assistant:
         with self.condition:
             if self.stopping:return
             self.stopping=True;self.response_cancel.set()
+            self.conversation.clear();self.turn_ticket=None
             if self.span:self.span.abort()
             if self.asr_job:self.asr_job.abort()
             self.asr_job=None;self.response_job=None;self.preroll.clear();self.pending=None
