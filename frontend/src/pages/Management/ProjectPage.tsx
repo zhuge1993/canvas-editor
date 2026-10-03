@@ -7,6 +7,7 @@ import { useWorkspace } from '@/components/workspace/WorkspaceShell'
 import { createEvent, createTag, deleteEvent, deleteTag, getEvents, getStats, getMembers, notifyEvent, setupTable, deleteProject, ManagementRequestError, updateEvent, updateProject, updateTag } from '@/services/management'
 import type { EventDraft, ManagementEvent, ManagementFilters, ManagementProject, ManagementStats, ManagementStatus, ManagementTag, ManagementMember, EventUpdatePatch, MutationOptions } from '@/types/management'
 import { generateId, getAllDocuments, saveDocument } from '@/utils/storage'
+import { clearManagementProjectDrafts } from '@/utils/managementDraft'
 import type { StoredDocument } from '@/utils/storage'
 import EventModal from './EventModal'
 import ProjectForm from './ProjectForm'
@@ -104,7 +105,7 @@ export default function ProjectPage() {
     if (!isOwner || !currentProject.current || deletingProjectRef.current) return
     const expectedId = projectId, revision = currentProject.current.revision
     deletingProjectRef.current = true; setDeletingProject(true); setDeleteProjectError('')
-    try { await deleteProject(expectedId, { revision }); if (activeProjectId.current === expectedId) navigate('/projects', { replace: true }) } catch (cause) { if (activeProjectId.current === expectedId) setDeleteProjectError(cause instanceof Error ? cause.message : '项目删除未确认，请检查连接后重试。') } finally { if (activeProjectId.current === expectedId) { deletingProjectRef.current = false; setDeletingProject(false) } }
+    try { await deleteProject(expectedId, { revision }); try { clearManagementProjectDrafts(localStorage, expectedId) } catch { /* Browser cache cleanup cannot undo the durable deletion. */ }; if (activeProjectId.current === expectedId) navigate('/projects', { replace: true }) } catch (cause) { if (activeProjectId.current === expectedId) setDeleteProjectError(cause instanceof Error ? cause.message : '项目删除未确认，请检查连接后重试。') } finally { if (activeProjectId.current === expectedId) { deletingProjectRef.current = false; setDeletingProject(false) } }
   }
   function guideAction(action: GuideAction) { if (action === 'setup') setSetupOpen(true); else if (action === 'newIssue') { setView('table'); if (project?.roles.length) setNewRowSignal(value => value + 1); else setSetupOpen(true) } else if (action === 'invite') setInviteOpen(true); else if (action === 'ai') setAIOpen(true); else if (action === 'info') setEditProject(true); else setView(action) }
   const tagFor = (kind: 'roles' | 'categories', id: string) => project?.[kind].find(tag => tag.id === id)

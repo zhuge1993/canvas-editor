@@ -9,12 +9,13 @@ import type {
 } from './managementTypes.js'
 import { ManagementFieldError, normalizeTableConfig, validateFieldValues } from './managementFields.js'
 import { createManagementExample } from './managementExample.js'
-import { ManagementInviteError, createProjectInvite, validateProjectInvite } from './managementInvites.js'
+import { ManagementInviteError, createProjectInvite, validateProjectInvite, normalizeStoredProjectInvite } from './managementInvites.js'
 import type { InviteStored } from './managementInvites.js'
 import { MANAGEMENT_STATUSES, MANAGEMENT_STATUS_DEFINITIONS, ManagementWorkflowError, normalizeManagementStatus, managementTransitionMetadata } from './managementWorkflow.js'
 import { attachProjectLive, publishProjectChange } from './managementLive.js'
 import { ManagementNotificationError, createNotifications, filterNotificationsForRecipient, markNotificationsRead } from './managementNotifications.js'
 import { buildManagementExport, collectCanvasAssetRefs, renderCanvasPreview, renderManagementMarkdown } from './managementExport.js'
+import { managementPendingUploads, sweepManagementUploads, MANAGEMENT_PENDING_UPLOAD_BYTES, MANAGEMENT_PENDING_UPLOAD_COUNT } from './managementMaintenance.js'
 
 export interface ManagementActor { id: string; email: string; projectInviteId?: string }
 export interface ManagementServices {
@@ -45,6 +46,14 @@ const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/
 const MAX_FILE_BYTES = 8 * 1024 * 1024
 const MAX_PROJECT_BYTES = 12 * 1024 * 1024
 const JSON_BODY_BYTES = 128 * 1024
+export const MAX_AI_SHARES_PER_RESOURCE = 32
+export const MAX_AI_SHARES_PER_OWNER = 128
+export const MAX_AI_SHARES = 2048
+const MAX_CAPABILITY_STORE_BYTES = 2 * 1024 * 1024
+export const MAX_PROJECT_INVITES = 100
+export const MAX_INVITE_RECEIPTS = 4096
+const maintenanceStates = new Map<string, { nextAt: number; afterProject?: string }>()
+const MAINTENANCE_INTERVAL_MS = 30 * 60 * 1000
 const mimeExtensions: Record<string, string> = {
   'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif',
   'application/pdf': 'pdf', 'text/plain': 'txt', 'text/markdown': 'md',
@@ -222,6 +231,40 @@ function withInviteLock<T>(inviteId:string, work:()=>Promise<T>) { return serial
 async function loadProjectInvites(paths: RuntimePaths):Promise<InviteStore> {
   return readJson(invitesFile(paths),{schemaVersion:1,invites:[],receipts:[]})
 }
+async function sweepExpiredProjectInvites(paths: RuntimePaths, writers: Pick<ManagementServices,'writeJson'>, now: number): Promise<number> {
+  const candidates = (await loadProjectInvites(paths)).invites.filter(invite => {
+    try { return normalizeStoredProjectInvite(invite).expiresAt <= now } catch { return false }
+  }).slice(0, 64).map(invite => invite.id)
+  const locked = async (index: number): Promise<number> => {
+    if (index < candidates.length) return withInviteLock(candidates[index]!, () => locked(index + 1))
+    const store = await loadProjectInvites(paths), removed = new Set(candidates)
+    const kept = store.invites.filter(invite => !removed.has(invite.id) || invite.expiresAt > now)
+    if (kept.length !== store.invites.length) await writers.writeJson(invitesFile(paths), { ...store, invites: kept })
+    // Retain compact mutation digests: a late retry must never create a fresh
+    // valid invitation. Receipts have a separate hard count/byte ceiling.
+    return store.invites.length - kept.length
+  }
+  return candidates.length ? locked(0) : 0
+}
+async function performManagementMaintenance(paths: RuntimePaths, writers: Pick<ManagementServices,'writeJson'>, now = Date.now()) {
+  const key = path.resolve(rootDir(paths)), state = maintenanceStates.get(key)
+  if (state && state.nextAt > now) return undefined
+  if (!state && maintenanceStates.size >= 16) maintenanceStates.delete(maintenanceStates.keys().next().value!)
+  const next = { nextAt: now + MAINTENANCE_INTERVAL_MS, afterProject: state?.afterProject }
+  maintenanceStates.set(key, next)
+  const expiredInvites = await sweepExpiredProjectInvites(paths, writers, now)
+  const uploads = await sweepManagementUploads(paths, { now, afterProject: state?.afterProject })
+  next.afterProject = uploads.nextProject
+  return { expiredInvites, ...uploads }
+}
+/** Startup/idle maintenance shares the same dataset serialization as uploads,
+ * mutations and restore. No new timer is created by this module. */
+export function maintainManagementStorage(paths: RuntimePaths, writers: Pick<ManagementServices,'writeJson'>) {
+  return withManagementDataset(paths, async () => {
+    await recoverPendingManagementDeletes(paths, writers)
+    return performManagementMaintenance(paths, writers)
+  })
+}
 function inviteUsers(project:StoredManagement,invite:InviteStored,users:ManagementActor[]) {
   return [...new Set([...(project.inviteAcceptances ?? []).filter(item=>item.inviteId===invite.id).map(item=>item.userId),
     ...users.filter(user=>user.projectInviteId===invite.id).map(user=>user.id)])]
@@ -309,15 +352,18 @@ async function projectInviteManagement(req:IncomingMessage,res:ServerResponse,pa
     if (previous) {
       if (previous.digest!==operation.digest) fail(409,'同一mutationId不能创建不同邀请')
       const invite=store.invites.find(item=>item.id===previous.inviteId)
-      if (!invite) fail(409,'原邀请已撤销，请创建新邀请')
+      if (!invite) fail(410,'原邀请已撤销或过期，请使用新的操作创建邀请')
       services.sendJson(res,201,projectInviteResponse(req,invite,project,users,services));return true
     }
   }
   const config:Record<string,unknown>={}
   for (const key of ['permission','roleIds','recipientId','maxUses','expiresAt']) if (body[key]!==undefined) config[key]=body[key]
   const invite=createProjectInvite(config,{project,ownerId:actor.id,registeredUsers:users,now:Date.now()})
+  if (store.invites.filter(item => item.projectId === project.id).length >= MAX_PROJECT_INVITES)
+    fail(429,'此项目已有100个邀请，请撤销不再需要的邀请后继续')
+  if (store.receipts.length >= MAX_INVITE_RECEIPTS) fail(429,'邀请操作记录已达到保护上限，未创建新的邀请')
   const next:InviteStore={schemaVersion:1,invites:[...store.invites,invite],receipts:[...store.receipts,...(operation ? [{...operation,ownerId:actor.id,projectId:project.id,inviteId:invite.id}] : [])]}
-  if (Buffer.byteLength(JSON.stringify(next))>MAX_PROJECT_BYTES) fail(413,'项目邀请记录超过12MiB')
+  if (Buffer.byteLength(JSON.stringify(next))>MAX_CAPABILITY_STORE_BYTES) fail(413,'项目邀请记录超过2MiB保护上限')
   await services.writeJson(invitesFile(paths),next)
   services.sendJson(res,201,projectInviteResponse(req,invite,project,users,services));return true
 }
@@ -866,7 +912,13 @@ async function aiManagement(req: IncomingMessage, res: ServerResponse, paths: Ru
   const share: StoredAIShare = { id: id('ai'), token: randomBytes(32).toString('base64url'), kind: body.kind, resourceId: body.resourceId, ownerId: actor.id, scope, createdAt: Date.now() }
   await serial(sharesFile(paths), async () => {
     if (!await services.ownerExists(paths, actor.id)) fail(401, '账号已不存在')
-    await services.writeJson(sharesFile(paths), [...await readJson<StoredAIShare[]>(sharesFile(paths), []), share])
+    const existing = await readJson<StoredAIShare[]>(sharesFile(paths), [])
+    if (existing.filter(item => item.ownerId === actor.id && item.kind === share.kind && item.resourceId === share.resourceId).length >= MAX_AI_SHARES_PER_RESOURCE ||
+        existing.filter(item => item.ownerId === actor.id).length >= MAX_AI_SHARES_PER_OWNER || existing.length >= MAX_AI_SHARES)
+      fail(429, 'AI分享链接已达到保护上限，请撤销不用的链接后继续；现有链接仍可读取')
+    const next = [...existing, share]
+    if (Buffer.byteLength(JSON.stringify(next)) > MAX_CAPABILITY_STORE_BYTES) fail(413, 'AI分享记录超过2MiB保护上限，现有链接仍可读取')
+    await services.writeJson(sharesFile(paths), next)
   })
   services.sendJson(res, 201, shareResponse(req, share, services)); return true
 }
@@ -963,6 +1015,10 @@ async function management(req: IncomingMessage, res: ServerResponse, paths: Runt
       const current = await readableProject(paths, projectId, actor, services)
       if (!['owner','edit'].includes(projectAccess(current, actor) ?? '')) fail(403, '没有编辑权限')
       if (!await services.ownerExists(paths, actor.id)) fail(401, '账号已不存在')
+      const pending = await managementPendingUploads(paths, projectId)
+      if (pending.directoryFull) fail(429, '此项目附件目录已达到4096个文件保护上限，已有业务附件仍保留')
+      if (pending.count >= MANAGEMENT_PENDING_UPLOAD_COUNT || pending.bytes + bytes.length > MANAGEMENT_PENDING_UPLOAD_BYTES)
+        fail(429, '待提交附件已达到32个或64MiB保护上限，请先保存已有附件；未提交附件在7天后自动清理')
       const binaryPath = path.join(assetDir(paths, projectId), stored.file)
       await services.writeBuffer(binaryPath, bytes)
       try { await services.writeJson(path.join(assetDir(paths, projectId), `${assetId}.json`), stored) }
@@ -1117,6 +1173,8 @@ export async function handleManagementRequest(req: IncomingMessage, res: ServerR
   if (!pathname.startsWith('/ai/') && !pathname.startsWith('/api/ai-shares') && !pathname.startsWith('/api/management/')) return false
   return withManagementDataset(paths, async () => {
     await recoverPendingManagementDeletes(paths,services)
+    try { await performManagementMaintenance(paths, services) }
+    catch { console.warn('Management maintenance deferred after storage validation or IO failure') }
     return dispatchManagementRequest(req,res,paths,services)
   })
 }

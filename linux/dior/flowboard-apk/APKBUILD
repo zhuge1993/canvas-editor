@@ -2,20 +2,20 @@
 # and runs "pmbootstrap checksum flowboard-server" before building.
 pkgname=flowboard-server
 pkgver=1.0.0
-pkgrel=4
+pkgrel=5
 pkgdesc="FlowBoard always-on drawing server"
 url="https://github.com/zhuge1993/canvas-editor"
 arch="noarch"
 # Owner's appliance deployment; repository visibility does not grant an OSS license.
 license="custom"
-depends="nodejs ca-certificates dropbear alsa-utils v4l-utils evtest bluez bluez-openrc gpsd flowboard-dior-firmware"
+depends="nodejs python3 busybox-openrc ca-certificates dropbear alsa-utils v4l-utils evtest bluez bluez-openrc gpsd flowboard-dior-firmware"
 # Local appliance intentionally retains /opt/flowboard shared with its installers.
 # abuild's documented !fhs permits this layout; all other postchecks still run.
 # This is not a package intended for inclusion in Alpine's official repositories.
 options="!check !fhs"
 install="$pkgname.pre-install $pkgname.post-install"
 backup="opt/flowboard/flowboard.env"
-source="flowboard-release.tar.gz dior-dropbear.initd dior-firmware.initd dior-adsp.initd dior-bluetooth.initd dior-gps.initd dior-hw-report.initd dior-hw-probe dior-touch-test dior-hw-verify dior-hw-smoke"
+source="flowboard-release.tar.gz dior-dropbear.initd dior-firmware.initd dior-adsp.initd dior-bluetooth.initd dior-gps.initd dior-hw-report.initd dior-hw-probe dior-touch-test dior-hw-verify dior-hw-smoke dior-maintenance.py dior-maintenance"
 
 package() {
 	install -d "$pkgdir"/opt/flowboard
@@ -43,8 +43,12 @@ package() {
 	install -Dm755 "$srcdir"/dior-hw-verify "$pkgdir"/usr/local/sbin/dior-hw-verify
 	install -Dm755 "$srcdir"/dior-hw-smoke "$pkgdir"/usr/local/sbin/dior-hw-smoke
 
+	install -Dm644 "$srcdir"/dior-maintenance.py "$pkgdir"/usr/local/libexec/dior-maintenance.py
+	install -Dm755 "$srcdir"/dior-maintenance "$pkgdir"/etc/periodic/hourly/dior-maintenance
+
 	install -d "$pkgdir"/etc/runlevels/default
 	ln -sf /etc/init.d/flowboard "$pkgdir"/etc/runlevels/default/flowboard
+	ln -sf /etc/init.d/crond "$pkgdir"/etc/runlevels/default/crond
 	ln -sf /etc/init.d/dior-dropbear "$pkgdir"/etc/runlevels/default/dior-dropbear
 	ln -sf /etc/init.d/dior-firmware "$pkgdir"/etc/runlevels/default/dior-firmware
 	ln -sf /etc/init.d/dior-adsp "$pkgdir"/etc/runlevels/default/dior-adsp

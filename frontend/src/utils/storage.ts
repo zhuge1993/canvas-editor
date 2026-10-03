@@ -1,5 +1,6 @@
 /** 项目存储：local 模式只使用本地运行时服务；offline 模式显式使用浏览器 IndexedDB。 */
 import { logOperation } from './logger'
+import { canvasDraftKey } from './canvasDraft'
 
 const DB_NAME = 'flowboard'
 const DB_VERSION = 1
@@ -63,47 +64,49 @@ function openDB(): Promise<IDBDatabase> {
         store.createIndex('updatedAt', 'updatedAt', { unique: false })
       }
     }
-    request.onsuccess = () => resolve(request.result)
+    request.onsuccess = () => { const db = request.result; db.onversionchange = () => db.close(); resolve(db) }
     request.onerror = () => reject(request.error)
   })
 }
 
 async function getAllDocumentsFromDB(): Promise<StoredDocument[]> {
   const db = await openDB()
-  return new Promise((resolve, reject) => {
+  try { return await new Promise<StoredDocument[]>((resolve, reject) => {
     const request = db.transaction(STORE_NAME, 'readonly').objectStore(STORE_NAME).index('updatedAt').getAll()
     request.onsuccess = () => resolve((request.result as StoredDocument[]).reverse())
     request.onerror = () => reject(request.error)
-  })
+  }) } finally { db.close() }
 }
 
 async function getDocumentFromDB(id: string): Promise<StoredDocument | undefined> {
   const db = await openDB()
-  return new Promise((resolve, reject) => {
+  try { return await new Promise<StoredDocument | undefined>((resolve, reject) => {
     const request = db.transaction(STORE_NAME, 'readonly').objectStore(STORE_NAME).get(id)
     request.onsuccess = () => resolve(request.result as StoredDocument | undefined)
     request.onerror = () => reject(request.error)
-  })
+  }) } finally { db.close() }
 }
 
 async function saveDocumentToDB(doc: StoredDocument): Promise<void> {
   const db = await openDB()
-  return new Promise((resolve, reject) => {
+  try { return await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite')
     tx.objectStore(STORE_NAME).put(doc)
     tx.oncomplete = () => resolve()
     tx.onerror = () => reject(tx.error)
-  })
+    tx.onabort = () => reject(tx.error ?? new Error('IndexedDB transaction aborted'))
+  }) } finally { db.close() }
 }
 
 async function deleteDocumentFromDB(id: string): Promise<void> {
   const db = await openDB()
-  return new Promise((resolve, reject) => {
+  try { return await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite')
     tx.objectStore(STORE_NAME).delete(id)
     tx.oncomplete = () => resolve()
     tx.onerror = () => reject(tx.error)
-  })
+    tx.onabort = () => reject(tx.error ?? new Error('IndexedDB transaction aborted'))
+  }) } finally { db.close() }
 }
 
 export async function getAllDocuments(): Promise<StoredDocument[]> {
@@ -135,6 +138,7 @@ export async function deleteDocument(id: string): Promise<void> {
   } else {
     await runtimeRequest<{ ok: boolean }>(`/api/projects/${encodeURIComponent(id)}`, { method: 'DELETE' })
   }
+  if (offlineMode) { try { localStorage.removeItem(canvasDraftKey(id)) } catch { /* The confirmed deletion still succeeds. */ } }
   logOperation('project.deleted', 'Deleted project', { id })
 }
 
@@ -152,6 +156,7 @@ export async function restoreDocument(id: string): Promise<void> {
 /** 回收站：彻底删除 */
 export async function deleteDocumentForever(id: string): Promise<void> {
   await runtimeRequest<{ ok: boolean }>(`/api/projects/${encodeURIComponent(id)}/forever`, { method: 'DELETE' })
+  try { localStorage.removeItem(canvasDraftKey(id)) } catch { /* The confirmed deletion still succeeds. */ }
 }
 
 /** 版本历史：列出版本 */

@@ -293,6 +293,8 @@ cp "$REPO_ROOT/tools/dior-hw/dior-hw-probe" "$LOCAL_APORT/dior-hw-probe"
 cp "$REPO_ROOT/tools/dior-hw/dior-touch-test" "$LOCAL_APORT/dior-touch-test"
 cp "$REPO_ROOT/tools/dior-hw/dior-hw-verify" "$LOCAL_APORT/dior-hw-verify"
 cp "$REPO_ROOT/tools/dior-hw/dior-hw-smoke" "$LOCAL_APORT/dior-hw-smoke"
+cp "$SCRIPT_DIR/always-on-maintenance/dior-maintenance.py" "$LOCAL_APORT/dior-maintenance.py"
+cp "$SCRIPT_DIR/always-on-maintenance/dior-maintenance" "$LOCAL_APORT/dior-maintenance"
 cp "$FLOWBOARD_RELEASE" "$LOCAL_APORT/flowboard-release.tar.gz"
 
 echo "更新本地 flowboard-server 源文件校验..."

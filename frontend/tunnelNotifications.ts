@@ -62,6 +62,10 @@ export async function verifyPublicFlowBoard(origin: string): Promise<boolean> {
   })
 }
 
+const SENT_HISTORY_MAX_ENTRIES = 4096
+const SENT_HISTORY_MAX_AGE_MS = 90 * 24 * 60 * 60 * 1000
+const MAX_RETRY_BACKOFF_ATTEMPTS = 7
+
 interface NotificationTask {
   key: string
   email: string
@@ -109,6 +113,9 @@ export function createTunnelNotificationWorker(options: WorkerOptions) {
   let stopped = false
   let lastReport = ''
   let summary = { status: 'starting', pending: 0, sent: 0 }
+  let persistedState: string | undefined
+
+  const fingerprint = (state: NotificationState): string => JSON.stringify({ ...state, updatedAt: 0 })
 
   async function loadState(): Promise<NotificationState> {
     let parsed: NotificationState
@@ -129,13 +136,30 @@ export function createTunnelNotificationWorker(options: WorkerOptions) {
         || !Number.isInteger(task.attempts) || task.attempts < 0 || !Number.isFinite(task.nextAttemptAt) || task.nextAttemptAt < 0
         || (task.status === 'sent' && parsed.sent[task.key] === undefined)) throw new Error('Invalid notification task')
     }
+    persistedState = fingerprint(parsed)
     return parsed
   }
 
+  function compactSentHistory(state: NotificationState): void {
+    const protectedKeys = new Set(state.tasks.map(task => task.key))
+    const cutoff = now() - SENT_HISTORY_MAX_AGE_MS
+    const current = Object.entries(state.sent).filter(([key]) => protectedKeys.has(key))
+    const historical = Object.entries(state.sent)
+      .filter(([key, sentAt]) => !protectedKeys.has(key) && sentAt >= cutoff)
+      .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+      .slice(0, SENT_HISTORY_MAX_ENTRIES)
+    state.sent = Object.fromEntries([...current, ...historical])
+  }
+
   async function persist(state: NotificationState): Promise<void> {
-    state.updatedAt = now()
-    await fsp.mkdir(options.authDirectory, { recursive: true })
-    await replaceFileDurably(stateFile, `${JSON.stringify(state, null, 2)}\n`)
+    compactSentHistory(state)
+    const next = fingerprint(state)
+    if (persistedState !== next) {
+      state.updatedAt = now()
+      await fsp.mkdir(options.authDirectory, { recursive: true })
+      await replaceFileDurably(stateFile, `${JSON.stringify(state, null, 2)}\n`)
+      persistedState = next
+    }
     summary = { status: state.status, pending: state.tasks.filter(task => task.status !== 'sent').length, sent: state.tasks.filter(task => task.status === 'sent').length }
     const signature = JSON.stringify(summary)
     if (signature !== lastReport) { lastReport = signature; options.report?.({ ...summary }) }
@@ -145,15 +169,15 @@ export function createTunnelNotificationWorker(options: WorkerOptions) {
     const url = quickTunnelOrigin(options.currentUrl()) ?? null
     const changed = state.currentUrl !== url
     state.currentUrl = url
-    state.publicConnectivityVerified = false
+    if (changed) state.publicConnectivityVerified = false
     const previous = changed ? [] : state.tasks
     const recipients = url ? activeQqRecipients(await loadUsers()) : []
     state.tasks = recipients.map(email => {
       const key = notificationKey(url!, email)
       const old = previous.find(task => task.key === key)
-      if (state.sent[key] !== undefined) return { key, email, status: 'sent', attempts: old?.attempts ?? 0, nextAttemptAt: 0 }
+      if (state.sent[key] !== undefined) return { key, email, status: 'sent', attempts: Math.min(MAX_RETRY_BACKOFF_ATTEMPTS, old?.attempts ?? 0), nextAttemptAt: 0 }
       // Interrupted SMTP attempts retry with the same Message-ID.
-      return { key, email, status: 'pending', attempts: old?.attempts ?? 0, nextAttemptAt: Math.min(old?.nextAttemptAt ?? 0, now() + 30 * 60 * 1000) }
+      return { key, email, status: 'pending', attempts: Math.min(MAX_RETRY_BACKOFF_ATTEMPTS, old?.attempts ?? 0), nextAttemptAt: Math.min(old?.nextAttemptAt ?? 0, now() + 30 * 60 * 1000), ...(old?.lastError ? { lastError: old.lastError } : {}) }
     })
     state.status = url ? 'pending' : 'no_current_url'
   }
@@ -191,7 +215,7 @@ export function createTunnelNotificationWorker(options: WorkerOptions) {
         return
       }
       task.status = 'sending'
-      task.attempts += 1
+      task.attempts = Math.min(MAX_RETRY_BACKOFF_ATTEMPTS, task.attempts + 1)
       await persist(state)
       if (stopped) return
       if (quickTunnelOrigin(options.currentUrl()) !== state.currentUrl) {

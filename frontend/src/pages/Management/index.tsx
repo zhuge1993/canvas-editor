@@ -6,6 +6,7 @@ import type { ManagementProjectSummary } from '@/types/management'
 import { EmptyState, ErrorNotice, PageIntro, timeLabel } from '@/components/workspace/ui'
 import { useWorkspace } from '@/components/workspace/WorkspaceShell'
 import ProjectForm from './ProjectForm'
+import { clearManagementProjectDrafts } from '@/utils/managementDraft'
 
 export default function ManagementPage() {
   const { user } = useWorkspace()
@@ -19,7 +20,7 @@ export default function ManagementPage() {
   async function remove(project: ManagementProjectSummary) {
     if (deletingRef.current || (project.ownerId !== user.id && project.access !== 'owner')) return
     deletingRef.current = project.id; setDeleting(project.id); setError('')
-    try { await deleteProject(project.id, { revision: project.revision }); setProjects(previous => previous.filter(value => value.id !== project.id)) } catch (cause) { setError(cause instanceof Error ? cause.message : '项目尚未确认删除，请检查连接后重试。') } finally { deletingRef.current = null; setDeleting(null) }
+    try { await deleteProject(project.id, { revision: project.revision }); try { clearManagementProjectDrafts(localStorage, project.id) } catch { /* Browser cache cleanup cannot undo the durable deletion. */ }; setProjects(previous => previous.filter(value => value.id !== project.id)) } catch (cause) { setError(cause instanceof Error ? cause.message : '项目尚未确认删除，请检查连接后重试。') } finally { deletingRef.current = null; setDeleting(null) }
   }
   async function example() {
     if (exampleRef.current) return; exampleRef.current = true; setExampleBusy(true); setError('')

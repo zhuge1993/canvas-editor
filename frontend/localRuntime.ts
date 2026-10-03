@@ -2,7 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import type { Plugin } from 'vite'
-import { ensureRuntimeDirs, handleRuntimeRequest } from './runtimeCore.js'
+import { ensureRuntimeDirs, handleRuntimeRequest, pruneRuntimeTransientState } from './runtimeCore.js'
 
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url))
 const configuredRuntimeRoot = process.env.FLOWBOARD_RUNTIME_DIR?.trim()
@@ -29,10 +29,16 @@ export function localRuntimePlugin(): Plugin {
     name: 'flowboard-local-runtime',
     async configureServer(server) {
       await ensureRuntimeDirs(paths)
+      const maintenance = setInterval(() => { void pruneRuntimeTransientState(paths).catch(() => undefined) }, 60_000)
+      maintenance.unref()
+      server.httpServer?.once('close', () => clearInterval(maintenance))
       server.middlewares.use(middleware)
     },
     async configurePreviewServer(server) {
       await ensureRuntimeDirs(paths)
+      const maintenance = setInterval(() => { void pruneRuntimeTransientState(paths).catch(() => undefined) }, 60_000)
+      maintenance.unref()
+      server.httpServer?.once('close', () => clearInterval(maintenance))
       server.middlewares.use(middleware)
     },
   }

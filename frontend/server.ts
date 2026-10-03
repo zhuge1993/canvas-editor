@@ -8,7 +8,10 @@ import fsp from 'node:fs/promises'
 import path from 'node:path'
 import { exec, execSync, spawn } from 'node:child_process'
 import { createTunnelNotificationWorker } from './tunnelNotifications.js'
-import { appendRuntimeLog, collectOrphanAssets, detectLanIPv4Addresses, ensureRuntimeDirs, handleRuntimeRequest, migrateInlineAssets, preferredPublicHost, preferredPublicOrigin, sendSmtpMail, sendTunnelNotificationMail } from './runtimeCore.js'
+import { createBoundedLogWriter, readLogTail } from './boundedLogs.js'
+import { createStaticFileCache } from './staticFileCache.js'
+import { createApiRequestGate } from './apiRequestGate.js'
+import { appendRuntimeLog, closeRuntimeLogs, collectOrphanAssets, detectLanIPv4Addresses, ensureRuntimeDirs, handleRuntimeRequest, migrateInlineAssets, preferredPublicHost, preferredPublicOrigin, pruneRuntimeTransientState, sendSmtpMail, sendTunnelNotificationMail } from './runtimeCore.js'
 
 interface RuntimeOptions {
   host: string
@@ -55,7 +58,8 @@ const staticDir = (() => {
   if (fs.existsSync(bundledDist)) return bundledDist
   return path.resolve(__dirname, '..', 'dist')
 })()
-const staticFileCache = new Map<string, { content: Buffer; mime: string; ext: string }>()
+const STATIC_CACHE_MAX_FILE_BYTES = 2 * 1024 * 1024
+const staticFileCache = createStaticFileCache()
 
 function loadEnvironmentFile(filePath: string): void {
   try {
@@ -403,12 +407,12 @@ async function serveStatic(req: http.IncomingMessage, res: http.ServerResponse) 
 
   if (!path.extname(filePath)) filePath = path.join(root, 'index.html')
 
-  // 内存缓存：非 HTML 文件只读一次。
+  // 16 MiB / 64 entries LRU; individual large files stream without accumulating in RAM.
   const ext = path.extname(filePath).toLowerCase()
   const isHtml = ext === '.html' || ext === ''
   const cacheKey = filePath
-  if (!isHtml && staticFileCache.has(cacheKey)) {
-    const cached = staticFileCache.get(cacheKey)!
+  const cached = !isHtml ? staticFileCache.get(cacheKey) : undefined
+  if (cached) {
     res.statusCode = 200
     res.setHeader('Content-Type', cached.mime)
     res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
@@ -417,11 +421,28 @@ async function serveStatic(req: http.IncomingMessage, res: http.ServerResponse) 
   }
 
   try {
-    const stat = await fsp.stat(filePath)
-    if (stat.isDirectory()) filePath = path.join(filePath, 'index.html')
+    let stat = await fsp.stat(filePath)
+    if (stat.isDirectory()) {
+      filePath = path.join(filePath, 'index.html')
+      stat = await fsp.stat(filePath)
+    }
     const fileExt = path.extname(filePath).toLowerCase()
-    const content = await fsp.readFile(filePath)
     const mime = mimeForPath(filePath)
+    if (stat.size > STATIC_CACHE_MAX_FILE_BYTES) {
+      res.statusCode = 200
+      res.setHeader('Content-Type', mime)
+      res.setHeader('Content-Length', stat.size)
+      res.setHeader('Cache-Control', fileExt === '.html' ? 'no-cache' : 'public, max-age=31536000, immutable')
+      const stream = fs.createReadStream(filePath)
+      res.once('close', () => stream.destroy())
+      stream.once('error', () => {
+        if (res.headersSent) res.destroy()
+        else { res.statusCode = 404; res.removeHeader('Content-Length'); res.end('Not Found') }
+      })
+      stream.pipe(res)
+      return
+    }
+    const content = await fsp.readFile(filePath)
     if (!isHtml && fileExt !== '.html') {
       staticFileCache.set(filePath, { content, mime, ext: fileExt })
     }
@@ -437,8 +458,8 @@ async function serveStatic(req: http.IncomingMessage, res: http.ServerResponse) 
     }
     // SPA fallback
     const htmlKey = path.join(root, 'index.html')
-    if (staticFileCache.has(htmlKey)) {
-      const cached = staticFileCache.get(htmlKey)!
+    const cached = staticFileCache.get(htmlKey)
+    if (cached) {
       res.statusCode = 200
       res.setHeader('Content-Type', 'text/html; charset=utf-8')
       res.setHeader('Cache-Control', 'no-cache')
@@ -484,13 +505,19 @@ async function main() {
   const options = parseRuntimeOptions()
   await ensureDirs()
 
+  const requestGate = createApiRequestGate(32)
   const server = http.createServer(async (req, res) => {
     try {
+      if (!requestGate.admit(req, res)) return
       if (!await handleApi(req, res, options)) await serveStatic(req, res)
     } catch (error) {
       sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) })
     }
   })
+  server.maxConnections = 512
+  server.headersTimeout = 15_000
+  server.requestTimeout = 90_000
+  server.keepAliveTimeout = 5000
 
   startListening(server, options)
 }
@@ -568,7 +595,7 @@ function startInteractiveConsole(options: RuntimeOptions): void {
       try { fs.rmSync(temporary, { force: true }) } catch { /* best effort */ }
     }
   }
-  rl.on('line', (raw) => {
+  rl.on('line', async (raw) => {
     const input = raw.trim()
     if (!input) { rl.prompt(); return }
     const parts = input.split(/\s+/)
@@ -814,7 +841,8 @@ function startInteractiveConsole(options: RuntimeOptions): void {
           const count = Math.min(200, Math.max(1, Number(args[0]) || 20))
           const logFile = path.join(logDirectory, 'operations.log')
           try {
-            const lines = fs.readFileSync(logFile, 'utf8').trim().split(/\r?\n/).slice(-count)
+            const lines = await readLogTail(logFile, count)
+            if (lines.length === 0) console.log('暂无日志')
             for (const line of lines) {
               try {
                 const entry = JSON.parse(line) as { timestamp?: string; event?: string; message?: string }
@@ -862,7 +890,45 @@ let tunnelNotificationWorker: ReturnType<typeof createTunnelNotificationWorker> 
 
 function startListening(server: http.Server, options: RuntimeOptions): void {
   process.env.FLOWBOARD_RUNTIME_PORT = String(options.port)
+  let maintenanceTimer: NodeJS.Timeout | undefined
+  let maintenanceTask: Promise<void> | undefined
+  let stopping = false
+  const stopMaintenance = () => {
+    clearInterval(maintenanceTimer)
+    maintenanceTimer = undefined
+  }
+  const maintain = () => {
+    if (stopping || maintenanceTask) return
+    maintenanceTask = pruneRuntimeTransientState({ dataDirectory, logDirectory, authDirectory })
+      .catch(() => appendRuntimeLog({ dataDirectory, logDirectory, authDirectory }, {
+        level: 'error', event: 'runtime.maintenance_failed', message: 'Transient-state maintenance failed; it will retry on the next scheduled run',
+      }))
+      .then(() => undefined)
+      .finally(() => { maintenanceTask = undefined })
+  }
+  const shutdown = () => {
+    if (stopping) return
+    stopping = true
+    stopMaintenance()
+    tunnelNotificationWorker?.stop()
+    const deadline = setTimeout(() => process.exit(0), 10_000)
+    const closed = new Promise<void>(resolve => { server.close(() => resolve()); server.closeAllConnections() })
+    void Promise.all([closed, maintenanceTask]).finally(() => closeRuntimeLogs()).finally(() => {
+      clearTimeout(deadline)
+      process.exit(0)
+    })
+  }
+  process.once('SIGTERM', shutdown)
+  process.once('SIGINT', shutdown)
+  server.once('close', () => {
+    stopping = true
+    stopMaintenance()
+    process.off('SIGTERM', shutdown)
+    process.off('SIGINT', shutdown)
+  })
   const onListening = () => {
+    maintenanceTimer = setInterval(maintain, 60_000)
+    maintenanceTimer.unref?.()
     const localUrl = `http://127.0.0.1:${options.port}`
     const lanAddresses = detectLanIPv4Addresses()
     const publicHost = preferredPublicHost()
@@ -988,42 +1054,85 @@ function runAsDaemon(): void {
   const childArgs = process.argv.slice(1).filter(arg => arg !== '--daemon' && arg !== '--no-daemon')
   const exePath = process.execPath
   const logFile = path.join(runtimeDir, 'logs', 'daemon.log')
-  const outStream = fs.createWriteStream(logFile, { flags: 'a' })
+  const logWriter = createBoundedLogWriter(logFile)
   let restarts = 0
+  let stopping = false
+  let finishing = false
+  let activeChild: ReturnType<typeof spawn> | undefined
+  let restartTimer: NodeJS.Timeout | undefined
+  let stopTimer: NodeJS.Timeout | undefined
+
+  const finish = (code: number) => {
+    if (finishing) return
+    finishing = true
+    clearTimeout(restartTimer)
+    clearTimeout(stopTimer)
+    // A wedged disk must not keep the watchdog alive indefinitely during shutdown.
+    const deadline = setTimeout(() => process.exit(code), 5000)
+    void logWriter.close().finally(() => { clearTimeout(deadline); process.exit(code) })
+  }
+  const forward = (destination: NodeJS.WriteStream, chunk: Buffer) => {
+    for (let offset = 0; offset < chunk.length; offset += 16 * 1024) {
+      const part = chunk.subarray(offset, Math.min(chunk.length, offset + 16 * 1024))
+      logWriter.write(part)
+      // Drop console duplicates under backpressure; never accumulate an unbounded
+      // output queue or block the server child just to retain diagnostics.
+      if (destination.destroyed || destination.writableNeedDrain || destination.writableLength + part.length > 64 * 1024) continue
+      try { destination.write(part) } catch { /* Broken consoles do not affect the server. */ }
+    }
+  }
+  const onSignal = () => {
+    if (stopping) return
+    stopping = true
+    clearTimeout(restartTimer)
+    if (!activeChild || activeChild.exitCode !== null) { finish(0); return }
+    activeChild.kill('SIGTERM')
+    stopTimer = setTimeout(() => { activeChild?.kill('SIGKILL'); finish(0) }, 5000)
+  }
+  process.on('SIGTERM', onSignal)
+  process.on('SIGINT', onSignal)
 
   console.log(`[daemon] watchdog started, spawning: ${exePath} ${childArgs.join(' ')}`)
   console.log(`[daemon] logs: ${displayPath(logFile)}`)
 
   const spawnChild = () => {
+    if (stopping || finishing) return
     const child = spawn(exePath, childArgs, {
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
     })
-    child.stdout.on('data', chunk => { process.stdout.write(chunk); outStream.write(chunk) })
-    child.stderr.on('data', chunk => { process.stderr.write(chunk); outStream.write(chunk) })
+    activeChild = child
+    child.stdout.on('data', chunk => forward(process.stdout, chunk))
+    child.stderr.on('data', chunk => forward(process.stderr, chunk))
     child.on('error', error => {
       console.error('[daemon] failed to spawn child:', error.message)
-      process.exit(1)
+      finish(1)
     })
-    child.on('exit', (code, signal) => {
+    child.on('close', (code, signal) => {
+      activeChild = undefined
       const abnormal = code !== 0 && code !== null
       const stamp = new Date().toISOString()
-      outStream.write(`[${stamp}] child exited code=${code} signal=${signal}\n`)
+      logWriter.write(`[${stamp}] child exited code=${code} signal=${signal}\n`)
+      if (stopping) { finish(0); return }
       if (!abnormal) {
         console.log('[daemon] child exited normally, watchdog stopping.')
-        process.exit(0)
+        finish(0)
+        return
       }
       restarts += 1
       if (restarts > DAEMON_MAX_RESTARTS) {
         console.error(`[daemon] child crashed ${restarts} times, giving up.`)
-        outStream.write(`[${stamp}] giving up after ${restarts} crashes\n`)
-        process.exit(1)
+        logWriter.write(`[${stamp}] giving up after ${restarts} crashes\n`)
+        finish(1)
+        return
       }
       console.log(`[daemon] child crashed (code=${code}), restart ${restarts}/${DAEMON_MAX_RESTARTS} in ${DAEMON_RESTART_DELAY_MS}ms...`)
-      setTimeout(spawnChild, DAEMON_RESTART_DELAY_MS)
+      restartTimer = setTimeout(spawnChild, DAEMON_RESTART_DELAY_MS)
     })
   }
-  spawnChild()
+  // Bound legacy diagnostics before the child can report readiness, including
+  // quiet children which may never produce a first buffered log line.
+  void logWriter.flush().then(spawnChild)
 }
 
 if (hasQuickSmtpCommand()) {

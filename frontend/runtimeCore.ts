@@ -9,9 +9,11 @@ import { promisify } from 'node:util'
 import { gzipSync, gunzipSync } from 'node:zlib'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { replaceFileDurably } from './runtimeStorage.js'
+import { BoundedCache, BoundedTtlMap, BoundedWorkQueue } from './runtimeGrowth.js'
+import { createBoundedLogWriter, readLogTail } from './boundedLogs.js'
 import { quickTunnelOrigin } from './tunnelNotifications.js'
 import { ManagementInviteError } from './managementInvites.js'
-import { handleManagementRequest, withProjectRegistrationInvite } from './managementCore.js'
+import { handleManagementRequest, withProjectRegistrationInvite, maintainManagementStorage } from './managementCore.js'
 import { ManagementBackupError, exportManagementBackup, stageManagementRestore, commitManagementRestore } from './managementBackup.js'
 import { ManagementWorkflowError } from './managementWorkflow.js'
 import { ManagementFieldError } from './managementFields.js'
@@ -28,10 +30,14 @@ const SESSION_MAX_AGE = 7 * 24 * 60 * 60
 const VERIFICATION_TTL = 10 * 60 * 1000
 const VERIFICATION_RESEND_DELAY = 60 * 1000
 const MAX_VERIFICATION_ATTEMPTS = 5
+const MAX_ACTIVE_VERIFICATION_CODES = 1024
 const PASSWORD_MIN_LENGTH = 8
 const PASSWORD_MAX_LENGTH = 256
 const AUTH_REQUEST_MAX_BYTES = 16 * 1024
 const SMTP_TIMEOUT_MS = Math.max(5000, Math.min(60000, Number(process.env.FLOWBOARD_SMTP_TIMEOUT_MS ?? '15000') || 15000))
+const SMTP_RESPONSE_MAX_BYTES = 32 * 1024
+const SMTP_RESPONSE_MAX_LINES = 100
+const SMTP_TOTAL_TIMEOUT_MS = Math.max(5000, Math.min(120000, Number(process.env.FLOWBOARD_SMTP_TOTAL_TIMEOUT_MS ?? '120000') || 120000))
 const DEFAULT_ADMIN_EMAIL = (process.env.FLOWBOARD_DEFAULT_ADMIN_EMAIL ?? '804559340@qq.com').trim().toLowerCase()
 const configuredMaxUsers = Number(process.env.FLOWBOARD_MAX_USERS ?? '20')
 const DEFAULT_MAX_USERS = Number.isFinite(configuredMaxUsers)
@@ -288,7 +294,7 @@ const MAX_LOG_REQUEST_BYTES = 128 * 1024
 const MAX_ASSET_STORAGE_MB = Math.max(64, Math.min(4096, Number(process.env.FLOWBOARD_MAX_ASSET_STORAGE_MB ?? '512') || 512))
 const MAX_ASSET_STORAGE_BYTES = MAX_ASSET_STORAGE_MB * 1024 * 1024
 const ASSET_GC_MIN_AGE_MS = 60 * 60 * 1000
-const assetStorageUsageCache = new Map<string, number>()
+const assetStorageUsageCache = new BoundedCache<number>(16)
 const assetStorageMutationTails = new Map<string, Promise<void>>()
 const MAX_WEB_BACKUP_ASSET_BYTES = 48 * 1024 * 1024
 const MAX_WEB_BACKUP_DOCUMENT_BYTES = 20 * 1024 * 1024
@@ -761,7 +767,7 @@ async function saveInvites(paths: RuntimePaths, invites: StoredInvite[]): Promis
 }
 
 let authMutationTail: Promise<void> = Promise.resolve()
-let loginPasswordTail: Promise<void> = Promise.resolve()
+const loginPasswordQueue = new BoundedWorkQueue(32, () => new RequestBodyError('服务器密码验证负载过高，请稍后重试', 429))
 
 async function withAuthMutation<T>(operation: () => Promise<T>): Promise<T> {
   let release!: () => void
@@ -777,16 +783,7 @@ async function withAuthMutation<T>(operation: () => Promise<T>): Promise<T> {
 }
 
 async function withLoginPasswordWork<T>(operation: () => Promise<T>): Promise<T> {
-  let release!: () => void
-  const gate = new Promise<void>(resolve => { release = resolve })
-  const previous = loginPasswordTail
-  loginPasswordTail = previous.catch(() => undefined).then(() => gate)
-  await previous.catch(() => undefined)
-  try {
-    return await operation()
-  } finally {
-    release()
-  }
+  return loginPasswordQueue.run(operation)
 }
 
 async function loadShares(paths: RuntimePaths): Promise<StoredShare[]> {
@@ -808,7 +805,7 @@ const LOGIN_MAX_ATTEMPTS = 5
 const LOGIN_LOCK_MS = 5 * 60 * 1000
 const SHARE_PASSWORD_MAX_ATTEMPTS = 5
 const SHARE_PASSWORD_LOCK_MS = 5 * 60 * 1000
-const sharePasswordAttempts = new Map<string, { count: number; lastFailAt: number }>()
+const sharePasswordAttempts = new BoundedTtlMap<{ count: number; lastFailAt: number }>(2048, SHARE_PASSWORD_LOCK_MS)
 
 async function loadLoginAttempts(paths: RuntimePaths): Promise<LoginAttempt[]> {
   return readJson(filePath(paths, 'login-attempts.json'), [])
@@ -816,6 +813,34 @@ async function loadLoginAttempts(paths: RuntimePaths): Promise<LoginAttempt[]> {
 
 async function saveLoginAttempts(paths: RuntimePaths, attempts: LoginAttempt[]): Promise<void> {
   await queueJsonWrite(filePath(paths, 'login-attempts.json'), attempts)
+}
+
+const authMaintenanceTimes = new BoundedCache<number>(16)
+const AUTH_MAINTENANCE_INTERVAL_MS = 60 * 60 * 1000
+
+/** Remove expired guards, never accounts, active sessions/codes, or durable project content. */
+export async function pruneRuntimeTransientState(paths: RuntimePaths, now = Date.now()): Promise<{ sessions: number; verification: number; loginAttempts: number; sharePasswordAttempts: number }> {
+  const shareAttemptsRemoved = sharePasswordAttempts.prune(now)
+  await maintainManagementStorage(paths, { writeJson })
+  return withAuthMutation(async () => {
+    const previous = authMaintenanceTimes.get(paths.authDirectory)
+    if (previous !== undefined && now >= previous && now - previous < AUTH_MAINTENANCE_INTERVAL_MS) {
+      return { sessions: 0, verification: 0, loginAttempts: 0, sharePasswordAttempts: shareAttemptsRemoved }
+    }
+    const [sessions, verification, attempts] = await Promise.all([loadSessions(paths), loadVerificationCodes(paths), loadLoginAttempts(paths)])
+    if (!Array.isArray(sessions) || !Array.isArray(verification) || !Array.isArray(attempts)
+      || sessions.some(item => !item || !Number.isFinite(item.expiresAt))
+      || verification.some(item => !item || !Number.isFinite(item.expiresAt) || !Number.isInteger(item.attempts))
+      || attempts.some(item => !item || !Number.isFinite(item.lastFailAt))) throw new Error('Invalid transient authentication data')
+    const activeSessions = sessions.filter(item => item.expiresAt > now)
+    const activeCodes = verification.filter(item => item.expiresAt > now && item.attempts < MAX_VERIFICATION_ATTEMPTS)
+    const activeAttempts = attempts.filter(item => now - item.lastFailAt < LOGIN_LOCK_MS)
+    if (activeSessions.length !== sessions.length) await saveSessions(paths, activeSessions)
+    if (activeCodes.length !== verification.length) await saveVerificationCodes(paths, activeCodes)
+    if (activeAttempts.length !== attempts.length) await saveLoginAttempts(paths, activeAttempts)
+    authMaintenanceTimes.set(paths.authDirectory, now)
+    return { sessions: sessions.length - activeSessions.length, verification: verification.length - activeCodes.length, loginAttempts: attempts.length - activeAttempts.length, sharePasswordAttempts: shareAttemptsRemoved }
+  })
 }
 
 async function passwordDigest(password: string): Promise<string> {
@@ -890,7 +915,10 @@ async function verifySharePasswordAttempt(token: string, passwordHash: string, p
 
   return withLoginPasswordWork(async () => {
     const checkedAt = Date.now()
-    const attempt = sharePasswordAttempts.get(token)
+    if (!sharePasswordAttempts.hasCapacity(token, checkedAt)) {
+      return { ok: false, status: 429, retryAfter: Math.ceil(SHARE_PASSWORD_LOCK_MS / 1000) }
+    }
+    const attempt = sharePasswordAttempts.get(token, checkedAt)
     if (attempt && checkedAt - attempt.lastFailAt < SHARE_PASSWORD_LOCK_MS && attempt.count >= SHARE_PASSWORD_MAX_ATTEMPTS) {
       return {
         ok: false,
@@ -906,9 +934,9 @@ async function verifySharePasswordAttempt(token: string, passwordHash: string, p
     }
 
     const failedAt = Date.now()
-    const current = sharePasswordAttempts.get(token)
+    const current = sharePasswordAttempts.get(token, failedAt)
     const recentCount = current && failedAt - current.lastFailAt < SHARE_PASSWORD_LOCK_MS ? current.count : 0
-    sharePasswordAttempts.set(token, { count: recentCount + 1, lastFailAt: failedAt })
+    sharePasswordAttempts.set(token, { count: recentCount + 1, lastFailAt: failedAt }, failedAt)
     return { ok: false, status: 401 }
   })
 }
@@ -982,20 +1010,23 @@ function clearSessionCookie(res: ServerResponse): void {
   res.setHeader('Set-Cookie', `${SESSION_COOKIE}=; ${cookieOptions(0)}`)
 }
 
+const pendingSessionPrunes = new Map<string, Promise<void>>()
+
 async function currentUser(req: IncomingMessage, paths: RuntimePaths): Promise<StoredUser | null> {
   const token = parseCookies(req.headers.cookie)[SESSION_COOKIE]
   if (!token) return null
   const now = Date.now()
   const sessions = await loadSessions(paths)
   const validSessions = sessions.filter(session => session.expiresAt > now)
-  if (validSessions.length !== sessions.length) {
+  if (validSessions.length !== sessions.length && !pendingSessionPrunes.has(paths.authDirectory) && pendingSessionPrunes.size < 16) {
     // 清理过期会话也属于 sessions.json 的 read-modify-write，必须进入认证事务锁。
     // 锁内重新读取，避免覆盖同时发生的登录、登出、重置密码或管理员删用户写入。
-    void withAuthMutation(async () => {
+    const pruning = withAuthMutation(async () => {
       const current = await loadSessions(paths)
       const pruned = current.filter(session => session.expiresAt > Date.now())
       if (pruned.length !== current.length) await saveSessions(paths, pruned)
-    }).catch(() => undefined)
+    }).catch(() => undefined).finally(() => { pendingSessionPrunes.delete(paths.authDirectory) })
+    pendingSessionPrunes.set(paths.authDirectory, pruning)
   }
   const session = validSessions.find(item => item.token === token)
   if (!session) return null
@@ -1265,6 +1296,7 @@ function smtpConfig() {
 
 class SmtpClient {
   private buffer = ''
+  private responseBytes = 0
   private readonly socket: net.Socket | tls.TLSSocket
 
   constructor(socket: net.Socket | tls.TLSSocket) {
@@ -1283,13 +1315,26 @@ class SmtpClient {
         const end = this.buffer.indexOf('\r\n')
         if (end < 0) return false
         const line = this.buffer.slice(0, end)
+        this.responseBytes += Buffer.byteLength(line, 'utf8') + 2
         this.buffer = this.buffer.slice(end + 2)
         cleanup()
-        resolve(line)
+        if (this.responseBytes > SMTP_RESPONSE_MAX_BYTES) {
+          this.buffer = ''
+          this.socket.destroy()
+          reject(new Error('SMTP response exceeds limit'))
+        } else resolve(line)
         return true
       }
       const onData = (value: string | Buffer) => {
-        this.buffer += value.toString()
+        const part = value.toString()
+        if (Buffer.byteLength(this.buffer, 'utf8') + Buffer.byteLength(part, 'utf8') > SMTP_RESPONSE_MAX_BYTES) {
+          cleanup()
+          this.buffer = ''
+          this.socket.destroy()
+          reject(new Error('SMTP response exceeds limit'))
+          return
+        }
+        this.buffer += part
         consume()
       }
       const onError = (error: Error) => {
@@ -1309,13 +1354,16 @@ class SmtpClient {
   }
 
   async response(): Promise<{ code: number }> {
+    this.responseBytes = 0
     const first = await this.readLine()
     // AUTH replies can echo the authorization code. Never retain reply text in
     // exceptions, including malformed codes and multiline continuations.
     if (!/^[2-5][0-9]{2}(?:[ -]|$)/.test(first)) throw new Error('Invalid SMTP response')
     const code = Number(first.slice(0, 3))
     if (first[3] === '-') {
+      let lines = 1
       while (true) {
+        if (++lines > SMTP_RESPONSE_MAX_LINES) throw new Error('SMTP response exceeds limit')
         const line = await this.readLine()
         if (!/^[2-5][0-9]{2}(?:[ -]|$)/.test(line) || line.slice(0, 3) !== String(code)) throw new Error('Invalid SMTP response')
         if (line[3] !== '-') break
@@ -1334,11 +1382,12 @@ class SmtpClient {
   close(): void {
     this.socket.setTimeout(0)
     this.socket.once('error', () => undefined)
-    this.socket.end()
+    this.buffer = ''
+    this.socket.destroy()
   }
 }
 
-async function connectSmtp(host: string, port: number, secure: boolean): Promise<net.Socket | tls.TLSSocket> {
+async function connectSmtp(host: string, port: number, secure: boolean): Promise<{ socket: net.Socket | tls.TLSSocket; deadline: NodeJS.Timeout }> {
   const socket = secure
     ? tls.connect({ host, port, servername: host, rejectUnauthorized: true })
     : net.connect({ host, port })
@@ -1348,18 +1397,27 @@ async function connectSmtp(host: string, port: number, secure: boolean): Promise
     socket.destroy(new Error(`SMTP timeout after ${SMTP_TIMEOUT_MS} ms`))
   })
 
-  await new Promise<void>((resolve, reject) => {
-    const readyEvent = secure ? 'secureConnect' : 'connect'
-    const onReady = () => { cleanup(); resolve() }
-    const onError = (error: Error) => { cleanup(); reject(error) }
-    const cleanup = () => {
-      socket.off(readyEvent, onReady)
-      socket.off('error', onError)
-    }
-    socket.once(readyEvent, onReady)
-    socket.once('error', onError)
-  })
-  return socket
+  const deadline = setTimeout(() => { socket.destroy(new Error('SMTP total timeout')) }, SMTP_TOTAL_TIMEOUT_MS)
+  deadline.unref()
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const readyEvent = secure ? 'secureConnect' : 'connect'
+      const onReady = () => { cleanup(); resolve() }
+      const onError = (error: Error) => { cleanup(); reject(error) }
+      const cleanup = () => {
+        socket.off(readyEvent, onReady)
+        socket.off('error', onError)
+      }
+      socket.once(readyEvent, onReady)
+      socket.once('error', onError)
+    })
+    return { socket, deadline }
+  } catch (error) {
+    clearTimeout(deadline)
+    socket.destroy()
+    throw error
+  }
 }
 
 function encodedSubject(value: string): string {
@@ -1368,7 +1426,7 @@ function encodedSubject(value: string): string {
 
 async function sendSmtpMessage(to: string, subject: string, bodyLines: string[], messageId?: string): Promise<void> {
   const config = smtpConfig()
-  const socket = await connectSmtp(config.host, config.port, config.secure)
+  const { socket, deadline } = await connectSmtp(config.host, config.port, config.secure)
   const smtp = new SmtpClient(socket)
   try {
     const greeting = await smtp.response()
@@ -1397,6 +1455,7 @@ async function sendSmtpMessage(to: string, subject: string, bodyLines: string[],
     // DATA 250 is the accepted-delivery boundary. A lost QUIT reply must not resend.
     socket.write('QUIT\r\n')
   } finally {
+    clearTimeout(deadline)
     smtp.close()
   }
 }
@@ -1494,7 +1553,10 @@ async function handleAuth(req: IncomingMessage, res: ServerResponse, paths: Runt
         }
       }
 
-      const codes = existingCodes.filter(item => item.email !== email && item.expiresAt > now)
+      const codes = existingCodes.filter(item => item.email !== email && item.expiresAt > now && item.attempts < MAX_VERIFICATION_ATTEMPTS)
+      if (codes.length >= MAX_ACTIVE_VERIFICATION_CODES) {
+        return { ok: false as const, status: 429, error: '验证码请求过多，请稍后再试', retryAfter: Math.ceil(VERIFICATION_TTL / 1000) }
+      }
       codes.push({ email, codeHash, createdAt: now, sentAt: now, expiresAt: now + VERIFICATION_TTL, attempts: 0 })
       await saveVerificationCodes(paths, codes)
       return { ok: true as const }
@@ -2484,69 +2546,52 @@ async function handleProjects(req: IncomingMessage, res: ServerResponse, paths: 
   return true
 }
 
-// 日志缓冲：合并写入 + 超限轮转。
-// 每条日志一次 appendFile 在低配服务器上是可观开销，这里按 1 秒 / 50 条批量落盘。
-const LOG_FLUSH_INTERVAL_MS = 1000
-const LOG_FLUSH_MAX_LINES = 50
-const LOG_ROTATE_BYTES = 5 * 1024 * 1024
+// Disposable diagnostic logs have bounded queues and two fixed file generations.
+const runtimeLogWriters = new Map<string, ReturnType<typeof createBoundedLogWriter>>()
+let runtimeLogWriterTail: Promise<void> = Promise.resolve()
 
-const pendingLogLines = new Map<string, string[]>()
-let logFlushTimer: NodeJS.Timeout | undefined
-
-/** 日志超过 5 MiB 时轮转为 .1（避免单个日志文件无限增长） */
-async function rotateLogIfNeeded(file: string): Promise<void> {
+async function runtimeLogWriter(file: string): Promise<ReturnType<typeof createBoundedLogWriter>> {
+  const previous = runtimeLogWriterTail
+  let release!: () => void
+  runtimeLogWriterTail = previous.catch(() => undefined).then(() => new Promise<void>(resolve => { release = resolve }))
+  await previous.catch(() => undefined)
   try {
-    const stat = await fsp.stat(file)
-    if (stat.size < LOG_ROTATE_BYTES) return
-    await fsp.rename(file, `${file}.1`).catch(() => undefined)
-  } catch {
-    // 文件不存在：无需轮转
-  }
+    const existing = runtimeLogWriters.get(file)
+    if (existing) return existing
+    if (runtimeLogWriters.size >= 4) {
+      const [oldFile, oldWriter] = runtimeLogWriters.entries().next().value!
+      await oldWriter.close()
+      runtimeLogWriters.delete(oldFile)
+    }
+    const writer = createBoundedLogWriter(file)
+    runtimeLogWriters.set(file, writer)
+    return writer
+  } finally { release() }
 }
 
-async function flushRuntimeLogs(paths: RuntimePaths): Promise<void> {
-  if (logFlushTimer) {
-    clearTimeout(logFlushTimer)
-    logFlushTimer = undefined
-  }
-  if (pendingLogLines.size === 0) return
-  const batches = [...pendingLogLines.entries()]
-  pendingLogLines.clear()
-  await Promise.all(batches.map(async ([name, lines]) => {
-    if (lines.length === 0) return
-    const target = path.join(paths.logDirectory, name)
-    await rotateLogIfNeeded(target)
-    await fsp.appendFile(target, lines.join(''), 'utf8').catch(() => undefined)
-  }))
+export async function flushRuntimeLogs(): Promise<void> {
+  await Promise.all([...runtimeLogWriters.values()].map(writer => writer.flush()))
+}
+
+export async function closeRuntimeLogs(): Promise<void> {
+  await runtimeLogWriterTail
+  await Promise.all([...runtimeLogWriters.values()].map(writer => writer.close()))
+  runtimeLogWriters.clear()
 }
 
 export async function appendRuntimeLog(paths: RuntimePaths, entry: ClientLog): Promise<void> {
-  const line = `${JSON.stringify({
-    timestamp: entry.timestamp ?? new Date().toISOString(),
-    level: entry.level ?? 'info',
-    event: entry.event ?? 'unknown',
-    message: entry.message ?? '',
-    documentId: entry.documentId,
+  const record = {
+    timestamp: typeof entry.timestamp === 'string' ? entry.timestamp.slice(0, 64) : new Date().toISOString(),
+    level: typeof entry.level === 'string' ? entry.level.slice(0, 16) : 'info',
+    event: typeof entry.event === 'string' ? entry.event.slice(0, 128) : 'unknown',
+    message: typeof entry.message === 'string' ? entry.message.slice(0, 2048) : '',
+    documentId: typeof entry.documentId === 'string' ? entry.documentId.slice(0, 128) : undefined,
     details: entry.details,
-  })}\n`
-  const append = (name: string) => {
-    const lines = pendingLogLines.get(name) ?? []
-    lines.push(line)
-    pendingLogLines.set(name, lines)
   }
-  append('operations.log')
-  if (entry.level === 'error') append('errors.log')
-
-  let total = 0
-  for (const lines of pendingLogLines.values()) total += lines.length
-  if (total >= LOG_FLUSH_MAX_LINES) {
-    await flushRuntimeLogs(paths)
-    return
-  }
-  if (!logFlushTimer) {
-    logFlushTimer = setTimeout(() => { void flushRuntimeLogs(paths) }, LOG_FLUSH_INTERVAL_MS)
-    logFlushTimer.unref?.()
-  }
+  let line = `${JSON.stringify(record)}\n`
+  if (Buffer.byteLength(line, 'utf8') > 16 * 1024) line = `${JSON.stringify({ ...record, details: { truncated: true } })}\n`
+  ;(await runtimeLogWriter(path.join(paths.logDirectory, 'operations.log'))).write(line)
+  if (entry.level === 'error') (await runtimeLogWriter(path.join(paths.logDirectory, 'errors.log'))).write(line)
 }
 
 async function handleLogs(req: IncomingMessage, res: ServerResponse, paths: RuntimePaths, pathname: string, url: URL): Promise<boolean> {
@@ -2565,9 +2610,7 @@ async function handleLogs(req: IncomingMessage, res: ServerResponse, paths: Runt
       return true
     }
     const limit = Math.min(500, Math.max(1, Number(url.searchParams.get('limit')) || 100))
-    const readLines = async (file: string) => {
-      try { return (await fsp.readFile(file, 'utf8')).trim().split(/\r?\n/).filter(Boolean).slice(-limit) } catch { return [] }
-    }
+    const readLines = (file: string) => readLogTail(file, limit)
     const [operations, errors] = await Promise.all([
       readLines(path.join(paths.logDirectory, 'operations.log')),
       readLines(path.join(paths.logDirectory, 'errors.log')),
