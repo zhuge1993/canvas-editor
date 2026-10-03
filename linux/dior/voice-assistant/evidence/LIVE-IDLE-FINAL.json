@@ -1,0 +1,93 @@
+{
+  "status": "PASS",
+  "microphone_recordings_saved": false,
+  "human_wake_tested": false,
+  "read_only_control_rejected_actions": true,
+  "unauthorized_user_denied": true,
+  "idle": {
+    "wall_seconds": 30.041857136006,
+    "before": [
+      {
+        "pid": 27746,
+        "kind": "controller",
+        "uid": 107,
+        "rss_kib": 43112,
+        "threads": 11,
+        "cpu_ticks": 1205
+      },
+      {
+        "pid": 27804,
+        "kind": "keyword",
+        "uid": 107,
+        "rss_kib": 27284,
+        "threads": 4,
+        "cpu_ticks": 1336
+      },
+      {
+        "pid": 27769,
+        "kind": "model",
+        "uid": 107,
+        "rss_kib": 451520,
+        "threads": 2,
+        "cpu_ticks": 1635
+      }
+    ],
+    "after": [
+      {
+        "pid": 27746,
+        "kind": "controller",
+        "uid": 107,
+        "rss_kib": 43116,
+        "threads": 11,
+        "cpu_ticks": 1558
+      },
+      {
+        "pid": 27804,
+        "kind": "keyword",
+        "uid": 107,
+        "rss_kib": 27284,
+        "threads": 4,
+        "cpu_ticks": 1336
+      },
+      {
+        "pid": 27769,
+        "kind": "model",
+        "uid": 107,
+        "rss_kib": 451520,
+        "threads": 2,
+        "cpu_ticks": 1635
+      }
+    ],
+    "audio_frames_delta": 1502,
+    "asr_spans_delta": 0,
+    "model_cpu_ticks_delta": 0
+  },
+  "final_status": {
+    "phase": "IDLE",
+    "ready": true,
+    "wake_word": "二狗",
+    "full_duplex": true,
+    "barge_in": true,
+    "aec_verified": true,
+    "pending_wake_change": false,
+    "recording_persisted": false,
+    "transcript_logging": false,
+    "public_listener": false,
+    "queue_limits": {
+      "asr": 1,
+      "response": 1,
+      "frame": 50,
+      "preroll": 25
+    },
+    "llm_configured": true,
+    "network_enabled": true,
+    "keyword_spotter_configured": true,
+    "thermal_sensor_available": true,
+    "counters": {
+      "audio_frames": 1548,
+      "asr_spans": 1
+    }
+  },
+  "boot_enabled": true,
+  "kernel_tainted": 0
+}

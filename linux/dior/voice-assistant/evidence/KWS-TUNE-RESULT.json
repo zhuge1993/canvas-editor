@@ -1,0 +1,108 @@
+{
+  "status": "OBSERVED_KWS_CANDIDATE",
+  "generated_or_public_recording_only": true,
+  "human_voice_tested": false,
+  "microphone_acoustics_tested": false,
+  "gpu_used": false,
+  "cases": [
+    {
+      "name": "short-wake",
+      "wav": "/tmp/dior-kernel-test/voice-qa/fixtures/wake.wav",
+      "active_keyword": "二狗",
+      "expect_hit": true,
+      "hit": false,
+      "passed": false,
+      "audio_seconds": 0.904,
+      "paced_tail_seconds": 1.5,
+      "wall_seconds": 2.5625101099940366,
+      "max_rpc_seconds": 0.18181431999983033,
+      "total_decode_ms": 1137.9460000000004,
+      "hits": []
+    },
+    {
+      "name": "same-prefix-single-er",
+      "wav": "/tmp/dior-kernel-test/voice-qa/fixtures/negative-er.wav",
+      "active_keyword": "二狗",
+      "expect_hit": false,
+      "hit": false,
+      "passed": true,
+      "audio_seconds": 0.536,
+      "paced_tail_seconds": 1.5,
+      "wall_seconds": 2.037997876999725,
+      "max_rpc_seconds": 0.1757958759990288,
+      "total_decode_ms": 807.0230000000001,
+      "hits": []
+    },
+    {
+      "name": "negative-confirm",
+      "wav": "/tmp/dior-kernel-test/voice-qa/fixtures/confirm.wav",
+      "active_keyword": "二狗",
+      "expect_hit": false,
+      "hit": false,
+      "passed": true,
+      "audio_seconds": 0.968,
+      "paced_tail_seconds": 1.5,
+      "wall_seconds": 2.5415510530001484,
+      "max_rpc_seconds": 0.16898523500276497,
+      "total_decode_ms": 1080.6570000000002,
+      "hits": []
+    },
+    {
+      "name": "full-command-positive",
+      "wav": "/tmp/dior-kernel-test/voice-qa/fixtures/max.wav",
+      "active_keyword": "二狗",
+      "expect_hit": true,
+      "hit": true,
+      "passed": true,
+      "audio_seconds": 1.768,
+      "paced_tail_seconds": 1.5,
+      "wall_seconds": 3.3498059880002984,
+      "max_rpc_seconds": 0.17441898599645356,
+      "total_decode_ms": 1411.76,
+      "hits": [
+        {
+          "wall_seconds": 0.9745081139990361,
+          "audio_available_seconds": 0.8,
+          "native": {
+            "ok": true,
+            "id": 391,
+            "op": "feed",
+            "keyword": "二狗",
+            "timestamps": [
+              0.0,
+              0.32,
+              0.36
+            ],
+            "start_time": 0.0,
+            "stream_offset_seconds": 6.94,
+            "stream_generation": 5,
+            "samples_total": 123840,
+            "decode_calls": 1,
+            "decode_ms": 172.387,
+            "native_raw_keyword": "二狗",
+            "filtered_noncurrent_keyword": false
+          }
+        }
+      ]
+    }
+  ],
+  "ready": {
+    "ok": true,
+    "op": "ready",
+    "protocol": 1,
+    "sample_rate": 16000,
+    "frame_samples": 320,
+    "threads": 2,
+    "model_load_seconds": 14.402359,
+    "stream_limit_seconds": 30,
+    "stream_generation": 1
+  },
+  "worker_pid": 21222,
+  "final_ping": {
+    "ok": true,
+    "id": 516,
+    "op": "ping",
+    "stream_generation": 6,
+    "samples_total": 163520
+  }
+}

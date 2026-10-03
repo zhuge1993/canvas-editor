@@ -1,0 +1,70 @@
+{
+  "runtime": {
+    "repo": "csukuangfj/sherpa-onnx-libs",
+    "revision": "da78432ea90a1fda33002e933825e3cbf3a5ac78",
+    "version": "v1.10.29",
+    "url": "https://huggingface.co/csukuangfj/sherpa-onnx-libs/resolve/da78432ea90a1fda33002e933825e3cbf3a5ac78/arm32/sherpa-onnx-v1.10.29-linux-arm-gnueabihf-shared.tar.bz2?download=true",
+    "path": "arm32/sherpa-onnx-v1.10.29-linux-arm-gnueabihf-shared.tar.bz2",
+    "bytes": 18444853,
+    "sha256": "98a3d55b71780d42e35bbdb1db8b8bd7295b4e3cff787132528a2cde087bce72",
+    "extracted_bytes": 40184508,
+    "transport": "1MiB verified ranges with persisted parts, forced IPv4",
+    "phone_verified": false
+  },
+  "models": {
+    "official_model_repo": "pkufool/sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01",
+    "files": [
+      {
+        "path": "encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx",
+        "url": "https://modelscope.cn/models/pkufool/sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01/resolve/f360c3af05b218887669bf03d69d63042a1cd4e6/encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx",
+        "sha256": "017af32f2c0138f931d05fbc009ee864295e910aff304f77d2f563815fc834fb",
+        "bytes": 4807159,
+        "source_file_revision": "f360c3af05b218887669bf03d69d63042a1cd4e6"
+      },
+      {
+        "path": "decoder-epoch-12-avg-2-chunk-16-left-64.onnx",
+        "url": "https://modelscope.cn/models/pkufool/sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01/resolve/c7f531779e2324b104e58899d2d7727ea98e0b19/decoder-epoch-12-avg-2-chunk-16-left-64.onnx",
+        "sha256": "bb3d8640cc6a495088707173bc1707a8a4ffe014594fc9adcba8389e27d0339f",
+        "bytes": 675349,
+        "source_file_revision": "c7f531779e2324b104e58899d2d7727ea98e0b19"
+      },
+      {
+        "path": "joiner-epoch-12-avg-2-chunk-16-left-64.int8.onnx",
+        "url": "https://modelscope.cn/models/pkufool/sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01/resolve/f360c3af05b218887669bf03d69d63042a1cd4e6/joiner-epoch-12-avg-2-chunk-16-left-64.int8.onnx",
+        "sha256": "431de10b554f134ef8af320feea2db337e641290449a3d3f6cb6e5f5fd2c9c3d",
+        "bytes": 65208,
+        "source_file_revision": "f360c3af05b218887669bf03d69d63042a1cd4e6"
+      },
+      {
+        "path": "tokens.txt",
+        "url": "https://modelscope.cn/models/pkufool/sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01/resolve/c7f531779e2324b104e58899d2d7727ea98e0b19/tokens.txt",
+        "sha256": "72316508d9119696145abc6f1f8cdc46287535c34e5ce7e595f845cb1499cf2e",
+        "bytes": 1627,
+        "source_file_revision": "c7f531779e2324b104e58899d2d7727ea98e0b19"
+      }
+    ],
+    "bytes": 5549343,
+    "phone_verified": false,
+    "official_metadata_hashes_verified": true
+  },
+  "pypinyin": {
+    "project": "mozillazg/python-pinyin",
+    "version": "0.55.0",
+    "url": "https://files.pythonhosted.org/packages/b9/7b/4cabc76fcc21c3c7d5c671d8783984d30ac9d3bb387c4ba784fca3cdfa3a/pypinyin-0.55.0-py2.py3-none-any.whl",
+    "bytes": 840203,
+    "sha256": "d53b1e8ad2cdb815fb2cb604ed3123372f5a28c6f447571244aca36fc62a286f",
+    "source": "https://github.com/mozillazg/python-pinyin"
+  },
+  "native_source": {
+    "kws-worker.c": "92ffa5d22dd4dee8a02a52c7cfcc434be2420d245210856b4efabaf15feb32c5",
+    "c-api.h": "c27e6af884e3e9c386a790612dd8c182a077f42b2293c58c6487641d457fcb73"
+  },
+  "qualified_worker_sha256": "74cbb47f56ab1e46bd391388932e17614814203258735324689774ff5021ecf8",
+  "qualified_adapter_sha256": "4a255b3c4b654d62c439b0893163ece72c1c6b62e6b6183622c2aad6c6460e3d",
+  "default_profile": {
+    "score": 1.5,
+    "threshold": 0.35,
+    "threads": 2
+  },
+  "assets_in_git": false
+}

@@ -1,0 +1,29 @@
+{
+  "repo": "Qwen/Qwen2.5-0.5B-Instruct-GGUF",
+  "revision": "9217f5db79a29953eb74d5343926648285ec7e67",
+  "file": "qwen2.5-0.5b-instruct-q4_0.gguf",
+  "bytes": 428730208,
+  "sha256": "7671c0c304e6ce5a7fc577bcb12aba01e2c155cc2efd29b2213c95b18edaf6ed",
+  "url": "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/9217f5db79a29953eb74d5343926648285ec7e67/qwen2.5-0.5b-instruct-q4_0.gguf?download=true",
+  "download_seconds": 438.9657415999973,
+  "license": "Apache-2.0",
+  "phone_verified": false,
+  "gpu_used": false,
+  "git_publication": "weights excluded",
+  "transport": "verified HTTP ranges then full-file SHA256",
+  "generation_profile": {
+    "default_threads": 2,
+    "supported_threads": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "context_tokens": 512,
+    "default_generated_tokens": 24,
+    "hard_generated_tokens": 64,
+    "history_successful_turns": 2,
+    "history_characters_per_side": 24,
+    "new_profile_phone_verified": false
+  }
+}

@@ -1,0 +1,28 @@
+#!/sbin/openrc-run
+name="Dior private shared inference"
+description="One resident CPU model for local voice and authenticated website IPC"
+supervisor="supervise-daemon"
+command="/usr/bin/python3"
+command_args="-B /opt/dior-inference/bridge/server.py --config /etc/dior-inference.json"
+command_user="dior-inference:dior-inference"
+directory="/opt/dior-inference/bridge"
+pidfile="/run/dior-inference-supervise.pid"
+umask="0027"
+respawn_delay=5
+respawn_max=5
+respawn_period=60
+retry="TERM/12/KILL/5"
+stopgroup="yes"
+output_log="/dev/null"
+error_log="/dev/null"
+export PYTHONDONTWRITEBYTECODE=1
+export PYTHONUNBUFFERED=1
+export OMP_WAIT_POLICY=PASSIVE
+export KMP_BLOCKTIME=0
+depend() {
+    need localmount dior-asr
+}
+start_pre() {
+    [ ! -L /run/dior-inference ] || return 1
+    checkpath --directory --owner dior-inference:dior-inference --mode 0750 /run/dior-inference || return 1
+}

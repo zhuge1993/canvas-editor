@@ -1,0 +1,286 @@
+{
+  "status": "PASS_SHARED_DEVICE_SCOPE",
+  "human_acoustics_tested": false,
+  "actual_24_hour_soak_tested": false,
+  "components_before": [
+    {
+      "kind": "keyword",
+      "pid": 24271,
+      "uid": 107,
+      "rss_kib": 27084,
+      "threads": 4,
+      "cpu_ticks": 1464
+    },
+    {
+      "kind": "native_model",
+      "pid": 21895,
+      "uid": 108,
+      "rss_kib": 451804,
+      "threads": 2,
+      "cpu_ticks": 11890
+    },
+    {
+      "kind": "shared_inference",
+      "pid": 21842,
+      "uid": 108,
+      "rss_kib": 12900,
+      "threads": 5,
+      "cpu_ticks": 1253
+    },
+    {
+      "kind": "voice",
+      "pid": 24248,
+      "uid": 107,
+      "rss_kib": 43140,
+      "threads": 9,
+      "cpu_ticks": 35318
+    }
+  ],
+  "components_after": [
+    {
+      "kind": "keyword",
+      "pid": 24271,
+      "uid": 107,
+      "rss_kib": 27084,
+      "threads": 4,
+      "cpu_ticks": 1464
+    },
+    {
+      "kind": "native_model",
+      "pid": 21895,
+      "uid": 108,
+      "rss_kib": 451804,
+      "threads": 2,
+      "cpu_ticks": 11890
+    },
+    {
+      "kind": "shared_inference",
+      "pid": 21842,
+      "uid": 108,
+      "rss_kib": 12900,
+      "threads": 5,
+      "cpu_ticks": 1271
+    },
+    {
+      "kind": "voice",
+      "pid": 24248,
+      "uid": 107,
+      "rss_kib": 43156,
+      "threads": 9,
+      "cpu_ticks": 35674
+    }
+  ],
+  "shared_status": {
+    "v": 1,
+    "id": "final_status",
+    "ok": true,
+    "ready": true,
+    "active": null,
+    "queue_length": 0,
+    "active_state": null,
+    "thermal_waiting": false,
+    "cooling": false,
+    "thermal_admit_c": 52,
+    "voice_asr_active": false,
+    "thermal_c": 41.0,
+    "limits": {
+      "connections": 8,
+      "jobs": 4,
+      "stt_seconds": 20,
+      "chat_model_bytes": 768,
+      "tts_chars": 120
+    },
+    "model_load_count": 1,
+    "native_worker_pid": 21895,
+    "native_threads": 3,
+    "native_alive": true,
+    "backend": "CPU_NEON",
+    "public_tcp": false,
+    "web_history": false,
+    "last_model_diagnostics": {
+      "status": "complete",
+      "input_tokens": 55,
+      "cached_prefix_tokens": 28,
+      "generated_tokens": 12,
+      "max_rss_kib": 454804,
+      "history_excerpt_turns": 0,
+      "first_token_seconds": 9.420852840994485,
+      "prefill_seconds": 9.415342424996197,
+      "total_seconds": 13.396931857001618,
+      "gpu_used": false
+    },
+    "last_error_type": "none",
+    "capabilities": {
+      "chat": true,
+      "speech": true,
+      "transcribe": true
+    },
+    "capability_scope": "initialized provider; each call still validates runtime/availability"
+  },
+  "voice_status": {
+    "phase": "IDLE",
+    "ready": true,
+    "wake_word": "二狗",
+    "full_duplex": true,
+    "barge_in": true,
+    "aec_verified": true,
+    "pending_wake_change": false,
+    "recording_persisted": false,
+    "transcript_logging": false,
+    "public_listener": false,
+    "queue_limits": {
+      "asr": 1,
+      "response": 1,
+      "frame": 50,
+      "preroll": 25
+    },
+    "llm_configured": true,
+    "network_enabled": true,
+    "keyword_spotter_configured": true,
+    "thermal_sensor_available": true,
+    "counters": {
+      "audio_frames": 147824,
+      "interruptions": 2,
+      "asr_spans": 1
+    },
+    "shared_inference": {
+      "v": 1,
+      "id": "74df71ff920144548ed19b3023279dee",
+      "ok": true,
+      "ready": true,
+      "active": null,
+      "queue_length": 0,
+      "active_state": null,
+      "thermal_waiting": false,
+      "cooling": false,
+      "thermal_admit_c": 52,
+      "voice_asr_active": false,
+      "thermal_c": 41.0,
+      "limits": {
+        "connections": 8,
+        "jobs": 4,
+        "stt_seconds": 20,
+        "chat_model_bytes": 768,
+        "tts_chars": 120
+      },
+      "model_load_count": 1,
+      "native_worker_pid": 21895,
+      "native_threads": 3,
+      "native_alive": true,
+      "backend": "CPU_NEON",
+      "public_tcp": false,
+      "web_history": false,
+      "last_model_diagnostics": {
+        "status": "complete",
+        "input_tokens": 55,
+        "cached_prefix_tokens": 28,
+        "generated_tokens": 12,
+        "max_rss_kib": 454804,
+        "history_excerpt_turns": 0,
+        "first_token_seconds": 9.420852840994485,
+        "prefill_seconds": 9.415342424996197,
+        "total_seconds": 13.396931857001618,
+        "gpu_used": false
+      },
+      "last_error_type": "none",
+      "capabilities": {
+        "chat": true,
+        "speech": true,
+        "transcribe": true
+      },
+      "capability_scope": "initialized provider; each call still validates runtime/availability"
+    },
+    "model_ready": true
+  },
+  "idle": {
+    "seconds": 30.043583837992628,
+    "before": [
+      {
+        "kind": "keyword",
+        "pid": 24271,
+        "uid": 107,
+        "rss_kib": 27084,
+        "threads": 4,
+        "cpu_ticks": 1464
+      },
+      {
+        "kind": "native_model",
+        "pid": 21895,
+        "uid": 108,
+        "rss_kib": 451804,
+        "threads": 2,
+        "cpu_ticks": 11890
+      },
+      {
+        "kind": "shared_inference",
+        "pid": 21842,
+        "uid": 108,
+        "rss_kib": 12900,
+        "threads": 5,
+        "cpu_ticks": 1253
+      },
+      {
+        "kind": "voice",
+        "pid": 24248,
+        "uid": 107,
+        "rss_kib": 43140,
+        "threads": 9,
+        "cpu_ticks": 35318
+      }
+    ],
+    "after": [
+      {
+        "kind": "keyword",
+        "pid": 24271,
+        "uid": 107,
+        "rss_kib": 27084,
+        "threads": 4,
+        "cpu_ticks": 1464
+      },
+      {
+        "kind": "native_model",
+        "pid": 21895,
+        "uid": 108,
+        "rss_kib": 451804,
+        "threads": 2,
+        "cpu_ticks": 11890
+      },
+      {
+        "kind": "shared_inference",
+        "pid": 21842,
+        "uid": 108,
+        "rss_kib": 12900,
+        "threads": 5,
+        "cpu_ticks": 1271
+      },
+      {
+        "kind": "voice",
+        "pid": 24248,
+        "uid": 107,
+        "rss_kib": 43156,
+        "threads": 9,
+        "cpu_ticks": 35674
+      }
+    ],
+    "audio_frames_delta": 1502,
+    "clk_tck": 100
+  },
+  "website": {
+    "users": 5,
+    "shares": 5,
+    "share_statuses": [
+      200,
+      200,
+      200,
+      200,
+      200
+    ],
+    "bundle_sha256": "96794cd4643b047360be718e848ce2eed56bf86454e73860bef27fa5f86c20a2",
+    "voice_guest_status": 401,
+    "public_url_unchanged": true
+  },
+  "kernel": "3.4.0-msf",
+  "kernel_tainted": 0,
+  "free_storage_bytes": 4101623808,
+  "boot_enabled": true
+}

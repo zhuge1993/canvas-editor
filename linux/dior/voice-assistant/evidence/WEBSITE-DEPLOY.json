@@ -1,0 +1,26 @@
+{
+  "result": "PASS",
+  "archive_sha256": "7da8fe4f7e08bec728f903c79f99bb3df645ce66646f390aa4e839c727b79233",
+  "bundle_sha256": "96794cd4643b047360be718e848ce2eed56bf86454e73860bef27fa5f86c20a2",
+  "data_unchanged": true,
+  "counts_before": {
+    "users": 5,
+    "canvasDocuments": 8,
+    "managementProjects": 0,
+    "managementEvents": 0,
+    "managementHistory": 0
+  },
+  "counts_after": {
+    "users": 5,
+    "canvasDocuments": 8,
+    "managementProjects": 0,
+    "managementEvents": 0,
+    "managementHistory": 0
+  },
+  "tunnel_unchanged": true,
+  "kernel_tainted": 0,
+  "services_after": {
+    "flowboard": true,
+    "diorTunnel": true
+  }
+}

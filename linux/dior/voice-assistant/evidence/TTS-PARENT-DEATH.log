@@ -1,0 +1,1 @@
+{"status": "PASS_LINUX_LIFECYCLE", "parent_death_tested": true, "parent_killed_with": "SIGKILL", "child_state_after_parent_death": null, "child_kernel_limits": {"pid": 8535, "ppid": 8534, "core": [0, 0], "as": [1073741824, 1073741824], "fds": [64, 64]}, "death_seconds": 0.022671212995192036, "audio_file_created": false, "phone_audio_tested": false}

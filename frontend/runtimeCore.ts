@@ -17,6 +17,7 @@ import { handleManagementRequest, withProjectRegistrationInvite, maintainManagem
 import { ManagementBackupError, exportManagementBackup, stageManagementRestore, commitManagementRestore } from './managementBackup.js'
 import { ManagementWorkflowError } from './managementWorkflow.js'
 import { ManagementFieldError } from './managementFields.js'
+import { handleWebsiteVoice } from './websiteVoice.js'
 
 const scryptAsync = promisify(scryptCallback) as (
   password: string,
@@ -3517,6 +3518,28 @@ export async function handleRuntimeRequest(req: IncomingMessage, res: ServerResp
   // 提前记录客户端是否接受 gzip（sendJson 里无法可靠拿到请求头）
   ;(res as GzipAwareResponse).__acceptsGzip = /\bgzip\b/.test(String(req.headers['accept-encoding'] ?? ''))
   try {
+    if (await handleWebsiteVoice(req, res, paths, {
+      currentUser,
+      ownerExists: async (runtimePaths, ownerId) => (await loadUsers(runtimePaths)).some(user => user.id === ownerId),
+      canvasAccess: async (request, runtimePaths, actor, canvas) => {
+        if (!canvas.ownerId || !(await loadUsers(runtimePaths)).some(user => user.id === canvas.ownerId)) return false
+        if (canvas.ownerId === actor.id) return true
+        // An explicit canvas-share capability grants only this selected canvas,
+        // never its owner's workspace, other canvases, or management projects.
+        const tokenHeader = request.headers['x-flowboard-share-token']
+        const token = typeof tokenHeader === 'string' ? tokenHeader : ''
+        if (!/^[A-Za-z0-9_-]{1,120}$/.test(token)) return false
+        const share = (await loadShares(runtimePaths)).find(item => item.token === token && item.projectId === canvas.id
+          && (item.expiresAt === undefined || item.expiresAt > Date.now()))
+        if (!share) return false
+        if (!share.passwordHash) return true
+        const header = request.headers['x-flowboard-share-password']
+        const password = typeof header === 'string' ? header : ''
+        return (await verifySharePasswordAttempt(share.token, share.passwordHash, password)).ok
+      },
+      origin: publicOrigin,
+      sendJson,
+    })) return true
     if (await handleManagementRequest(req, res, paths, {
       currentUser,
       ownerExists: async (runtimePaths, ownerId) => (await loadUsers(runtimePaths)).some(user => user.id === ownerId),

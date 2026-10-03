@@ -1,0 +1,15 @@
+{
+  "status": "PASS",
+  "verified_staging_removed": [
+    "voice-runtime.tar.gz",
+    "llm-worker",
+    "kws",
+    "tts-native",
+    "fixtures",
+    "__pycache__"
+  ],
+  "unknown_paths_preserved": [],
+  "deleted_bytes": 48329476,
+  "free_storage_bytes": 4244299776,
+  "production_assets_or_user_data_deleted": false
+}

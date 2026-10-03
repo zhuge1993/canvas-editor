@@ -1,0 +1,88 @@
+{
+  "schema": 1,
+  "piper": {
+    "version": "2023.11.14-2",
+    "commit": "38917ffd8c0e219c6581d73e07b30ef1d572fce1",
+    "upstream": "https://github.com/rhasspy/piper"
+  },
+  "voice": {
+    "name": "zh_CN-huayan-x_low",
+    "revision": "375a0fe641dea077c2a47b4e9a056d6da521eed3",
+    "sample_rate": 16000,
+    "quality": "x_low",
+    "dataset_license": "Unknown in official MODEL_CARD",
+    "public_weight_redistribution_not_authorized_by_this_repository": true
+  },
+  "espeak_native": {
+    "version": "1.52.0-r1",
+    "apk_arch": "armhf",
+    "a_port_commit": "6207f37b50c572a16efe736d2fa1e9c1c7098c95",
+    "upstream": "https://github.com/espeak-ng/espeak-ng",
+    "license": "GPL-3.0-or-later",
+    "speech_quality": "mechanical/formant fallback; not neural speech"
+  },
+  "private_glibc": {
+    "version": "2.31",
+    "linux_min_abi": "3.2.0",
+    "piper_required_glibc_max": "2.29",
+    "piper_required_glibcxx_max": "3.4.26",
+    "system_libraries_replaced": false
+  },
+  "runtime_cpu_scope": "Piper ONNX Runtime1.14.1 CPU; automatic native thread pool, not limited by OMP_NUM_THREADS alone; no GPU inference claimed",
+  "assets": [
+    {
+      "path": "downloads/piper_linux_armv7l-2023.11.14-2.tar.gz",
+      "url": "https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_linux_armv7l.tar.gz",
+      "bytes": 25445955,
+      "sha256": "c6946fcd57c705ed1d4666ea880f80ba0bbbd14de62ecbdd13460baf3bac8e37"
+    },
+    {
+      "path": "downloads/espeak-ng-1.52.0-r1.apk",
+      "url": "https://dl-4.alpinelinux.org/alpine/edge/community/armhf/espeak-ng-1.52.0-r1.apk",
+      "bytes": 9398633,
+      "sha256": "a4491decb0d8f3c5719a8b5464bcc9cb801200eda4b9e847a6c7267fad9e4aee"
+    },
+    {
+      "path": "downloads/pcaudiolib-1.3-r0.apk",
+      "url": "https://dl-4.alpinelinux.org/alpine/edge/community/armhf/pcaudiolib-1.3-r0.apk",
+      "bytes": 5100,
+      "sha256": "ce640156b383c24ad652ea9b45333406481e62a1ec7b3ce84096260672ef35a9"
+    },
+    {
+      "path": "downloads/libc6_2.31-0ubuntu9.18_armhf.deb",
+      "url": "https://ports.ubuntu.com/pool/main/g/glibc/libc6_2.31-0ubuntu9.18_armhf.deb",
+      "bytes": 2454228,
+      "sha256": "23dd0471138992beb7f819a5af50a7b35d42f2e9db4b5f193bdc90d690c53e49"
+    },
+    {
+      "path": "downloads/libstdc++6_10.5.0-1ubuntu1~20.04_armhf.deb",
+      "url": "https://ports.ubuntu.com/pool/main/g/gcc-10/libstdc++6_10.5.0-1ubuntu1~20.04_armhf.deb",
+      "bytes": 441664,
+      "sha256": "bc3a5f89f896bb9504f0f5eab34d0354769beb5569771e40e25f9b1018f0d872"
+    },
+    {
+      "path": "downloads/libgcc-s1_10.5.0-1ubuntu1~20.04_armhf.deb",
+      "url": "https://ports.ubuntu.com/pool/main/g/gcc-10/libgcc-s1_10.5.0-1ubuntu1~20.04_armhf.deb",
+      "bytes": 36232,
+      "sha256": "d9e90a3f9f0b46942e8e8d488525d44dd4f7050c59174efd9ae6aeceb14854a8"
+    },
+    {
+      "path": "models/zh_CN-huayan-x_low.onnx",
+      "url": "https://huggingface.co/rhasspy/piper-voices/resolve/375a0fe641dea077c2a47b4e9a056d6da521eed3/zh/zh_CN/huayan/x_low/zh_CN-huayan-x_low.onnx",
+      "bytes": 20628813,
+      "sha256": "d30b143fac66d821a1285aa013295adf5cd129d3cc11d70334e51c7b20662c37"
+    },
+    {
+      "path": "models/zh_CN-huayan-x_low.onnx.json",
+      "url": "https://huggingface.co/rhasspy/piper-voices/resolve/375a0fe641dea077c2a47b4e9a056d6da521eed3/zh/zh_CN/huayan/x_low/zh_CN-huayan-x_low.onnx.json",
+      "bytes": 4164,
+      "sha256": "5521dcb09adf68a9bee289032f7f5af18d29bff020953429b5d223ec1f881816"
+    },
+    {
+      "path": "models/MODEL_CARD-huayan-x_low",
+      "url": "https://huggingface.co/rhasspy/piper-voices/resolve/375a0fe641dea077c2a47b4e9a056d6da521eed3/zh/zh_CN/huayan/x_low/MODEL_CARD",
+      "bytes": 237,
+      "sha256": "dc6f68f3036a32d0a74eae7ae07682a0cae06a84be17e681b59e3d11ccb1353d"
+    }
+  ]
+}

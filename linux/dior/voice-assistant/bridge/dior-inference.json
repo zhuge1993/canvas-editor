@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "socket": "/run/dior-inference/inference.sock",
+  "runtime_dir": "/opt/dior-voice/runtime",
+  "llm_module": "/opt/dior-voice/adapter.py",
+  "llm_binary": "/opt/dior-voice/llm-worker",
+  "llm_model": "/opt/dior-voice/models/qwen2.5-0.5b-instruct-q4_0.gguf",
+  "llm_threads": 3,
+  "thermal_admit_c": 52,
+  "tts_module": "/opt/dior-voice/tts/offline_tts.py",
+  "tts_base": "/opt/dior-voice/tts",
+  "asr_socket": "/run/dior-asr/recognize.sock"
+}

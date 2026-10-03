@@ -1,0 +1,112 @@
+{
+  "generated_fixture_data_only": true,
+  "context": "项目:语音验收临时项目;问题1,完成0。待办:网页语音输入(未定优先,等待验收)。",
+  "results": [
+    {
+      "reply": {
+        "v": 1,
+        "id": "dd62d4cd07f9424e819fb451c608e3c7",
+        "ok": true,
+        "text": "分析项目优先级，建议先进行网页语音输入。",
+        "metrics": {
+          "status": "complete",
+          "input_tokens": 56,
+          "cached_prefix_tokens": 28,
+          "generated_tokens": 12,
+          "max_rss_kib": 454804,
+          "history_excerpt_turns": 0,
+          "first_token_seconds": 7.633303816008265,
+          "prefill_seconds": 7.6277448059991,
+          "total_seconds": 11.379059857004904,
+          "gpu_used": false
+        },
+        "text_truncated": false,
+        "context_truncated": false,
+        "model_prompt_bytes": 210,
+        "web_stateless": true
+      },
+      "query": "分析项目优先级，建议先做什么？",
+      "elapsed_seconds": 11.464490755999577,
+      "status": {
+        "v": 1,
+        "id": "07edf3aeb69c45a7ad21531bacc80169",
+        "ok": true,
+        "ready": true,
+        "active": null,
+        "queue_length": 0,
+        "voice_asr_active": false,
+        "thermal_c": 65.0,
+        "limits": {
+          "connections": 8,
+          "jobs": 4,
+          "stt_seconds": 20,
+          "chat_model_bytes": 768,
+          "tts_chars": 120
+        },
+        "model_load_count": 1,
+        "native_worker_pid": 18289,
+        "native_alive": true,
+        "backend": "CPU_NEON",
+        "public_tcp": false,
+        "web_history": false,
+        "last_model_diagnostics": {
+          "status": "complete",
+          "input_tokens": 56,
+          "cached_prefix_tokens": 28,
+          "generated_tokens": 12,
+          "max_rss_kib": 454804,
+          "history_excerpt_turns": 0,
+          "first_token_seconds": 7.633303816008265,
+          "prefill_seconds": 7.6277448059991,
+          "total_seconds": 11.379059857004904,
+          "gpu_used": false
+        },
+        "last_error_type": "none",
+        "capabilities": {
+          "chat": true,
+          "speech": true,
+          "transcribe": true
+        },
+        "capability_scope": "initialized provider; each call still validates runtime/availability"
+      }
+    },
+    {
+      "error": "thermal",
+      "query": "请只用一句中文给出下一步建议。分析项目优先级，建议先做什么？",
+      "elapsed_seconds": 0.5670548060006695,
+      "status": {
+        "v": 1,
+        "id": "19ab2f636c36497595b8eac1f0d5ef8a",
+        "ok": true,
+        "ready": true,
+        "active": "chat",
+        "queue_length": 0,
+        "voice_asr_active": false,
+        "thermal_c": 67.0,
+        "limits": {
+          "connections": 8,
+          "jobs": 4,
+          "stt_seconds": 20,
+          "chat_model_bytes": 768,
+          "tts_chars": 120
+        },
+        "model_load_count": 1,
+        "native_worker_pid": 18289,
+        "native_alive": true,
+        "backend": "CPU_NEON",
+        "public_tcp": false,
+        "web_history": false,
+        "last_model_diagnostics": {
+          "status": "running"
+        },
+        "last_error_type": "none",
+        "capabilities": {
+          "chat": true,
+          "speech": true,
+          "transcribe": true
+        },
+        "capability_scope": "initialized provider; each call still validates runtime/availability"
+      }
+    }
+  ]
+}

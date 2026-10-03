@@ -1,0 +1,20 @@
+{
+  "scope": "host contracts; fake I/O does not prove phone acoustics",
+  "runtime": 28,
+  "llm_history": 8,
+  "tts_lifetime": 4,
+  "tts_fixed_cache": 6,
+  "native_kws": 25,
+  "installer": 8,
+  "audio_xrun": 7,
+  "audio_pointer": 7,
+  "provider_sibling_import": "PASS",
+  "kws_signed32_rpc_wrap": "PASS",
+  "actual_24_hour_soak": false,
+  "windows_parent_death": "SKIP; separate phone parent-death result retained",
+  "bridge": 18,
+  "website_http": 13,
+  "browser_fixtures": 16,
+  "rename_asr_compat": 3,
+  "workspace_http": 8
+}

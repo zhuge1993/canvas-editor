@@ -1,0 +1,84 @@
+{
+  "status": "OBSERVED_KWS_CANDIDATE",
+  "generated_or_public_recording_only": true,
+  "human_voice_tested": false,
+  "microphone_acoustics_tested": false,
+  "gpu_used": false,
+  "cases": [
+    {
+      "name": "ergou",
+      "wav": "/tmp/dior-kernel-test/voice-qa/fixtures/espeak-ergou.wav",
+      "active_keyword": "二狗",
+      "expect_hit": true,
+      "hit": false,
+      "passed": false,
+      "audio_seconds": 0.547875,
+      "paced_tail_seconds": 1.5,
+      "wall_seconds": 2.049723495998478,
+      "max_rpc_seconds": 0.16061160800018115,
+      "total_decode_ms": 746.1020000000001,
+      "hits": []
+    },
+    {
+      "name": "er",
+      "wav": "/tmp/dior-kernel-test/voice-qa/fixtures/espeak-er.wav",
+      "active_keyword": "二狗",
+      "expect_hit": false,
+      "hit": false,
+      "passed": true,
+      "audio_seconds": 0.3525625,
+      "paced_tail_seconds": 1.5,
+      "wall_seconds": 1.899954649998108,
+      "max_rpc_seconds": 0.14994765000301413,
+      "total_decode_ms": 716.7090000000001,
+      "hits": []
+    },
+    {
+      "name": "erge",
+      "wav": "/tmp/dior-kernel-test/voice-qa/fixtures/espeak-erge.wav",
+      "active_keyword": "二狗",
+      "expect_hit": false,
+      "hit": false,
+      "passed": true,
+      "audio_seconds": 0.501875,
+      "paced_tail_seconds": 1.5,
+      "wall_seconds": 2.0033947650008486,
+      "max_rpc_seconds": 0.1469498609949369,
+      "total_decode_ms": 732.4129999999999,
+      "hits": []
+    },
+    {
+      "name": "confirm",
+      "wav": "/tmp/dior-kernel-test/voice-qa/fixtures/espeak-confirm.wav",
+      "active_keyword": "二狗",
+      "expect_hit": false,
+      "hit": false,
+      "passed": true,
+      "audio_seconds": 0.6629375,
+      "paced_tail_seconds": 1.5,
+      "wall_seconds": 2.2216799009984243,
+      "max_rpc_seconds": 0.15432654500182252,
+      "total_decode_ms": 898.2489999999997,
+      "hits": []
+    }
+  ],
+  "ready": {
+    "ok": true,
+    "op": "ready",
+    "protocol": 1,
+    "sample_rate": 16000,
+    "frame_samples": 320,
+    "threads": 2,
+    "model_load_seconds": 12.641983,
+    "stream_limit_seconds": 30,
+    "stream_generation": 1
+  },
+  "worker_pid": 26072,
+  "final_ping": {
+    "ok": true,
+    "id": 411,
+    "op": "ping",
+    "stream_generation": 5,
+    "samples_total": 129920
+  }
+}
