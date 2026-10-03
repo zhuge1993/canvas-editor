@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+/build-output/
+/downloads/
+/eval/opencc/
+/eval/audio/
+*.wav
+*.bin
+*.so
+*.a
+*.zip
+*.tar.*
+stream-worker
+stream-benchmark

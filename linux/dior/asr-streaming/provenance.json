@@ -1,0 +1,113 @@
+{
+  "version": 1,
+  "backend": "CPU_NEON_OPENMP",
+  "gpu_used": false,
+  "source_url": "https://github.com/k2-fsa/sherpa-ncnn",
+  "version_tag": "v2.1.15",
+  "source_commit": "c794e1439fce79932e989220aa1c2848ecbdcdcf",
+  "upstream_release_sha": "d4bb5a78",
+  "compiler": "NDK r17c Clang6.0.2, GCC4.9 linker",
+  "interpreter": "/opt/dior-android/system/bin/linker",
+  "needed_libraries": [
+    "libm.so",
+    "libdl.so",
+    "liblog.so",
+    "libc.so"
+  ],
+  "dependencies": {
+    "kaldi-native-fbank": {
+      "cmake_recipe_sha256": "b72863467ee6fe238f39b13068c05c84e847da2d356a8b48f7131508b1930364",
+      "upstream_urls": [
+        "https://github.com/csukuangfj/kaldi-native-fbank/archive/refs/tags/v1.21.5.tar.gz"
+      ],
+      "required_hashes": [
+        "499966d4cdeb05060df2b26a0c171f92a6a2a119e7747b69e621e62c7fad0e9c"
+      ]
+    },
+    "kaldifst": {
+      "cmake_recipe_sha256": "58db437b7a628741848f23e683241351b731aae8ae14fa44edd9de0df5e9ccc2",
+      "upstream_urls": [
+        "https://github.com/k2-fsa/kaldifst/archive/refs/tags/v1.7.17.tar.gz"
+      ],
+      "required_hashes": [
+        "c4b701a23a400bda8032586b02c7e0d5e813a765832df60c23e6df9e62b010f4"
+      ]
+    },
+    "openfst": {
+      "cmake_recipe_sha256": "7ebfda1a9e06cf6c4d1aa0720195c5caaf8fa278528db99e35fcc954fb1cfed7",
+      "upstream_urls": [
+        "https://github.com/csukuangfj/openfst/archive/refs/tags/sherpa-onnx-2024-06-19.tar.gz"
+      ],
+      "required_hashes": [
+        "5c98e82cc509c5618502dde4860b8ea04d843850ed57e6d6b590b644b268853d"
+      ]
+    },
+    "ncnn": {
+      "cmake_recipe_sha256": "3b62129672de913397a0a75eb338fc3ce2cd652a5158163fe8b457122d0450f6",
+      "upstream_urls": [
+        "https://github.com/csukuangfj/ncnn/pull/7",
+        "https://github.com/Tencent/ncnn/archive/c4193aadbbb56582aa87b1850dd3d98fb8fd936d.zip"
+      ],
+      "required_hashes": [
+        "da5563a86045d66ecf34820f82edec67906f988c61ecd3787f7e5df8bdfb43c0"
+      ]
+    },
+    "json": {
+      "cmake_recipe_sha256": "607a92d9c2d92e824c0ab0d738939b367b06ff8f2195fdd2df1040c5c984f9a1",
+      "upstream_urls": [
+        "https://github.com/nlohmann/json/archive/refs/tags/v3.12.0.tar.gz"
+      ],
+      "required_hashes": [
+        "4b92eb0c06d10683f7447ce9406cb97cd4b453be18d7279320f7b2f025c10187"
+      ]
+    }
+  },
+  "compatibility": {
+    "disable_android_assets": {
+      "files": [
+        "sherpa-ncnn\\csrc\\conv-emformer-model.cc",
+        "sherpa-ncnn\\csrc\\conv-emformer-model.h",
+        "sherpa-ncnn\\csrc\\lstm-model.cc",
+        "sherpa-ncnn\\csrc\\lstm-model.h",
+        "sherpa-ncnn\\csrc\\model.cc",
+        "sherpa-ncnn\\csrc\\model.h",
+        "sherpa-ncnn\\csrc\\offline-recognizer-impl.cc",
+        "sherpa-ncnn\\csrc\\offline-recognizer.cc",
+        "sherpa-ncnn\\csrc\\offline-sense-voice-model.cc",
+        "sherpa-ncnn\\csrc\\recognizer.cc",
+        "sherpa-ncnn\\csrc\\recognizer.h",
+        "sherpa-ncnn\\csrc\\silero-vad-model.cc",
+        "sherpa-ncnn\\csrc\\silero-vad-model.h",
+        "sherpa-ncnn\\csrc\\symbol-table.cc",
+        "sherpa-ncnn\\csrc\\symbol-table.h",
+        "sherpa-ncnn\\csrc\\voice-activity-detector.cc",
+        "sherpa-ncnn\\csrc\\voice-activity-detector.h",
+        "sherpa-ncnn\\csrc\\zipformer-model.cc",
+        "sherpa-ncnn\\csrc\\zipformer-model.h"
+      ],
+      "macro": "DIOR_NO_ANDROID_ASSETS",
+      "patch_sha256": "bc27f4786d275106e0335d4e52a90e0cd58e39b6820205d943aa5c8757f1c995",
+      "purpose": "Use ordinary filesystem APIs on Linux instead of unavailable APK AAssetManager interfaces"
+    },
+    "rand_r": {
+      "sha256": "c24710cc9e78cddedf9f985d879b3d0b39ab8a1b54a84415a96af6a713968ddb",
+      "purpose": "API19 local reentrant Park-Miller fallback for dependency optional random path; ASR feature dither is 0"
+    },
+    "cxx14": "Avoid Clang6 C++17 array-address template limitation in OpenFST. No model inference source changes."
+  },
+  "frozen_benchmark": {
+    "bytes": 3926132,
+    "sha256": "bc38ffcf46da2283552bea873f6bd4b63d9ceb77e83ac88bad85c3589e0cdcf4"
+  },
+  "frozen_worker": {
+    "bytes": 4083704,
+    "sha256": "0d2206ee5fe10e63979a5f959883b5e414136f346e42e2b5eb0c4aeeee3b5dbd"
+  },
+  "frozen_runtime_package": {
+    "bytes": 50517909,
+    "sha256": "d68513f760ff66599493b4c452681d71bcaa74a08fff76180b6da193bcc0507e"
+  },
+  "native_phone_execution_scope": "Public WAV CPU recognition and separately paced streaming; no microphone validation",
+  "microphone_verified": false,
+  "scope": "Reproducible source and pinned hashes only, no weights/audio/binaries/SDK/downloaded dependencies"
+}

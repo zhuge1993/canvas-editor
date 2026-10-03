@@ -1,0 +1,7 @@
+{
+  "status": "PASS",
+  "mode": "validate-only",
+  "file_count": 37,
+  "model_files": 7,
+  "worker_sha256": "0d2206ee5fe10e63979a5f959883b5e414136f346e42e2b5eb0c4aeeee3b5dbd"
+}

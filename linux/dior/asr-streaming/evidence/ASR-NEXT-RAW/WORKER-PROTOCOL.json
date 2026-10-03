@@ -1,0 +1,75 @@
+{
+  "protocol_checks": [
+    "ready + ping",
+    "malformed, invalid PCM/operation/depth/oversized frame rejected; recovery ping works",
+    "four paced public recordings on one loaded model; endpoint resets release segment state",
+    "explicit EOF final independently labeled"
+  ],
+  "segments": [
+    {
+      "model": "bilingual32-worker",
+      "audio_name": "BAC009S0764W0121.wav",
+      "sample_id": "BAC009S0764W0121",
+      "paced": true,
+      "audio_seconds": 4.2039375,
+      "transcript": "甚至出现交易几乎停滞的情况",
+      "endpoint_tail_seconds": 0.4401077700044258,
+      "max_rss_kib": 87444
+    },
+    {
+      "model": "bilingual32-worker",
+      "audio_name": "BAC009S0916W0489.wav",
+      "sample_id": "BAC009S0916W0489",
+      "paced": true,
+      "audio_seconds": 5.7368125,
+      "transcript": "湖北一公司以员工名义贷款数十员工负债千万",
+      "endpoint_tail_seconds": 0.43872538800432803,
+      "max_rss_kib": 87444
+    },
+    {
+      "model": "bilingual32-worker",
+      "audio_name": "IT0011W0002.wav",
+      "sample_id": "IT0011W0002",
+      "paced": true,
+      "audio_seconds": 1.472,
+      "transcript": "几点了",
+      "endpoint_tail_seconds": 0.9149220380001934,
+      "max_rss_kib": 87444
+    },
+    {
+      "model": "bilingual32-worker",
+      "audio_name": "zh-short.wav",
+      "sample_id": "zh-short",
+      "paced": true,
+      "audio_seconds": 4.9966875,
+      "transcript": "欢迎大家来体验打磨院推出的语音识别模型",
+      "endpoint_tail_seconds": 0.8784385270000783,
+      "max_rss_kib": 87444
+    }
+  ],
+  "model_load_count": 1,
+  "thermal_abort": false,
+  "max_thermal_c": 61.0,
+  "ready": {
+    "backend": "CPU_NEON_OPENMP",
+    "beam": 4,
+    "decoding_method": "greedy_search",
+    "endpoint_enabled": true,
+    "endpoint_trailing_silence_seconds": 0.4,
+    "gpu_used": false,
+    "max_chunk_samples": 16000,
+    "max_line_bytes": 65536,
+    "max_rss_kib": 87444,
+    "max_segment_samples": 480000,
+    "model_dir": "/tmp/dior-kernel-test/asr-next-qa/models/sherpa-ncnn-streaming-zipformer-small-bilingual-zh-en-2023-02-16",
+    "model_load_seconds": 0.8390672790046665,
+    "protocol_version": 1,
+    "source_commit": "c794e1439fce79932e989220aa1c2848ecbdcdcf",
+    "threads": 4,
+    "type": "ready",
+    "upstream_release_sha": "d4bb5a78",
+    "upstream_version": "2.1.15"
+  },
+  "status": "PASS_PERSISTENT_WORKER_PROTOCOL",
+  "wall_seconds": 28.716221360999043
+}

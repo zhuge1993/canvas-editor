@@ -1,0 +1,7 @@
+{
+  "status": "PASS",
+  "duplicate_test_bytes_removed": 204860774,
+  "kept_installed_model": "/opt/dior-asr/models/bilingual32",
+  "kept_test_wavs_and_evidence": true,
+  "free_bytes": 4818972672
+}

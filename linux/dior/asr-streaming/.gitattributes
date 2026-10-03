@@ -1,0 +1,3 @@
+* text eol=lf
+# Unified-diff context contains significant leading spaces on blank lines.
+src/*.patch -whitespace

@@ -1,0 +1,42 @@
+#!/sbin/openrc-run
+# Local CPU ASR only. No audio, GPU, network, website or tunnel dependency.
+name="Dior local streaming ASR"
+description="Bounded CPU streaming recognition over a local Unix socket"
+supervisor="supervise-daemon"
+command="/usr/bin/python3"
+command_args="/opt/dior-asr/asr-broker.py --config /etc/dior-asr.json"
+command_user="dior-asr:dior-asr"
+directory="/opt/dior-asr"
+pidfile="/run/dior-asr-supervise.pid"
+umask="0027"
+respawn_delay=5
+respawn_max=5
+respawn_period=60
+retry="TERM/10/KILL/5"
+stopgroup="yes"
+# No append-only service logs; bounded status is available through the socket.
+output_log="/dev/null"
+error_log="/dev/null"
+export PYTHONDONTWRITEBYTECODE=1
+export PYTHONUNBUFFERED=1
+export OMP_WAIT_POLICY=PASSIVE
+export KMP_BLOCKTIME=0
+
+depend() {
+    need localmount
+}
+
+start_pre() {
+    if [ -L /run/dior-asr ]; then
+        eerror "Refusing a symlink at /run/dior-asr"
+        return 1
+    fi
+    checkpath --directory --owner dior-asr:dior-asr --mode 0750 /run/dior-asr || return 1
+    # Validate immutable code and model hashes before every service start.
+    /usr/bin/python3 /opt/dior-asr/asr-broker.py --config /etc/dior-asr.json --check-config || return 1
+}
+
+stop_post() {
+    # The broker removes its own socket. Keep the bounded directory for status.
+    return 0
+}

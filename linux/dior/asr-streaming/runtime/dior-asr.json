@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "worker": "/opt/dior-asr/stream-worker",
+  "worker_sha256": "0d2206ee5fe10e63979a5f959883b5e414136f346e42e2b5eb0c4aeeee3b5dbd",
+  "model_name": "bilingual32",
+  "model_description": "sherpa-ncnn-streaming-zipformer-small-bilingual-zh-en-2023-02-16",
+  "model_dir": "/opt/dior-asr/models/bilingual32",
+  "model_files": [
+    {
+      "path": "decoder_jit_trace-pnnx.ncnn.bin",
+      "bytes": 6412296,
+      "sha256": "4d1bb6ff7176907da2d19f451ba5ac13d72b56c675c8c41abd6e2f35e99bd435"
+    },
+    {
+      "path": "decoder_jit_trace-pnnx.ncnn.param",
+      "bytes": 439,
+      "sha256": "cb88f5894978fd3e85369d2f8ea55621809fceb2b5158243fb0cd025eb4f1aaf"
+    },
+    {
+      "path": "encoder_jit_trace-pnnx.ncnn.bin",
+      "bytes": 39222748,
+      "sha256": "0d3678d99dbb821d127511552c5c8451319a24469c5e5fbd9da1f7084254240f"
+    },
+    {
+      "path": "encoder_jit_trace-pnnx.ncnn.param",
+      "bytes": 111810,
+      "sha256": "8025162b7d5042a4b06f3794fcd6bda7533eec65ce50533df7d8b0d91ff70887"
+    },
+    {
+      "path": "joiner_jit_trace-pnnx.ncnn.bin",
+      "bytes": 7219652,
+      "sha256": "2ee60ac939e61494ef3cacf2768e0d786ed7461e636664f078dd6829877b6377"
+    },
+    {
+      "path": "joiner_jit_trace-pnnx.ncnn.param",
+      "bytes": 490,
+      "sha256": "75f733e68e479904181fdcf48a6a717b2b0fecbd364413e73bd44f25828922ce"
+    },
+    {
+      "path": "tokens.txt",
+      "bytes": 56317,
+      "sha256": "a8e0e4ec53810e433789b54a5c0134a7eaa2ffca595a6334d54c00da858841d3"
+    }
+  ],
+  "threads": 4,
+  "decoder": "greedy_search",
+  "beam": 4,
+  "endpoint": 1,
+  "source_commit": "c794e1439fce79932e989220aa1c2848ecbdcdcf",
+  "upstream_release_sha": "d4bb5a78",
+  "model_author_revision": "5fb2fb06fe78a776dbda78226c42d435359064f7",
+  "socket": "/run/dior-asr/recognize.sock",
+  "socket_group": "dior-asr"
+}
