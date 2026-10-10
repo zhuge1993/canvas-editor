@@ -1,0 +1,339 @@
+{
+  "retirement": {
+    "dior-voice": {
+      "init": true,
+      "runlevels": true,
+      "directory": true,
+      "user": true,
+      "group": true
+    },
+    "dior-voice-candidate": {
+      "init": true,
+      "runlevels": true,
+      "directory": true,
+      "user": true,
+      "group": true
+    },
+    "dior-inference": {
+      "init": true,
+      "runlevels": true,
+      "directory": true,
+      "user": true,
+      "group": true
+    }
+  },
+  "old_processes": [],
+  "production_routes": {
+    "/api/voice/status": 404,
+    "/api/voice/ask": 404,
+    "/api/decision/status": 401,
+    "/": 200
+  },
+  "model_health": {
+    "status": "ready",
+    "api_version": "agentjev.decision.v1",
+    "model": "AgentJev-0.6B",
+    "output_token_decoding": false,
+    "available": true,
+    "cooling": true,
+    "max_path_tokens": 512,
+    "types": [
+      "boolean",
+      "choice",
+      "score"
+    ],
+    "backend": "onnx-int8-armv7",
+    "probability_semantics": "model distribution; domain calibration is not guaranteed",
+    "phoneQualified": false
+  },
+  "services": {
+    "agentjev": "* status: started",
+    "flowboard": "* status: started"
+  },
+  "boot_enabled": true,
+  "execution": {
+    "fixture": "isolated real web gateway and phone model",
+    "cases": [
+      {
+        "id": "choice",
+        "seconds": 21.794,
+        "result": {
+          "model": "AgentJev-0.6B",
+          "answers": [
+            {
+              "id": "kind",
+              "type": "choice",
+              "distribution": {
+                "bug": 0.49547476556292813,
+                "progress": 0.19346551327028988,
+                "request": 0.31105972116678193
+              },
+              "value": "bug",
+              "description": "程序故障",
+              "top_probability": 0.49547476556292813,
+              "margin": 0.1844150443961462
+            }
+          ],
+          "sources": [],
+          "readOnly": true,
+          "summaryOnly": true,
+          "generatedTokens": 0
+        }
+      },
+      {
+        "id": "boolean",
+        "seconds": 12.043,
+        "result": {
+          "model": "AgentJev-0.6B",
+          "answers": [
+            {
+              "id": "fault",
+              "type": "boolean",
+              "distribution": {
+                "true": 0.43225661120438763,
+                "false": 0.5677433887956124
+              },
+              "value": false,
+              "probability": 0.43225661120438763
+            }
+          ],
+          "sources": [],
+          "readOnly": true,
+          "summaryOnly": true,
+          "generatedTokens": 0
+        }
+      },
+      {
+        "id": "score",
+        "seconds": 20.108,
+        "result": {
+          "model": "AgentJev-0.6B",
+          "answers": [
+            {
+              "id": "urgency",
+              "type": "score",
+              "distribution": {
+                "0": 0.2242961044872591,
+                "1": 0.20023392712654373,
+                "2": 0.5754699683861971
+              },
+              "value": "2",
+              "score": 1.351173863898938,
+              "level": 2,
+              "legend": [
+                "不紧急",
+                "一般",
+                "紧急"
+              ]
+            }
+          ],
+          "sources": [],
+          "readOnly": true,
+          "summaryOnly": true,
+          "generatedTokens": 0
+        }
+      }
+    ],
+    "auth_and_removal": "PASS",
+    "status": "PASS_TRANSPORT_AND_REAL_EXECUTION",
+    "semantic_note": "Selected Chinese cases are observations, not accuracy certification; original FP32 weights misclassify the boolean example."
+  },
+  "direct_model": {
+    "model": "AgentJev-0.6B",
+    "backend": "onnx-int8-armv7",
+    "cases": [
+      {
+        "id": "classify",
+        "seconds": 15.46,
+        "result": {
+          "api_version": "agentjev.decision.v1",
+          "model": "AgentJev-0.6B",
+          "results": [
+            {
+              "id": "classify",
+              "answers": [
+                {
+                  "id": "kind",
+                  "type": "choice",
+                  "distribution": {
+                    "bug": 0.4837589352267658,
+                    "progress": 0.19686799587948156,
+                    "request": 0.3193730688937527
+                  },
+                  "value": "bug",
+                  "description": "程序故障",
+                  "top_probability": 0.4837589352267658,
+                  "margin": 0.16438586633301305
+                }
+              ]
+            }
+          ],
+          "usage": {
+            "generated_tokens": 0,
+            "truncated_inputs": 0,
+            "input_path_tokens": 106,
+            "wall_ms": 15436.85
+          }
+        }
+      }
+    ],
+    "semantic_note": "Boolean fault example also misclassified by original FP32 weights; transport execution does not establish accuracy.",
+    "workers": [
+      {
+        "pid": "29755",
+        "memory": [
+          "VmHWM:\t     248 kB",
+          "VmRSS:\t     248 kB"
+        ]
+      },
+      {
+        "pid": "29756",
+        "memory": [
+          "VmHWM:\t   49760 kB",
+          "VmRSS:\t   45356 kB"
+        ]
+      },
+      {
+        "pid": "29780",
+        "memory": [
+          "VmHWM:\t  578692 kB",
+          "VmRSS:\t  577672 kB"
+        ]
+      }
+    ]
+  },
+  "deployment": {
+    "status": "WEBSITE_UPDATED",
+    "previous_pid": "8563",
+    "current_pid": "14944",
+    "health": {
+      "status": "ok",
+      "app": "FlowBoard",
+      "version": "dev-build",
+      "uptimeSeconds": 0,
+      "timestamp": "2026-10-10T15:25:40.885Z"
+    },
+    "data_directories_preserved": true,
+    "settings_restored": true,
+    "backup": "/opt/flowboard/.decision-backup-20261010-152539"
+  },
+  "runtime_libraries": {
+    "libdl.so.2": {
+      "source": "/opt/dior-voice/tts/private-glibc/lib/libdl.so.2",
+      "bytes": 9772,
+      "sha256": "6b1d858de9a82f174355be3a144d8bad5aca5e8cf43a08ad1f626809f3f0ef0c"
+    },
+    "librt.so.1": {
+      "source": "/opt/dior-voice/tts/private-glibc/lib/librt.so.1",
+      "bytes": 22488,
+      "sha256": "dc9026e16e144b8f971d7ada763bbb7eb907d12784b780e27d8b04e6fd772ace"
+    },
+    "ld-linux-armhf.so.3": {
+      "source": "/opt/dior-voice/tts/private-glibc/lib/ld-linux-armhf.so.3",
+      "bytes": 1280396,
+      "sha256": "e2e5392e4efb7aef646607e799e3961249b810361ddd048d66db8e2698d502fe"
+    },
+    "libm.so.6": {
+      "source": "/opt/dior-voice/tts/private-glibc/lib/libm.so.6",
+      "bytes": 362672,
+      "sha256": "84d0f65834162923f29f44a1ae28640c98eac98cd5352115986d2e4f38fb8324"
+    },
+    "libstdc++.so.6": {
+      "source": "/opt/dior-voice/tts/private-glibc/lib/libstdc++.so.6",
+      "bytes": 1274744,
+      "sha256": "ec59eb21907f3fb341f51adf57c6e33f56cb017f0b90bc153a322d31a175a3ea"
+    },
+    "libstdc++.so.6.0.28": {
+      "source": "/opt/dior-voice/tts/private-glibc/lib/libstdc++.so.6.0.28",
+      "bytes": 1274744,
+      "sha256": "ec59eb21907f3fb341f51adf57c6e33f56cb017f0b90bc153a322d31a175a3ea"
+    },
+    "libpthread.so.0": {
+      "source": "/opt/dior-voice/tts/private-glibc/lib/libpthread.so.0",
+      "bytes": 116964,
+      "sha256": "757fecd303c90d630269a1e6ee2c7206e862ad9a27a09bb57a06d11944a38b0f"
+    },
+    "libgcc_s.so.1": {
+      "source": "/opt/dior-voice/tts/private-glibc/lib/libgcc_s.so.1",
+      "bytes": 99996,
+      "sha256": "e2c4fc26ba9cc4c5b31a7f60f29a43ece5f99dbe44f923890685b4bc62cf0936"
+    },
+    "libpthread-2.31.so": {
+      "source": "/opt/dior-voice/tts/private-glibc/lib/libpthread-2.31.so",
+      "bytes": 116964,
+      "sha256": "757fecd303c90d630269a1e6ee2c7206e862ad9a27a09bb57a06d11944a38b0f"
+    },
+    "ld-linux.so.3": {
+      "source": "/opt/dior-voice/tts/private-glibc/lib/ld-linux.so.3",
+      "bytes": 1280396,
+      "sha256": "e2e5392e4efb7aef646607e799e3961249b810361ddd048d66db8e2698d502fe"
+    },
+    "libc.so.6": {
+      "source": "/opt/dior-voice/tts/private-glibc/lib/libc.so.6",
+      "bytes": 974932,
+      "sha256": "d5c282df04217ddbeb0556995dbafce126a05156c727b7eb37d93878cc50d50a"
+    },
+    "libonnxruntime.so": {
+      "source": "/opt/dior-voice/tts/piper-armv7/libonnxruntime.so",
+      "bytes": 13230208,
+      "sha256": "18d3dde0ab0f8db14d1f1770738155cc2d4756b95dc45df76fcc471acda9b412"
+    },
+    "libonnxruntime.so.1.14.1": {
+      "source": "/opt/dior-voice/tts/piper-armv7/libonnxruntime.so.1.14.1",
+      "bytes": 13230208,
+      "sha256": "18d3dde0ab0f8db14d1f1770738155cc2d4756b95dc45df76fcc471acda9b412"
+    }
+  },
+  "model_manifest": {
+    "model": "AgentJev-0.6B",
+    "quantization": "INT8 encoder; FP32 trained candidate head",
+    "source": {
+      "model": "AgentJev-0.6B",
+      "source": "https://github.com/malevrigns/agent-jev",
+      "sourceRevision": "1c2c1b1ae1dc427d4cc851ef7460a1112b0cb3e1",
+      "weightsRepo": "aimeigaoshou/agent-jev",
+      "weightsRevision": "7d433994fbde17a3f0993c2f2b02fe8ca1370db1",
+      "files": {
+        "model.safetensors": {
+          "bytes": 1196881242,
+          "sha256": "8166e46dc6019ae13f0d8fc97d603cdbcc2d20eb1882c7350c8deb9fc6bae215"
+        },
+        "temperatures.json": {
+          "bytes": 389,
+          "sha256": "5e5032896d77c72feb86b4725abe418488b8a1c7476014c706bd8215eb43c86c"
+        }
+      },
+      "baseConfigRepo": "Qwen/Qwen3-0.6B",
+      "outputTokenDecoding": false,
+      "phoneQualified": false
+    },
+    "files": {
+      "encoder.int8.onnx": {
+        "bytes": 2287048,
+        "sha256": "f598054464ff221ecee22c99ebe6ddae028707848a6d2250c97afa28087f5b1d"
+      },
+      "encoder.int8.onnx.data": {
+        "bytes": 596217856,
+        "sha256": "812dccedd3db5e7d7773b3be646aab44261d3d2ddb5171c22f0be8b4d9853f4a"
+      },
+      "head.onnx": {
+        "bytes": 9496667,
+        "sha256": "d2bbde0a4b104411566fc4229969a06b8c1db23b25eaff59ebdb588ce8b4ae96"
+      }
+    }
+  },
+  "new_frontend": true,
+  "old_frontend_absent": true,
+  "backup_contents": {
+    "/opt/flowboard/.decision-backup-20261010-152539": [
+      "dist",
+      "server-bundle.cjs"
+    ],
+    "/opt/flowboard/.server-backup-20261001": [
+      "start-server.sh",
+      "flowboard",
+      "dist",
+      "server-bundle.cjs"
+    ]
+  }
+}

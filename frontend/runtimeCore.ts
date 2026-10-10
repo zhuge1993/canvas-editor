@@ -17,7 +17,7 @@ import { handleManagementRequest, withProjectRegistrationInvite, maintainManagem
 import { ManagementBackupError, exportManagementBackup, stageManagementRestore, commitManagementRestore } from './managementBackup.js'
 import { ManagementWorkflowError } from './managementWorkflow.js'
 import { ManagementFieldError } from './managementFields.js'
-import { handleWebsiteVoice } from './websiteVoice.js'
+import { handleWebsiteDecision } from './websiteDecision.js'
 
 const scryptAsync = promisify(scryptCallback) as (
   password: string,
@@ -3518,7 +3518,12 @@ export async function handleRuntimeRequest(req: IncomingMessage, res: ServerResp
   // 提前记录客户端是否接受 gzip（sendJson 里无法可靠拿到请求头）
   ;(res as GzipAwareResponse).__acceptsGzip = /\bgzip\b/.test(String(req.headers['accept-encoding'] ?? ''))
   try {
-    if (await handleWebsiteVoice(req, res, paths, {
+    // Retired API URLs must not fall through to the SPA's HTML response.
+    if (pathname === '/api/voice' || pathname.startsWith('/api/voice/')) {
+      sendJson(res, 404, { error: '接口不存在' })
+      return true
+    }
+    if (await handleWebsiteDecision(req, res, paths, {
       currentUser,
       ownerExists: async (runtimePaths, ownerId) => (await loadUsers(runtimePaths)).some(user => user.id === ownerId),
       canvasAccess: async (request, runtimePaths, actor, canvas) => {

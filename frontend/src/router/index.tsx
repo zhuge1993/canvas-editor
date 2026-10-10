@@ -8,10 +8,10 @@ import NotificationsPage from '@/pages/Management/NotificationsPage'
 import ProjectPage from '@/pages/Management/ProjectPage'
 import ProjectInvitePage from '@/pages/Management/ProjectInvitePage'
 import WorkspaceShell from '@/components/workspace/WorkspaceShell'
-import VoiceWorkspace from '@/components/voice/VoiceWorkspace'
+import DecisionWorkspace from '@/components/decision/DecisionWorkspace'
 
 export default function AppRouter() {
-  return <BrowserRouter><VoiceWorkspace /><Routes>
+  return <BrowserRouter><DecisionWorkspace /><Routes>
     <Route path="/auth" element={<AuthPage />} />
     <Route path="/register" element={<AuthPage />} />
     <Route path="/project-invite/:token" element={<ProjectInvitePage />} />

@@ -1,0 +1,22 @@
+{
+  "model": "AgentJev-0.6B",
+  "source": "https://github.com/malevrigns/agent-jev",
+  "sourceRevision": "1c2c1b1ae1dc427d4cc851ef7460a1112b0cb3e1",
+  "weightsRepo": "aimeigaoshou/agent-jev",
+  "weightsRevision": "7d433994fbde17a3f0993c2f2b02fe8ca1370db1",
+  "files": {
+    "model.safetensors": {
+      "bytes": 1196881242,
+      "sha256": "8166e46dc6019ae13f0d8fc97d603cdbcc2d20eb1882c7350c8deb9fc6bae215"
+    },
+    "temperatures.json": {
+      "bytes": 389,
+      "sha256": "5e5032896d77c72feb86b4725abe418488b8a1c7476014c706bd8215eb43c86c"
+    }
+  },
+  "baseConfigRepo": "Qwen/Qwen3-0.6B",
+  "outputTokenDecoding": false,
+  "phoneQualified": false,
+  "phoneExecutionEvidence": "evidence/phone-verification.json",
+  "phoneQualifiedMeaning": "Broad semantic accuracy, sustained thermal operation and long-input qualification are not established."
+}

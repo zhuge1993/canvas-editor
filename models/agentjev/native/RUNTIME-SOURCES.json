@@ -1,0 +1,30 @@
+{
+  "scope": "general ARMhf GNU libraries and ONNX Runtime only; no speech binaries or voice models installed",
+  "onnxRuntimeVersion": "1.14.1",
+  "assets": [
+    {
+      "path": "downloads/piper_linux_armv7l-2023.11.14-2.tar.gz",
+      "url": "https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_linux_armv7l.tar.gz",
+      "bytes": 25445955,
+      "sha256": "c6946fcd57c705ed1d4666ea880f80ba0bbbd14de62ecbdd13460baf3bac8e37"
+    },
+    {
+      "path": "downloads/libc6_2.31-0ubuntu9.18_armhf.deb",
+      "url": "https://ports.ubuntu.com/pool/main/g/glibc/libc6_2.31-0ubuntu9.18_armhf.deb",
+      "bytes": 2454228,
+      "sha256": "23dd0471138992beb7f819a5af50a7b35d42f2e9db4b5f193bdc90d690c53e49"
+    },
+    {
+      "path": "downloads/libstdc++6_10.5.0-1ubuntu1~20.04_armhf.deb",
+      "url": "https://ports.ubuntu.com/pool/main/g/gcc-10/libstdc++6_10.5.0-1ubuntu1~20.04_armhf.deb",
+      "bytes": 441664,
+      "sha256": "bc3a5f89f896bb9504f0f5eab34d0354769beb5569771e40e25f9b1018f0d872"
+    },
+    {
+      "path": "downloads/libgcc-s1_10.5.0-1ubuntu1~20.04_armhf.deb",
+      "url": "https://ports.ubuntu.com/pool/main/g/gcc-10/libgcc-s1_10.5.0-1ubuntu1~20.04_armhf.deb",
+      "bytes": 36232,
+      "sha256": "d9e90a3f9f0b46942e8e8d488525d44dd4f7050c59174efd9ae6aeceb14854a8"
+    }
+  ]
+}
