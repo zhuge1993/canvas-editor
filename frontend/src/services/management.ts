@@ -1,4 +1,4 @@
-import type { AIShare, AIShareScope, EventDraft, EventUpdatePatch, ManagementAttachment, ManagementEvent, ManagementFilters, ManagementHistory, ManagementProject, ManagementProjectSummary, ManagementStats, ManagementTableConfig, ManagementMember, ManagementNotification, ManagementWorkRecords, ProjectInvite, ProjectInvitePreview, MutationOptions, ProjectDraft } from '@/types/management'
+import type { AIShare, AIShareScope, RequirementDraft, EventDraft, EventUpdatePatch, ManagementAttachment, ManagementEvent, ManagementFilters, ManagementHistory, ManagementProject, ManagementProjectSummary, ManagementStats, ManagementTableConfig, ManagementMember, ManagementNotification, ManagementWorkRecords, ProjectInvite, ProjectInvitePreview, MutationOptions, ProjectDraft } from '@/types/management'
 
 export class ManagementRequestError extends Error {
   status: number
@@ -34,10 +34,11 @@ export const getStats = (id: string, filters: ManagementFilters = {}, days = 14)
 export const getEvents = (id: string, filters: ManagementFilters = {}) => request<ManagementEvent[]>(`${path(id)}/events${query(filters)}`)
 export const getHistory = (id: string) => request<ManagementHistory[]>(`${path(id)}/history`)
 export const createEvent = (id: string, draft: EventDraft & { id?: string }, options?: MutationOptions) => request<ManagementProject>(`${path(id)}/events`, { method: 'POST', body: body({ ...draft, attachments: draft.attachments.map(item => ({ id: item.id })) }, options) })
+export const submitRequirement = (id: string, draft: RequirementDraft, options: MutationOptions & { mutationId: string }) => request<ManagementProject>(`${path(id)}/intake`, { method: 'POST', body: body({ ...draft, attachments: draft.attachments.map(item => ({ id: item.id })) }, options) })
 export const updateEvent = (id: string, eventId: string, patch: EventUpdatePatch, options?: MutationOptions) => request<ManagementProject>(`${path(id)}/events/${encodeURIComponent(eventId)}`, { method: 'PATCH', body: body({ ...patch, ...(patch.attachments ? { attachments: patch.attachments.map(item => ({ id: item.id })) } : {}) }, options) })
 export const deleteEvent = (id: string, eventId: string, options?: MutationOptions) => request<ManagementProject>(`${path(id)}/events/${encodeURIComponent(eventId)}`, { method: 'DELETE', body: body({}, options) })
-export const createTag = (id: string, kind: 'roles' | 'categories', value: { name: string; color: string }, options?: MutationOptions) => request<ManagementProject>(`${path(id)}/${kind}`, { method: 'POST', body: body(value, options) })
-export const updateTag = (id: string, kind: 'roles' | 'categories', tagId: string, value: { name: string; color: string }, options?: MutationOptions) => request<ManagementProject>(`${path(id)}/${kind}/${encodeURIComponent(tagId)}`, { method: 'PATCH', body: body(value, options) })
+export const createTag = (id: string, kind: 'roles' | 'categories', value: { name: string; color: string; description?: string }, options?: MutationOptions) => request<ManagementProject>(`${path(id)}/${kind}`, { method: 'POST', body: body(value, options) })
+export const updateTag = (id: string, kind: 'roles' | 'categories', tagId: string, value: { name: string; color: string; description?: string }, options?: MutationOptions) => request<ManagementProject>(`${path(id)}/${kind}/${encodeURIComponent(tagId)}`, { method: 'PATCH', body: body(value, options) })
 export const deleteTag = (id: string, kind: 'roles' | 'categories', tagId: string, options?: MutationOptions) => request<ManagementProject>(`${path(id)}/${kind}/${encodeURIComponent(tagId)}`, { method: 'DELETE', body: body({}, options) })
 export async function uploadAttachment(id: string, file: File): Promise<ManagementAttachment> {
   if (file.size > 8 * 1024 * 1024) throw new Error('单个附件请控制在 8 MB 内。')
@@ -48,7 +49,7 @@ export const getAIShares = (kind: 'management' | 'canvas', resourceId: string) =
 export const createAIShare = (kind: 'management' | 'canvas', resourceId: string, scope: AIShareScope) => request<AIShare>('/api/ai-shares', { method: 'POST', body: JSON.stringify({ kind, resourceId, scope }) })
 export const revokeAIShare = (id: string) => request<{ ok: boolean }>(`/api/ai-shares/${encodeURIComponent(id)}`, { method: 'DELETE' })
 
-export const setupTable = (id: string, roles: Array<{ name: string; color?: string; memberIds?: string[] }>, tableConfig: ManagementTableConfig, options?: MutationOptions) => request<ManagementProject>(`${path(id)}/table-setup`, { method: 'POST', body: body({ roles, tableConfig }, options) })
+export const setupTable = (id: string, roles: Array<{ name: string; color?: string; memberIds?: string[]; description?: string }>, tableConfig: ManagementTableConfig, options?: MutationOptions) => request<ManagementProject>(`${path(id)}/table-setup`, { method: 'POST', body: body({ roles, tableConfig }, options) })
 export const getMembers = () => request<ManagementMember[]>('/api/management/members')
 export const notifyEvent = (id: string, eventId: string, recipientIds: string[], actionId: string, revision?: number) => request<{ ok: true; notificationIds: string[]; count: number }>(`${path(id)}/events/${encodeURIComponent(eventId)}/notify`, { method: 'POST', body: JSON.stringify({ recipientIds, mutationId: actionId, ...(revision !== undefined ? { revision } : {}) }) })
 export const getNotifications = (unread = false) => request<ManagementNotification[]>(`/api/management/notifications${unread ? '?unread=1' : ''}`)

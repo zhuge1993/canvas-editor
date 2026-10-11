@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { Star, RefreshCw } from 'lucide-react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useCanvasStore } from '@/store/useCanvasStore'
 import { useEditorStore } from '@/store/useEditorStore'
-import { getDocument, saveDocument } from '@/utils/storage'
+import { addCanvasFavorite, getCanvasFavorites, getDocument, getFavoriteCanvas, saveDocument, StorageRequestError } from '@/utils/storage'
 import { AuthRequestError, getSharedProject, saveSharedProject, type ProjectAccess } from '@/services/auth'
 import { constrainCameraToWorkspace, createEmptyCanvasDocument, createShape, type ImageShape, type Shape } from '@/canvas/types'
 import { logError, logOperation } from '@/utils/logger'
@@ -16,19 +17,29 @@ import CanvasEngine from '@/canvas/CanvasEngine'
 import CanvasErrorBoundary from '@/canvas/CanvasErrorBoundary'
 
 export default function EditorPage() {
-  const { docId: routeDocId, shareToken } = useParams<{ docId: string; shareToken: string }>()
+  const { docId: routeDocId, shareToken, favoriteId } = useParams<{ docId: string; shareToken: string; favoriteId: string }>()
   const navigate = useNavigate()
   const autoSaveTimer = useRef<number>(0)
   const savedContentRef = useRef('')
   const [loadedDocId, setLoadedDocId] = useState<string | null>(null)
+  const loadedDocumentRef = useRef<string | null>(null)
   const [project, setProject] = useState<ProjectAccess | null>(null)
   const [sharePassword, setSharePassword] = useState('')
   const [loadError, setLoadError] = useState('')
   const [showFindReplace, setShowFindReplace] = useState(false)
+  const [favoriteSaved, setFavoriteSaved] = useState<string | null>(null), [favoriteBusy, setFavoriteBusy] = useState(false), [favoriteError, setFavoriteError] = useState('')
+  const [remoteUpdate, setRemoteUpdate] = useState<ProjectAccess | null>(null), [syncError, setSyncError] = useState('')
+  const remoteUpdateRef = useRef<ProjectAccess | null>(null)
+  const sourceVersionRef = useRef({ content: '', title: '', updatedAt: 0 })
+  const projectRef = useRef<ProjectAccess | null>(null)
+  projectRef.current = project
+  const routeIdentityRef = useRef('')
+  routeIdentityRef.current = favoriteId || shareToken || routeDocId || ''
 
-  const docId = shareToken ? project?.id : routeDocId
-  const readOnly = Boolean(shareToken && project?.permission !== 'edit')
-  const canEdit = Boolean(docId && (!shareToken || project?.permission === 'edit'))
+  const sharedView = Boolean(shareToken || favoriteId)
+  const docId = sharedView ? project?.id : routeDocId
+  const readOnly = Boolean(favoriteId || shareToken && project?.permission !== 'edit')
+  const canEdit = Boolean(!favoriteId && docId && (!shareToken || project?.permission === 'edit'))
 
   const shapes = useCanvasStore((s) => s.shapes)
   const order = useCanvasStore((s) => s.order)
@@ -100,13 +111,73 @@ export default function EditorPage() {
     if (next.x !== camera.x || next.y !== camera.y || next.zoom !== camera.zoom) setCamera(next)
   }, [camera, setCamera, viewportSize.height, viewportSize.width, workspace])
 
+  const invalidateSharedAccess = useCallback((message: string) => {
+    clearTimeout(autoSaveTimer.current)
+    loadedDocumentRef.current = null
+    setLoadedDocId(null)
+    projectRef.current = null
+    setProject(null)
+    setSharePassword('')
+    setFavoriteSaved(null)
+    setFavoriteBusy(false)
+    setRemoteUpdate(null)
+    remoteUpdateRef.current = null
+    sourceVersionRef.current = { content: '', title: '', updatedAt: 0 }
+    savedContentRef.current = ''
+    setDocumentTitle('共享画布不可用')
+    loadDocument(createEmptyCanvasDocument())
+    setSyncError('')
+    setLoadError(message)
+    setSaveStatus('error')
+  }, [loadDocument, setDocumentTitle, setSaveStatus])
+
+  const applySharedDocument = useCallback((document: ProjectAccess) => {
+    const content: unknown = document.content ? JSON.parse(document.content) : createEmptyCanvasDocument()
+    clearTimeout(autoSaveTimer.current)
+    loadDocument(content)
+    savedContentRef.current = JSON.stringify(getSnapshot())
+    sourceVersionRef.current = { content: document.content, title: document.title, updatedAt: document.updatedAt }
+    setProject(document)
+    setDocumentTitle(document.title)
+    loadedDocumentRef.current = document.id
+    setLoadedDocId(document.id)
+    remoteUpdateRef.current = null
+    setRemoteUpdate(null)
+    setLoadError('')
+    setSyncError('')
+    setSaveStatus('saved')
+  }, [getSnapshot, loadDocument, setDocumentTitle, setSaveStatus])
+
+  async function addFavorite() {
+    if (!shareToken || !project || loadedDocId !== project.id) return
+    const identity = routeIdentityRef.current
+    const documentId = loadedDocumentRef.current
+    const isCurrent = () => routeIdentityRef.current === identity && loadedDocumentRef.current === documentId
+    setFavoriteBusy(true); setFavoriteError('')
+    try { const favorite = await addCanvasFavorite(shareToken, sharePassword || undefined); if (isCurrent()) setFavoriteSaved(favorite.id) }
+    catch (cause) {
+      if (!isCurrent()) return
+      if (cause instanceof StorageRequestError && cause.status === 401) { navigate(`/auth?mode=login&next=${encodeURIComponent(`/share/${shareToken}`)}`); return }
+      setFavoriteError(cause instanceof Error ? cause.message : '收藏失败，请稍后重试')
+    } finally { if (isCurrent()) setFavoriteBusy(false) }
+  }
+
   /** 加载项目，并在切换时隔离上一张画布的状态。 */
   useEffect(() => {
     let cancelled = false
     clearTimeout(autoSaveTimer.current)
+    loadedDocumentRef.current = null
     setLoadedDocId(null)
+    projectRef.current = null
     setProject(null)
     setSharePassword('')
+    setFavoriteSaved(null)
+    setFavoriteBusy(false)
+    setFavoriteError('')
+    setRemoteUpdate(null)
+    remoteUpdateRef.current = null
+    sourceVersionRef.current = { content: '', title: '', updatedAt: 0 }
+    setSyncError('')
     setLoadError('')
     savedContentRef.current = ''
     setDocumentTitle('未命名画布')
@@ -114,7 +185,7 @@ export default function EditorPage() {
     setCamera({ x: 0, y: 0, zoom: 1 })
     setTool('select')
 
-    const load = shareToken
+    const load = favoriteId ? getFavoriteCanvas(favoriteId) : shareToken
       ? (async () => {
           let password = ''
           while (true) {
@@ -123,6 +194,7 @@ export default function EditorPage() {
               if (!cancelled) setSharePassword(password)
               return shared
             } catch (error) {
+              if (cancelled) return undefined
               if (!(error instanceof AuthRequestError) || error.status !== 401) throw error
               const entered = window.prompt(password ? '分享密码错误，请重新输入：' : '此分享链接需要密码：')
               if (entered === null) throw new Error('已取消输入分享密码')
@@ -142,6 +214,7 @@ export default function EditorPage() {
       }
       const document = loaded as ProjectAccess
       let content: unknown = createEmptyCanvasDocument()
+      let restoredDraft = false
       if (document.content) {
         try { content = JSON.parse(document.content) } catch (error) { logError('project.parse_failed', error, { docId: document.id }) }
       }
@@ -157,6 +230,7 @@ export default function EditorPage() {
             const draftCanvas = JSON.parse(draftDoc.content)
             if (window.confirm('检测到本地有比服务器更新的草稿，是否恢复？（未保存的修改）')) {
               content = draftCanvas
+              restoredDraft = true
               setLoadError('')
             } else {
               localStorage.removeItem(draftKey)
@@ -166,12 +240,14 @@ export default function EditorPage() {
           }
         } catch { /* 草稿损坏则忽略 */ }
       }
+      sourceVersionRef.current = { content: document.content, title: document.title, updatedAt: document.updatedAt }
       setProject(document)
       setDocumentTitle(document.title)
       loadDocument(content)
-      savedContentRef.current = JSON.stringify(content)
+      savedContentRef.current = restoredDraft ? '' : JSON.stringify(getSnapshot())
+      loadedDocumentRef.current = document.id
       setLoadedDocId(document.id)
-      setSaveStatus('saved')
+      setSaveStatus(restoredDraft ? 'unsaved' : 'saved')
       logOperation('project.loaded', 'Loaded project', { docId: document.id, permission: document.permission ?? 'owner' })
     }).catch((error) => {
       if (!cancelled) {
@@ -182,11 +258,80 @@ export default function EditorPage() {
     })
 
     return () => { cancelled = true }
-  }, [loadDocument, routeDocId, setCamera, setDocumentTitle, setSaveStatus, setTool, shareToken])
+  }, [favoriteId, getSnapshot, loadDocument, routeDocId, setCamera, setDocumentTitle, setSaveStatus, setTool, shareToken])
+
+  useEffect(() => {
+    if (!shareToken) return
+    let cancelled = false
+    void getCanvasFavorites().then(items => { if (!cancelled) setFavoriteSaved(items.find(item => item.shareId === shareToken && item.status === 'active')?.id ?? null) }).catch(() => { /* Guests can still view and choose to log in when they add a favorite. */ })
+    return () => { cancelled = true }
+  }, [shareToken])
+
+  /** 只读引用读取原画布；可编辑共享仅提示，避免覆盖尚未保存的修改。 */
+  useEffect(() => {
+    if (!sharedView || !project?.id || loadedDocId !== project.id) return
+    let cancelled = false, unavailable = false
+    let timer = 0
+    async function refresh() {
+      const requestedVersion = sourceVersionRef.current
+      try {
+        const latest = favoriteId ? await getFavoriteCanvas(favoriteId) : await getSharedProject(shareToken!, sharePassword || undefined, AbortSignal.timeout(10000))
+        if (cancelled) return
+        const current = projectRef.current
+        if (!current || latest.id !== current.id) { unavailable = true; invalidateSharedAccess('共享画布已不可用，请重新打开分享链接。'); return }
+        const known = sourceVersionRef.current
+        if (known !== requestedVersion) return
+        setSyncError('')
+        if (!remoteUpdateRef.current && latest.content === known.content && latest.title === known.title && latest.permission === current.permission) {
+          sourceVersionRef.current = { ...known, updatedAt: latest.updatedAt }
+          return
+        }
+        if (shareToken && (latest.permission === 'edit' || current.permission === 'edit' || remoteUpdateRef.current)) {
+          clearTimeout(autoSaveTimer.current)
+          remoteUpdateRef.current = latest
+          setRemoteUpdate(latest)
+          if (current.permission !== latest.permission) setProject(previous => previous ? { ...previous, permission: latest.permission } : previous)
+          setSaveStatus('unsaved')
+        } else {
+          applySharedDocument(latest)
+        }
+      } catch (cause) {
+        if (cancelled) return
+        if ((cause instanceof AuthRequestError || cause instanceof StorageRequestError) && [401, 403, 404, 410].includes(cause.status)) {
+          unavailable = true
+          invalidateSharedAccess('共享访问已失效，原分享可能已撤销、过期或更改密码。请重新验证分享链接。')
+        } else {
+          setSyncError('暂时无法同步作者的新版本，正在重试。')
+        }
+      } finally {
+        if (!cancelled && !unavailable) timer = window.setTimeout(() => void refresh(), 5000)
+      }
+    }
+    timer = window.setTimeout(() => void refresh(), 5000)
+    return () => { cancelled = true; clearTimeout(timer) }
+  }, [applySharedDocument, favoriteId, invalidateSharedAccess, loadedDocId, project?.id, setSaveStatus, sharePassword, shareToken, sharedView])
+
+  async function loadLatestSharedVersion() {
+    if (!remoteUpdate || !shareToken || saveStatus === 'saving') return
+    const changed = JSON.stringify(getSnapshot()) !== savedContentRef.current || documentTitle !== sourceVersionRef.current.title
+    if (changed && !window.confirm('加载作者的最新版本会放弃你当前未保存的修改，是否继续？')) return
+    const identity = routeIdentityRef.current
+    const currentDocumentId = loadedDocumentRef.current
+    try {
+      const latest = await getSharedProject(shareToken, sharePassword || undefined)
+      if (routeIdentityRef.current === identity && loadedDocumentRef.current === currentDocumentId) applySharedDocument(latest)
+    } catch (cause) {
+      if (routeIdentityRef.current !== identity || loadedDocumentRef.current !== currentDocumentId) return
+      if (cause instanceof AuthRequestError && [401, 403, 404, 410].includes(cause.status)) invalidateSharedAccess('共享访问已失效，请重新验证分享链接。')
+      else setSyncError('最新版本加载失败，你当前的修改仍保留。')
+    }
+  }
 
   const saveCurrentDocument = useCallback(async () => {
-    if (!docId || loadedDocId !== docId || !canEdit) return false
+    const identity = shareToken || routeDocId || ''
+    if (!docId || loadedDocumentRef.current !== docId || !canEdit || remoteUpdateRef.current || routeIdentityRef.current !== identity) return false
     const content = JSON.stringify(getSnapshot())
+    const sourceVersion = { ...sourceVersionRef.current }
     setSaveStatus('saving')
     try {
       const payload = {
@@ -196,15 +341,39 @@ export default function EditorPage() {
         createdAt: project?.createdAt ?? Date.now(),
         updatedAt: Date.now(),
       }
-      if (shareToken) await saveSharedProject(shareToken, payload, sharePassword || undefined)
-      else await saveDocument(payload)
-      setProject(current => current ? { ...current, title: payload.title, content, updatedAt: payload.updatedAt } : current)
+      let savedAt = payload.updatedAt
+      if (shareToken) {
+        const saved = await saveSharedProject(shareToken, { ...payload, expectedUpdatedAt: sourceVersion.updatedAt }, sharePassword || undefined)
+        savedAt = saved.updatedAt ?? savedAt
+      } else await saveDocument(payload)
+      if (routeIdentityRef.current !== identity || loadedDocumentRef.current !== docId) return true
+      setProject(current => current ? { ...current, title: payload.title, content, updatedAt: savedAt } : current)
       savedContentRef.current = content
+      sourceVersionRef.current = { content, title: payload.title, updatedAt: savedAt }
       try { clearSavedCanvasDraft(localStorage, docId, content) } catch { /* Save is durable even when browser storage is unavailable. */ }
       setSaveStatus(JSON.stringify(getSnapshot()) === content ? 'saved' : 'unsaved')
       logOperation('project.saved', 'Saved project', { docId, shared: Boolean(shareToken) })
       return true
     } catch (error) {
+      if (routeIdentityRef.current !== identity || loadedDocumentRef.current !== docId) return false
+      if (shareToken && error instanceof AuthRequestError && error.status === 409) {
+        clearTimeout(autoSaveTimer.current)
+        remoteUpdateRef.current = projectRef.current
+        setSaveStatus('unsaved')
+        setSyncError('原画布已有新版本，当前修改已保留，自动保存暂停。')
+        try {
+          const latest = await getSharedProject(shareToken, sharePassword || undefined, AbortSignal.timeout(10000))
+          if (routeIdentityRef.current !== identity || loadedDocumentRef.current !== docId) return false
+          remoteUpdateRef.current = latest
+          setRemoteUpdate(latest)
+          setSyncError('')
+        } catch (cause) {
+          if (routeIdentityRef.current !== identity || loadedDocumentRef.current !== docId) return false
+          if (cause instanceof AuthRequestError && [401, 403, 404, 410].includes(cause.status)) invalidateSharedAccess('共享访问已失效，请重新验证分享链接。')
+        }
+        return false
+      }
+      if (shareToken && error instanceof AuthRequestError && [401, 403, 404, 410].includes(error.status)) { invalidateSharedAccess('共享访问已失效，请重新验证分享链接。'); return false }
       setSaveStatus('error')
       const message = error instanceof Error ? error.message : String(error)
       // 明确提示保存失败原因（图片过大/网络中断等）
@@ -218,19 +387,21 @@ export default function EditorPage() {
       logError('project.save_failed', error, { docId, shared: Boolean(shareToken) })
       return false
     }
-  }, [canEdit, docId, documentTitle, getSnapshot, loadedDocId, project?.createdAt, setSaveStatus, sharePassword, shareToken])
+  }, [canEdit, docId, documentTitle, getSnapshot, invalidateSharedAccess, project?.createdAt, routeDocId, setSaveStatus, sharePassword, shareToken])
 
   const returnToProjectList = useCallback(async () => {
+    const identity = routeIdentityRef.current
     clearTimeout(autoSaveTimer.current)
     if (canEdit && docId && loadedDocId === docId && !(await saveCurrentDocument())) return
-    navigate(shareToken ? '/' : '/')
+    if (routeIdentityRef.current !== identity) return
+    navigate('/')
   }, [canEdit, docId, loadedDocId, navigate, saveCurrentDocument, shareToken])
 
   /** 自动保存 */
   useEffect(() => {
-    if (!canEdit || !docId || loadedDocId !== docId) return
+    if (!canEdit || !docId || loadedDocId !== docId || remoteUpdateRef.current) return
     const content = JSON.stringify(getSnapshot())
-    if (content === savedContentRef.current) {
+    if (content === savedContentRef.current && documentTitle === sourceVersionRef.current.title) {
       setSaveStatus('saved')
       return
     }
@@ -242,7 +413,7 @@ export default function EditorPage() {
       void saveCurrentDocument()
     }, 500)
     return () => clearTimeout(autoSaveTimer.current)
-  }, [canEdit, docId, documentTitle, getSnapshot, groups, loadedDocId, order, saveCurrentDocument, setSaveStatus, shapes])
+  }, [remoteUpdate, canEdit, docId, documentTitle, getSnapshot, groups, loadedDocId, order, saveCurrentDocument, setSaveStatus, shapes])
 
   // 离开页面时提示未保存；刷新/关闭前再强存一次到 localStorage
   useEffect(() => {
@@ -422,24 +593,30 @@ export default function EditorPage() {
 
   return (
     <div className="relative flex h-full flex-col">
-      {loadError && <div className="absolute inset-x-0 top-0 z-30 border-b border-red-200 bg-red-50 px-4 py-3 text-center text-sm text-red-700">{loadError}</div>}
+      {loadError && <div role="alert" className="border-b border-red-200 bg-red-50 px-4 py-3 text-center text-sm text-red-700">{loadError}{sharedView && !loadedDocId && <button className="ml-3 underline" onClick={() => window.location.reload()}>重新验证</button>}</div>}
+      {sharedView && project && loadedDocId === project.id && <div className="flex flex-wrap items-center justify-between gap-2 border-b border-blue-100 bg-blue-50 px-4 py-2 text-sm text-blue-800"><span>{favoriteId ? '收藏的共享画布 · 只读引用，作者保存后约 5 秒更新' : readOnly ? '共享画布 · 只读，作者保存后约 5 秒更新' : '共享画布 · 可编辑'}</span>{shareToken && <div className="flex items-center gap-3"><button className="inline-flex items-center gap-1 rounded border border-blue-200 bg-white px-3 py-1" disabled={favoriteBusy || Boolean(favoriteSaved)} onClick={() => void addFavorite()}><Star size={14} />{favoriteBusy ? '正在收藏…' : favoriteSaved ? '已加入我的画布' : '加入我的画布'}</button>{favoriteSaved && <button className="underline" onClick={() => navigate(`/favorite/${encodeURIComponent(favoriteSaved)}`)}>查看我的收藏</button>}</div>}</div>}
+      {favoriteError && <div role="alert" className="bg-red-50 px-4 py-2 text-sm text-red-700">{favoriteError}</div>}
+      {syncError && <div role="status" className="bg-amber-50 px-4 py-2 text-sm text-amber-800">{syncError}</div>}
+      {remoteUpdate && <div role="status" className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800"><span>作者已保存新版本。当前修改已保留，自动保存暂停。</span><button className="inline-flex items-center gap-1 rounded border border-amber-300 px-3 py-1" disabled={saveStatus === 'saving'} onClick={() => void loadLatestSharedVersion()}><RefreshCw size={14} />加载最新版本</button></div>}
       <TopMenu
         onSave={saveCurrentDocument}
         onBack={returnToProjectList}
-        saveDisabled={!canEdit || !docId || loadedDocId !== docId}
+        saveDisabled={!canEdit || !docId || loadedDocId !== docId || Boolean(remoteUpdate)}
         readOnly={readOnly}
         docId={docId}
         getContent={() => JSON.stringify(getSnapshot())}
         onRestoreVersion={() => {
-          // 版本恢复后重新加载文档内容
-          if (routeDocId) void getDocument(routeDocId).then((loaded) => {
-            if (!loaded) return
-            try {
-              const content = JSON.parse(loaded.content || '{}')
-              loadDocument(content)
-              savedContentRef.current = loaded.content || ''
-              setSaveStatus('saved')
-            } catch (error) { logError('project.restore_failed', error, { docId: routeDocId }) }
+          if (!routeDocId) return
+          const identity = routeIdentityRef.current
+          const currentDocumentId = loadedDocumentRef.current
+          clearTimeout(autoSaveTimer.current)
+          void getDocument(routeDocId).then((loaded) => {
+            if (!loaded || routeIdentityRef.current !== identity || loadedDocumentRef.current !== currentDocumentId) return
+            applySharedDocument({ ...loaded, content: loaded.content ?? '', permission: loaded.permission ?? 'owner' })
+          }).catch(error => {
+            if (routeIdentityRef.current !== identity || loadedDocumentRef.current !== currentDocumentId) return
+            setLoadError('恢复后的版本读取失败，请重新加载画布。')
+            logError('project.restore_failed', error, { docId: routeDocId })
           })
         }}
       />

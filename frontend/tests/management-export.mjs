@@ -18,7 +18,8 @@ const privateAttachment = { id: 'private-original-id', name: 'Example.png', mime
 const publicAttachment = { ...privateAttachment, id: 'public-opaque-id', url: mapped }
 const event = { id: 'selected', title: 'Chosen event', description: 'ordinary text', roleId: 'role', categoryId: 'cat',
   source: 'owner', recorder: 'author', assignee: 'person', priority: 'high', status: 'todo', createdAt: 1, updatedAt: 2,
-  attachments: [privateAttachment] }
+  attachments: [privateAttachment], assigneeId: 'private-handler', recipientIds: ['private-recipient'],
+  dispatch: { status: 'assigned', reason: 'Matched programming responsibility', model: 'bge-small-zh-v1.5', assignedAt: 2 } }
 const canvas = { version: 3, order: ['group'], groups: { group: { id: 'group', childIds: ['text', 'picture'], visible: true } },
   workspace: { x: -10, y: 4, w: 1200, h: 800 }, backgroundColor: '#ffffff', custom: { untouched: [1, 'label'] },
   thumbnail: 'data:image/png;base64,QUJDRA==', shapes: {
@@ -27,7 +28,7 @@ const canvas = { version: 3, order: ['group'], groups: { group: { id: 'group', c
     picture: { id: 'picture', type: 'image', x: 90, y: 80, w: 100, h: 60, src: legacy, visible: true },
   } }
 const project = { id: 'workspace', ownerId: 'private-owner', name: 'Workspace', description: 'description', color: '#123456', icon: 'task',
-  roles: [{ id: 'role', name: 'Role', color: '#123456' }], categories: [{ id: 'cat', name: 'Category', color: '#123456' }],
+  roles: [{ id: 'role', name: 'Role', color: '#123456', description: 'Fix login errors and implement APIs', memberIds: ['private-handler'] }], categories: [{ id: 'cat', name: 'Category', color: '#123456' }],
   canvasIds: ['canvas', 'unselected-canvas'], events: [event, { ...event, id: 'hidden', title: 'UNSELECTED_SECRET', attachments: [] }],
   history: [
     { id: 'h1', eventId: 'selected', action: 'attachments', at: 1, actorId: 'author', changes: [{ field: 'attachments', before: [], after: [privateAttachment] }] },
@@ -54,6 +55,15 @@ assert.equal(JSON.stringify(chosen).includes('UNSELECTED_SECRET'), false)
 assert.equal(JSON.stringify(chosen).includes('SECRET_CANVAS'), false)
 assert.equal(JSON.stringify(chosen).includes('private-owner'), false)
 assert.equal(JSON.stringify(chosen).includes(privateUrl), false)
+assert.equal(chosen.project.roles[0].description, project.roles[0].description)
+assert.deepEqual({ ...chosen.events[0].dispatch }, event.dispatch)
+assert.notEqual(chosen.events[0].dispatch, event.dispatch)
+assert.equal(chosen.events[0].assigneeId, undefined)
+assert.equal(chosen.events[0].recipientIds, undefined)
+assert.equal(JSON.stringify(chosen).includes('private-handler'), false)
+assert.equal(JSON.stringify(chosen).includes('private-recipient'), false)
+assert.ok(renderManagementMarkdown(chosen).includes('Fix login errors and implement APIs'))
+assert.ok(renderManagementMarkdown(chosen).includes('Matched programming responsibility'))
 
 const canvasInput = { ...input({ canvasIds: ['canvas'] }), kind: 'canvas', resourceId: 'canvas', project: undefined }
 const native = buildManagementExport(canvasInput)

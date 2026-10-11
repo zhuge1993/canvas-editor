@@ -19,6 +19,8 @@ import { ManagementWorkflowError } from './managementWorkflow.js'
 import { ManagementFieldError } from './managementFields.js'
 import { handleWebsiteDecision } from './websiteDecision.js'
 import { handleOpenAICompatible, readLocalAPIKey } from './openaiCompatible.js'
+import { CANVAS_FAVORITES_FILE, CanvasFavoriteError, handleCanvasFavorites, validateCanvasFavorites, withCanvasFavorites } from './canvasFavorites.js'
+import type { CanvasFavoriteStore } from './canvasFavorites.js'
 
 const scryptAsync = promisify(scryptCallback) as (
   password: string,
@@ -1229,7 +1231,9 @@ async function writeProject(paths: RuntimePaths, body: Record<string, unknown>, 
     canvas,
     thumbnail: typeof body.thumbnail === 'string' ? body.thumbnail : existing?.thumbnail,
     createdAt: existing?.createdAt ?? (typeof body.createdAt === 'number' ? body.createdAt : now),
-    updatedAt: now,
+    // UpdatedAt is also the shared-editor concurrency version. Separate writes
+    // within one clock millisecond must still invalidate the previous version.
+    updatedAt: existing ? Math.max(now, existing.updatedAt + 1) : now,
     ownerId: existing?.ownerId ?? ownerId,
     deletedAt: existing?.deletedAt,
   }
@@ -1961,6 +1965,10 @@ async function handleShare(req: IncomingMessage, res: ServerResponse, paths: Run
       sendError(res, 400, '项目 ID 不匹配')
       return true
     }
+    if (body.expectedUpdatedAt !== undefined && (!Number.isFinite(body.expectedUpdatedAt) || typeof body.expectedUpdatedAt !== 'number' || body.expectedUpdatedAt < 0)) {
+      sendError(res, 400, '画布原版本时间无效')
+      return true
+    }
     const saved = await withShareMutation(token, async () => {
       const currentShare = (await loadShares(paths)).find(item => item.token === token)
       if (!currentShare) return { ok: false as const, status: 404, error: '分享链接不存在或已撤销' }
@@ -1979,15 +1987,19 @@ async function handleShare(req: IncomingMessage, res: ServerResponse, paths: Run
         const latest = await readProject(paths, currentShare.projectId)
         if (!latest) return { ok: false as const, status: 404, error: '项目不存在' }
         if (latest.deletedAt) return { ok: false as const, status: 410, error: '项目已进入回收站' }
+        if (body.expectedUpdatedAt !== undefined && body.expectedUpdatedAt !== latest.updatedAt) {
+          return { ok: false as const, status: 409, error: '原画布已被更新，请加载最新内容后再保存' }
+        }
         await writeProject(paths, body, latest.ownerId ?? '', latest)
-        return { ok: true as const, permission: currentShare.permission }
+        const written = await readProject(paths, currentShare.projectId)
+        return { ok: true as const, permission: currentShare.permission, updatedAt: written!.updatedAt }
       })
     })
     if (!saved.ok) {
       sendError(res, saved.status, saved.error)
       return true
     }
-    sendJson(res, 200, { ok: true, permission: saved.permission })
+    sendJson(res, 200, { ok: true, permission: saved.permission, updatedAt: saved.updatedAt })
     return true
   }
   sendError(res, 405, 'Method not allowed')
@@ -2226,7 +2238,7 @@ async function handleProjects(req: IncomingMessage, res: ServerResponse, paths: 
         if (!latest) return { ok: false as const, status: 404, error: '文档不存在' }
         if (latest.deletedAt) return { ok: false as const, status: 410, error: '项目已进入回收站，请先恢复项目' }
         const access = await withCurrentProjectAccess(paths, user, latest, async () => {
-          const restored: StoredDocument = { ...latest, canvas, updatedAt: Date.now() }
+          const restored: StoredDocument = { ...latest, canvas, updatedAt: Math.max(Date.now(), latest.updatedAt + 1) }
           await writeJson(projectPath(paths, projectId), restored)
         })
         if (!access.ok) return access
@@ -2264,7 +2276,7 @@ async function handleProjects(req: IncomingMessage, res: ServerResponse, paths: 
         if (!latest) return { ok: false as const, status: 404, error: '文档不存在' }
         if (!latest.deletedAt) return { ok: false as const, status: 400, error: '文档不在回收站中' }
         const access = await withCurrentProjectAccess(paths, user, latest, async () => {
-          const restored: StoredDocument = { ...latest, deletedAt: undefined, updatedAt: Date.now() }
+          const restored: StoredDocument = { ...latest, deletedAt: undefined, updatedAt: Math.max(Date.now(), latest.updatedAt + 1) }
           await writeJson(projectPath(paths, id), restored)
         })
         if (!access.ok) return access
@@ -3016,7 +3028,7 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
         const targetCanvas = canvasGraph(target)
         const result = cloneGroupIntoCanvas(canvasGraph(source), targetCanvas, groupId)
         if (!result) return { ok: false as const, status: 404, error: '源分组不存在' }
-        await writeJson(projectPath(paths, target.id), { ...target, canvas: targetCanvas, updatedAt: Date.now() } satisfies StoredDocument)
+        await writeJson(projectPath(paths, target.id), { ...target, canvas: targetCanvas, updatedAt: Math.max(Date.now(), target.updatedAt + 1) } satisfies StoredDocument)
         return { ok: true as const, ...result, targetDocId: target.id }
       })
     })
@@ -3062,7 +3074,7 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
   if (req.method === 'GET' && pathname === '/api/admin/backup') {
     const dataFiles = await fsp.readdir(paths.dataDirectory).catch(() => [] as string[])
     const authFiles = await fsp.readdir(paths.authDirectory).catch(() => [] as string[])
-    const durableAuthFiles = new Set(['users.json', 'invites.json', 'shares.json'])
+    const durableAuthFiles = new Set(['users.json', 'invites.json', 'shares.json', CANVAS_FAVORITES_FILE])
     const payload: Record<string, unknown> = {
       meta: {
         app: 'FlowBoard',
@@ -3212,6 +3224,7 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
     let stagedUsers: StoredUser[] | undefined
     let stagedInvites: StoredInvite[] | undefined
     let stagedShares: StoredShare[] | undefined
+    let stagedFavorites: CanvasFavoriteStore | undefined
 
     if (payload.data !== undefined) {
       if (!isRecord(payload.data)) throw new RequestBodyError('备份中的 data 格式无效')
@@ -3284,6 +3297,7 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
       }
       if (payload.auth['invites.json'] !== undefined) stagedInvites = validateRestoredInvites(payload.auth['invites.json'])
       if (payload.auth['shares.json'] !== undefined) stagedShares = validateRestoredShares(payload.auth['shares.json'])
+      if (payload.auth[CANVAS_FAVORITES_FILE] !== undefined) stagedFavorites = validateCanvasFavorites(payload.auth[CANVAS_FAVORITES_FILE])
     }
 
     const oldDocumentBytes = Buffer.byteLength(JSON.stringify(payload.data ?? {})) + Buffer.byteLength(JSON.stringify(payload.versions ?? {})) + Buffer.byteLength(JSON.stringify(payload.auth ?? {}))
@@ -3351,6 +3365,10 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
       }
       if (stagedShares) {
         await writeJson(path.join(paths.authDirectory, 'shares.json'), stagedShares)
+        restored++
+      }
+      if (stagedFavorites) {
+        await withCanvasFavorites(paths, () => writeJson(path.join(paths.authDirectory, CANVAS_FAVORITES_FILE), stagedFavorites))
         restored++
       }
 
@@ -3601,6 +3619,12 @@ export async function handleRuntimeRequest(req: IncomingMessage, res: ServerResp
       sendJson,
     })) return true
     if (await handleAuth(req, res, paths, pathname)) return true
+    if (await handleCanvasFavorites(req, res, paths, {
+      currentUser, loadUsers, loadShares, readProject, readBody, writeJson,
+      verifyPassword: verifySharePasswordAttempt,
+      withShare: withShareMutation, withProject: withProjectMutation, withAuth: withAuthMutation,
+      projectResponse, origin: publicOrigin, sendJson,
+    })) return true
     if (await handleAssets(req, res, paths, pathname)) return true
     if (await handleShare(req, res, paths, pathname)) return true
     if (await handleProjects(req, res, paths, pathname)) return true
@@ -3639,7 +3663,7 @@ export async function handleRuntimeRequest(req: IncomingMessage, res: ServerResp
     }
     return false
   } catch (error) {
-    const isClientError = error instanceof RequestBodyError || error instanceof ManagementBackupError || error instanceof ManagementFieldError || error instanceof ManagementWorkflowError || error instanceof ManagementInviteError
+    const isClientError = error instanceof RequestBodyError || error instanceof ManagementBackupError || error instanceof ManagementFieldError || error instanceof ManagementWorkflowError || error instanceof ManagementInviteError || error instanceof CanvasFavoriteError
     const aiToken = pathname.match(/^\/(?:ai|api\/management\/invites)\/([A-Za-z0-9_-]+)/)?.[1]
     const rawMessage = error instanceof Error ? error.message : String(error)
     const redactedMessage = aiToken ? rawMessage.split(aiToken).join('[redacted]') : rawMessage

@@ -19,6 +19,28 @@ export interface StoredDocument {
   permission?: 'owner' | 'view' | 'edit'
 }
 
+/** 收藏是原共享画布的引用；它不会复制内容，也不授予编辑或删除原画布的权限。 */
+export interface CanvasFavorite {
+  id: string
+  shareId: string
+  addedAt: number
+  status: 'active' | 'unavailable'
+  permission?: 'view'
+  projectId?: string
+  title?: string
+  thumbnail?: string
+  authorName?: string
+  createdAt?: number
+  updatedAt?: number
+}
+
+export interface FavoriteCanvasContent extends StoredDocument {
+  content: string
+  permission: 'view'
+  favoriteId?: string
+  shareId?: string
+}
+
 export class StorageRequestError extends Error {
   readonly status: number
 
@@ -179,4 +201,36 @@ export async function restoreVersion(docId: string, versionId: string): Promise<
 
 export function generateId(): string {
   return `doc_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
+}
+
+export async function getCanvasFavorites(): Promise<CanvasFavorite[]> {
+  if (offlineMode) return []
+  return runtimeRequest('/api/canvas/favorites', { cache: 'no-store', signal: AbortSignal.timeout(10000) })
+}
+
+export async function addCanvasFavorite(shareId: string, password?: string): Promise<CanvasFavorite> {
+  if (offlineMode) throw new Error('共享画布收藏需要连接工作台服务')
+  return runtimeRequest('/api/canvas/favorites', {
+    method: 'POST',
+    headers: password ? { 'X-Share-Password': password } : undefined,
+    body: JSON.stringify({ shareId }),
+  })
+}
+
+export async function removeCanvasFavorite(id: string): Promise<void> {
+  await runtimeRequest(`/api/canvas/favorites/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+export async function getFavoriteCanvas(id: string): Promise<FavoriteCanvasContent> {
+  return runtimeRequest(`/api/canvas/favorites/${encodeURIComponent(id)}/content`, { cache: 'no-store', signal: AbortSignal.timeout(10000) })
+}
+
+export function sharedCanvasToken(value: string): string {
+  const input = value.trim()
+  if (/^[a-zA-Z0-9_-]{16,200}$/.test(input)) return input
+  let url: URL
+  try { url = new URL(input, window.location.origin) } catch { throw new Error('请输入有效的画布分享链接') }
+  const match = /^\/share\/([a-zA-Z0-9_-]{16,200})\/?$/.exec(url.pathname)
+  if (!match || !['http:', 'https:'].includes(url.protocol)) throw new Error('请输入画布的 /share/ 分享链接')
+  return match[1]!
 }

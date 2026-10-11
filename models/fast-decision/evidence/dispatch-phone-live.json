@@ -1,0 +1,45 @@
+{
+  "fixture": "isolated actual phone runtime and native phone model",
+  "cases": [
+    {
+      "title": "登录后页面报错，无法进入项目",
+      "role": "技术",
+      "handler": "tech",
+      "seconds": 0.305,
+      "dispatch": {
+        "status": "assigned",
+        "model": "bge-small-zh-v1.5",
+        "reason": "已根据需求开头自动匹配角色职责，并按当前待处理任务数量分派。",
+        "assignedAt": 1791681971703
+      }
+    },
+    {
+      "title": "把首页按钮改成蓝色并重新设计图标",
+      "role": "美工",
+      "handler": "art",
+      "seconds": 0.238,
+      "dispatch": {
+        "status": "assigned",
+        "model": "bge-small-zh-v1.5",
+        "reason": "已根据需求开头自动匹配角色职责，并按当前待处理任务数量分派。",
+        "assignedAt": 1791681973044
+      }
+    },
+    {
+      "title": "设计周末双倍经验活动和奖励规则",
+      "role": "策划",
+      "handler": "plan",
+      "seconds": 0.222,
+      "dispatch": {
+        "status": "assigned",
+        "model": "bge-small-zh-v1.5",
+        "reason": "已根据需求开头自动匹配角色职责，并按当前待处理任务数量分派。",
+        "assignedAt": 1791681974315
+      }
+    }
+  ],
+  "cooling_deferrals": 1,
+  "status": "PASS_PHONE_AUTO_DISPATCH_REAL_MODEL_AND_RETRY",
+  "production_data_modified": false,
+  "email_sent": false
+}

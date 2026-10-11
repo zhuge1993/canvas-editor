@@ -3,7 +3,7 @@ import type { ManagementStatus } from './managementWorkflow.js'
 export type { ManagementStatus } from './managementWorkflow.js'
 export type ManagementPriority = 'low' | 'medium' | 'high' | 'urgent'
 export interface ManagementTag { id: string; name: string; color: string }
-export interface ManagementRole extends ManagementTag { memberIds?: string[] }
+export interface ManagementRole extends ManagementTag { memberIds?: string[]; description?: string }
 export type ManagementCategory = ManagementTag
 export interface ManagementFieldDefinition {
   id: string; name: string; type: 'text' | 'number' | 'date' | 'select' | 'checkbox'
@@ -21,6 +21,7 @@ export interface ManagementEvent {
   id: string; title: string; description: string; roleId: string; categoryId: string
   source: string; recorder: string; assignee: string; priority: ManagementPriority
   status: ManagementStatus; createdAt: number; updatedAt: number; completedAt?: number
+  dispatch?: { status: 'assigned' | 'pending'; reason: string; model: 'bge-small-zh-v1.5'; assignedAt?: number }
   transitionNote?: string
   stageChangedAt?: number; stageTimes?: Partial<Record<ManagementStatus, number>>
   attachments: ManagementAttachment[]
