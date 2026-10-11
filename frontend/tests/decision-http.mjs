@@ -16,7 +16,7 @@ await build({ entryPoints: [path.join(frontend, 'tests/server-lifetime-fixture.t
 let mode = 'valid', calls = 0, payload, revoke, cancelled = false
 const model = http.createServer(async (req, res) => {
   const reply = data => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(data)) }
-  if (req.url === '/health') return reply({ status: 'ready', model: mode === 'wrong-model' ? 'Qwen' : 'AgentJev-0.6B', output_token_decoding: false })
+  if (req.url === '/health') return reply({ status: 'ready', model: mode === 'wrong-model' ? 'Qwen' : 'bge-small-zh-v1.5', output_token_decoding: false })
   const chunks = []
   for await (const chunk of req) chunks.push(chunk)
   payload = JSON.parse(Buffer.concat(chunks).toString('utf8')); calls++
@@ -27,7 +27,7 @@ const model = http.createServer(async (req, res) => {
     const probs = keys.map((_, i) => i === 0 ? 0.8 : 0.2 / (keys.length - 1))
     return { id: mode === 'bad-id' ? 'wrong' : q.id, type: q.type, value: 'untrusted', distribution: Object.fromEntries(keys.map((k, i) => [k, mode === 'bad-probability' ? 0.9 : probs[i]])) }
   })
-  reply({ model: 'AgentJev-0.6B', api_version: 'agentjev.decision.v1', results: [{ id: 'decision', answers }], usage: { generated_tokens: mode === 'generation' ? 1 : 0, truncated_inputs: mode === 'truncation' ? 1 : 0 } })
+  reply({ model: 'bge-small-zh-v1.5', api_version: 'fast-decision.v1', results: [{ id: 'decision', answers }], usage: { generated_tokens: mode === 'generation' ? 1 : 0, truncated_inputs: mode === 'truncation' ? 1 : 0 } })
 })
 model.listen(0, '127.0.0.1'); await once(model, 'listening')
 let server, port, cookie, otherCookie, count = 0
@@ -82,7 +82,7 @@ try {
     assert.equal(calls, before)
   })
   await check('choice, boolean and ordinal score use the same typed probability contract', async () => {
-    const result = await request('/api/decision/evaluate', { ...input, questions: [q, { id: 'truth', type: 'boolean', question: '是否属于故障？' }, { id: 'urgency', type: 'score', question: '有多紧急？', levels: ['低', '高'] }] })
+    const result = await request('/api/decision/evaluate', { ...input, questions: [q, { id: 'truth', type: 'boolean', question: '是否属于故障？', criteria: { true: '功能故障', false: '功能正常' } }, { id: 'urgency', type: 'score', question: '有多紧急？', levels: ['低', '高'] }] })
     assert.equal(result.status, 200); assert.equal(result.data.answers[1].probability, 0.8); assert.equal(result.data.answers[1].value, true); assert.equal(result.data.answers[2].score, 0.2)
   })
   await check('invalid probabilities, ids, generation or truncated answers are rejected', async () => {

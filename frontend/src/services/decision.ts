@@ -1,7 +1,7 @@
 export type DecisionContext = { kind: 'workspace' | 'project' | 'canvas'; id?: string }
 export type DecisionAnswer = { id: string; type: 'choice' | 'boolean' | 'score'; value: string | boolean; distribution: Record<string, number>; description?: string; probability?: number; score?: number; legend?: string[] }
-export type DecisionResult = { model: string; answers: DecisionAnswer[]; readOnly: boolean; sources: Array<{ kind: string; id: string; title: string }> }
-export type DecisionQuestion = { id: string; type: 'choice' | 'boolean' | 'score'; question: string; options?: Record<string, string>; levels?: string[] }
+export type DecisionResult = { model: string; answers: DecisionAnswer[]; readOnly: boolean; matchingWeights?: boolean; sources: Array<{ kind: string; id: string; title: string }> }
+export type DecisionQuestion = { id: string; type: 'choice' | 'boolean' | 'score'; question: string; options?: Record<string, string>; levels?: string[]; criteria?: { true: string; false: string } }
 
 async function request<T>(path: string, signal: AbortSignal, value?: unknown): Promise<T> {
   const response = await fetch(path, { credentials: 'same-origin', cache: 'no-store', signal,

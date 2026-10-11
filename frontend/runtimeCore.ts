@@ -18,6 +18,7 @@ import { ManagementBackupError, exportManagementBackup, stageManagementRestore, 
 import { ManagementWorkflowError } from './managementWorkflow.js'
 import { ManagementFieldError } from './managementFields.js'
 import { handleWebsiteDecision } from './websiteDecision.js'
+import { handleOpenAICompatible } from './openaiCompatible.js'
 
 const scryptAsync = promisify(scryptCallback) as (
   password: string,
@@ -3518,6 +3519,7 @@ export async function handleRuntimeRequest(req: IncomingMessage, res: ServerResp
   // 提前记录客户端是否接受 gzip（sendJson 里无法可靠拿到请求头）
   ;(res as GzipAwareResponse).__acceptsGzip = /\bgzip\b/.test(String(req.headers['accept-encoding'] ?? ''))
   try {
+    if (await handleOpenAICompatible(req, res)) return true
     // Retired API URLs must not fall through to the SPA's HTML response.
     if (pathname === '/api/voice' || pathname.startsWith('/api/voice/')) {
       sendJson(res, 404, { error: '接口不存在' })

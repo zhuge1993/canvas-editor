@@ -125,7 +125,7 @@ async function readStored<T>(file: string, budget?: { bytes: number }): Promise<
   } finally { await handle?.close() }
 }
 
-type Question = { id: string; type: 'choice' | 'boolean' | 'score'; question: string; options?: Record<string, string>; levels?: string[] }
+type Question = { id: string; type: 'choice' | 'boolean' | 'score'; question: string; options?: Record<string, string>; levels?: string[]; criteria?: { true: string; false: string } }
 function questions(value: unknown): Question[] {
   if (!Array.isArray(value) || value.length < 1 || value.length > 4) fail(400, '每次提交1至4个判断问题')
   const ids = new Set<string>()
@@ -135,7 +135,12 @@ function questions(value: unknown): Question[] {
     if (!ID.test(id) || ids.has(id)) fail(400, '问题标识必须有效且不重复')
     ids.add(id)
     const question = inputText(item.question, DECISION_LIMITS.questionCharacters)
-    if (item.type === 'boolean') return { id, type: 'boolean', question }
+    if (item.type === 'boolean') {
+      if (!item.criteria || typeof item.criteria !== 'object' || Array.isArray(item.criteria)) fail(400, '是与否需要各自的文字描述')
+      const criteria = { true: inputText(item.criteria.true, 160), false: inputText(item.criteria.false, 160) }
+      if (criteria.true === criteria.false) fail(400, '是与否的描述不能相同')
+      return { id, type: 'boolean', question, criteria }
+    }
     if (item.type === 'score') {
       if (!Array.isArray(item.levels) || item.levels.length < 2 || item.levels.length > 10) fail(400, '评分需要2至10个从低到高的等级')
       const levels = item.levels.map((level: unknown) => inputText(level, 160))
@@ -157,7 +162,7 @@ function questions(value: unknown): Question[] {
 async function modelRequest(route: string, signal: AbortSignal, payload?: unknown): Promise<Record<string, unknown>> {
   const base = new URL(process.env.FLOWBOARD_DECISION_URL?.trim() || 'http://127.0.0.1:8149')
   if (!['127.0.0.1', 'localhost', '[::1]'].includes(base.hostname) || base.protocol !== 'http:' || base.username || base.password) fail(503, '决策服务地址需要配置为本机接口')
-  const timeout = AbortSignal.timeout(payload ? 60000 : 3000)
+  const timeout = AbortSignal.timeout(payload ? 15000 : 3000)
   try {
     const response = await fetch(new URL(route, base), { method: payload ? 'POST' : 'GET', redirect: 'error',
       signal: AbortSignal.any([signal, timeout]), headers: { 'Content-Type': 'application/json' }, ...(payload ? { body: JSON.stringify(payload) } : {}) })
@@ -191,7 +196,7 @@ async function modelRequest(route: string, signal: AbortSignal, payload?: unknow
 function results(value: Record<string, unknown>, requested: Question[]) {
   const rows = value.results as Array<{ id: string; answers: Array<Record<string, unknown>> }> | undefined
   const usage = value.usage as Record<string, unknown> | undefined
-  if (value.model !== 'AgentJev-0.6B' || value.api_version !== 'agentjev.decision.v1' || !Array.isArray(rows) || rows.length !== 1 || rows[0]?.id !== 'decision'
+  if (value.model !== 'bge-small-zh-v1.5' || value.api_version !== 'fast-decision.v1' || !Array.isArray(rows) || rows.length !== 1 || rows[0]?.id !== 'decision'
       || !Array.isArray(rows[0].answers) || rows[0].answers.length !== requested.length || usage?.generated_tokens !== 0 || usage?.truncated_inputs !== 0) fail(502, '决策模型返回格式不符合约定')
   return requested.map(q => {
     const matching = rows[0].answers.filter(a => a.id === q.id)
@@ -219,14 +224,14 @@ export async function handleWebsiteDecision(req: IncomingMessage, res: ServerRes
   let release: (() => void) | undefined
   try {
     const actor = await services.currentUser(req, paths)
-    if (!actor) fail(401, '请登录后使用概率判断')
+    if (!actor) fail(401, '请登录后使用快速判断')
     if (!['/api/decision/status', '/api/decision/evaluate'].includes(pathname)) fail(404, '决策接口不存在')
     if (req.method !== (pathname.endsWith('/status') ? 'GET' : 'POST')) fail(405, '请求方法不支持')
     release = takeUserSlot(actor.id)
     if (pathname.endsWith('/status')) {
       let ready = false, cooling = false
-      try { const info = await modelRequest('/health', cancel.signal); cooling = info.cooling === true; ready = !cooling && info.status === 'ready' && info.model === 'AgentJev-0.6B' && info.output_token_decoding === false } catch (error) { if (cancel.signal.aborted) throw error }
-      services.sendJson(res, 200, { available: ready, cooling, model: 'AgentJev-0.6B', types: ['choice', 'boolean', 'score'], limits: DECISION_LIMITS })
+      try { const info = await modelRequest('/health', cancel.signal); cooling = info.cooling === true; ready = !cooling && info.status === 'ready' && info.model === 'bge-small-zh-v1.5' && info.output_token_decoding === false } catch (error) { if (cancel.signal.aborted) throw error }
+      services.sendJson(res, 200, { available: ready, cooling, model: 'bge-small-zh-v1.5', types: ['choice', 'boolean', 'score'], limits: DECISION_LIMITS })
       return true
     }
     const origin = req.headers.origin
@@ -241,7 +246,7 @@ export async function handleWebsiteDecision(req: IncomingMessage, res: ServerRes
     if (!fresh || fresh.id !== actor.id) fail(401, '登录已失效，请重新登录')
     const checked = await snapshot(req, paths, fresh, selected, qs.map(q => q.question).join(' '), services)
     if (data.grants.some(grant => !checked.grants.includes(grant))) fail(404, '查询权限已变更，请重新判断')
-    services.sendJson(res, 200, { model: 'AgentJev-0.6B', answers, sources: data.sources, readOnly: true, summaryOnly: true, generatedTokens: 0 })
+    services.sendJson(res, 200, { model: 'bge-small-zh-v1.5', answers, sources: data.sources, readOnly: true, summaryOnly: true, generatedTokens: 0, matchingWeights: true })
     return true
   } catch (error) {
     if (!res.destroyed && !res.writableEnded) services.sendJson(res, error instanceof DecisionError ? error.status : 503,

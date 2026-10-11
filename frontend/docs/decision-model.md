@@ -1,13 +1,11 @@
-# 概率判断
+# 快速判断
 
-登录后点击“概率判断”，输入待判断的内容、问题以及候选选项。支持选择最合适选项、判断是或否，以及从低到高的评分。界面显示真实模型的概率分布；服务不可用时显示不可用状态，不产生模拟结果。参考范围限定为当前用户有权访问的工作台、项目或画布。判断不会修改项目数据。
+网站使用本机 bge-small-zh-v1.5 小模型进行短文本与候选描述匹配。登录后点击“快速判断”，选择有权访问的文字摘要范围，再输入内容和候选描述。支持选择、真假描述匹配、等级描述匹配，结果不会修改数据。
 
-接口：
+GET /api/decision/status 返回固定模型的就绪、冷却及输入限制；POST /api/decision/evaluate 接收 `{state, context:{kind,id?}, questions:[{id,type,question,options?,levels?,criteria?}]}`。真假判断的 criteria 必须有 true/false 两种不同的完整描述。
 
-- GET /api/decision/status：模型就绪状态、固定模型名称及输入限制。
-- POST /api/decision/evaluate：`{state, context:{kind,id?}, questions:[{id,type,question,options?,levels?}]}`。
-- 返回模型名称、各问题的结果与概率、参考来源及只读标志。
+最多 4 题、16 个选择项或 10 个等级；权重必须有限、在 0 至 1 之间且总和为 1。模型最多 128 token，包括网页合并的摘要；超长输入拒绝，不截断。输入文字编码一次，候选描述以小型内存缓存复用，返回结果前重新验证登录与资料权限。
 
-每次最多4个问题，每题最多16个选择项或10个评分等级。问题和选项标识必须唯一；概率必须有限、在0至1之间且总和为1。超长 token 输入由模型服务拒绝，不静默截断。返回结果前重新验证会话与资料授权。
+百分比是归一化后的语义匹配权重，不是经过校准的判断正确率；问题名称用于标注，完整选项描述决定匹配含义。模型不生成聊天回答，不做通用逻辑推理。
 
-模型准备与启动见 models/agentjev/README.md。默认网站通过本机 http://127.0.0.1:8149 调用 AgentJev-0.6B。旧网页录音、语音问答、播报接口及手机唤醒助手已从源码移除。设备上旧安装需执行 linux/dior/retire-assistant.py --apply；新模型的手机安装与实测限制见 models/agentjev/README.md；旧助手卸载与新模型安装分别执行。
+部署、速度与限制见 models/fast-decision/README.md；OpenAI 格式接口见 frontend/docs/openai-compatible.md。外部 API 使用独立 Bearer Key，仅判断调用方提供的文本，不访问网站数据。旧“二狗”及手机 AgentJev-0.6B 服务已移除。

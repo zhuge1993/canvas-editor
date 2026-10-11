@@ -1,0 +1,285 @@
+{
+  "model": "bge-small-zh-v1.5",
+  "api_cases": [
+    "anonymous denied",
+    "wrong-key denied",
+    "model list",
+    "SSE with terminal event and usage",
+    "unsupported model, tools, schema and image rejected",
+    "unknown endpoint rejected"
+  ],
+  "decisions": [
+    {
+      "id": "choice",
+      "warm": false,
+      "seconds": 0.502,
+      "result": {
+        "api_version": "fast-decision.v1",
+        "model": "bge-small-zh-v1.5",
+        "probability_semantics": "normalized semantic similarity; not calibrated correctness probability",
+        "results": [
+          {
+            "id": "choice",
+            "answers": [
+              {
+                "id": "kind",
+                "type": "choice",
+                "distribution": {
+                  "bug": 0.5053531805373497,
+                  "progress": 0.18088278012523903,
+                  "request": 0.3137640393374113
+                },
+                "value": "bug",
+                "description": "程序故障，功能异常，使用时出现问题",
+                "top_probability": 0.5053531805373497,
+                "margin": 0.19158914119993836,
+                "similarities": {
+                  "bug": 0.5049782224492094,
+                  "progress": 0.4227855540985667,
+                  "request": 0.4668489171775609
+                }
+              }
+            ]
+          }
+        ],
+        "usage": {
+          "generated_tokens": 0,
+          "truncated_inputs": 0,
+          "input_path_tokens": 65,
+          "wall_ms": 445.62
+        }
+      }
+    },
+    {
+      "id": "boolean",
+      "warm": false,
+      "seconds": 0.377,
+      "result": {
+        "api_version": "fast-decision.v1",
+        "model": "bge-small-zh-v1.5",
+        "probability_semantics": "normalized semantic similarity; not calibrated correctness probability",
+        "results": [
+          {
+            "id": "boolean",
+            "answers": [
+              {
+                "id": "fault",
+                "type": "boolean",
+                "distribution": {
+                  "true": 0.6952810914463424,
+                  "false": 0.30471890855365763
+                },
+                "probability": 0.6952810914463424,
+                "value": true,
+                "similarities": {
+                  "true": 0.7722390355433554,
+                  "false": 0.7062449178186511
+                }
+              }
+            ]
+          }
+        ],
+        "usage": {
+          "generated_tokens": 0,
+          "truncated_inputs": 0,
+          "input_path_tokens": 50,
+          "wall_ms": 331.38
+        }
+      }
+    },
+    {
+      "id": "score",
+      "warm": false,
+      "seconds": 0.472,
+      "result": {
+        "api_version": "fast-decision.v1",
+        "model": "bge-small-zh-v1.5",
+        "probability_semantics": "normalized semantic similarity; not calibrated correctness probability",
+        "results": [
+          {
+            "id": "score",
+            "answers": [
+              {
+                "id": "urgency",
+                "type": "score",
+                "distribution": {
+                  "0": 0.0454276457509741,
+                  "1": 0.028899597805045397,
+                  "2": 0.9256727564439805
+                },
+                "score": 1.8802451106930065,
+                "level": 2,
+                "legend": [
+                  "不紧急，可以以后再做",
+                  "一般紧急，按计划处理",
+                  "非常紧急，核心功能受影响，需要立即修复"
+                ],
+                "similarities": {
+                  "0": 0.6094075620065718,
+                  "1": 0.5732241077085507,
+                  "2": 0.8505595556427509
+                }
+              }
+            ]
+          }
+        ],
+        "usage": {
+          "generated_tokens": 0,
+          "truncated_inputs": 0,
+          "input_path_tokens": 63,
+          "wall_ms": 434.99
+        }
+      }
+    },
+    {
+      "id": "choice",
+      "warm": true,
+      "seconds": 0.159,
+      "result": {
+        "api_version": "fast-decision.v1",
+        "model": "bge-small-zh-v1.5",
+        "probability_semantics": "normalized semantic similarity; not calibrated correctness probability",
+        "results": [
+          {
+            "id": "choice",
+            "answers": [
+              {
+                "id": "kind",
+                "type": "choice",
+                "distribution": {
+                  "bug": 0.5053531805373497,
+                  "progress": 0.18088278012523903,
+                  "request": 0.3137640393374113
+                },
+                "value": "bug",
+                "description": "程序故障，功能异常，使用时出现问题",
+                "top_probability": 0.5053531805373497,
+                "margin": 0.19158914119993836,
+                "similarities": {
+                  "bug": 0.5049782224492094,
+                  "progress": 0.4227855540985667,
+                  "request": 0.4668489171775609
+                }
+              }
+            ]
+          }
+        ],
+        "usage": {
+          "generated_tokens": 0,
+          "truncated_inputs": 0,
+          "input_path_tokens": 16,
+          "wall_ms": 107.77
+        }
+      }
+    },
+    {
+      "id": "boolean",
+      "warm": true,
+      "seconds": 0.129,
+      "result": {
+        "api_version": "fast-decision.v1",
+        "model": "bge-small-zh-v1.5",
+        "probability_semantics": "normalized semantic similarity; not calibrated correctness probability",
+        "results": [
+          {
+            "id": "boolean",
+            "answers": [
+              {
+                "id": "fault",
+                "type": "boolean",
+                "distribution": {
+                  "true": 0.6952810914463424,
+                  "false": 0.30471890855365763
+                },
+                "probability": 0.6952810914463424,
+                "value": true,
+                "similarities": {
+                  "true": 0.7722390355433554,
+                  "false": 0.7062449178186511
+                }
+              }
+            ]
+          }
+        ],
+        "usage": {
+          "generated_tokens": 0,
+          "truncated_inputs": 0,
+          "input_path_tokens": 14,
+          "wall_ms": 97.16
+        }
+      }
+    },
+    {
+      "id": "score",
+      "warm": true,
+      "seconds": 0.156,
+      "result": {
+        "api_version": "fast-decision.v1",
+        "model": "bge-small-zh-v1.5",
+        "probability_semantics": "normalized semantic similarity; not calibrated correctness probability",
+        "results": [
+          {
+            "id": "score",
+            "answers": [
+              {
+                "id": "urgency",
+                "type": "score",
+                "distribution": {
+                  "0": 0.0454276457509741,
+                  "1": 0.028899597805045397,
+                  "2": 0.9256727564439805
+                },
+                "score": 1.8802451106930065,
+                "level": 2,
+                "legend": [
+                  "不紧急，可以以后再做",
+                  "一般紧急，按计划处理",
+                  "非常紧急，核心功能受影响，需要立即修复"
+                ],
+                "similarities": {
+                  "0": 0.6094075620065718,
+                  "1": 0.5732241077085507,
+                  "2": 0.8505595556427509
+                }
+              }
+            ]
+          }
+        ],
+        "usage": {
+          "generated_tokens": 0,
+          "truncated_inputs": 0,
+          "input_path_tokens": 18,
+          "wall_ms": 118.24
+        }
+      }
+    }
+  ],
+  "worker_memory": [
+    {
+      "pid": "32005",
+      "memory": [
+        "VmHWM:\t   42920 kB",
+        "VmRSS:\t   34208 kB"
+      ]
+    }
+  ],
+  "boot_enabled": true,
+  "model_health": {
+    "status": "ready",
+    "api_version": "fast-decision.v1",
+    "model": "bge-small-zh-v1.5",
+    "available": true,
+    "cooling": true,
+    "output_token_decoding": false,
+    "backend": "onnx-int8-armv7",
+    "max_path_tokens": 128,
+    "types": [
+      "choice",
+      "boolean",
+      "score"
+    ],
+    "probability_semantics": "normalized semantic similarity; not calibrated correctness probability"
+  },
+  "tunnel_url": "https://regardless-selecting-bass-lowest.trycloudflare.com",
+  "status": "PASS_PROTOCOL_REAL_INFERENCE_AND_CACHE_STABILITY"
+}
