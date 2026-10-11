@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { BarChart3, LoaderCircle, X } from 'lucide-react'
-import { useLocation } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { decisionStatus, evaluateDecision } from '@/services/decision'
 import type { DecisionContext, DecisionQuestion, DecisionResult } from '@/services/decision'
 import './decision.css'
@@ -13,6 +13,7 @@ const defaultQuestions = { choice: '内容分类', boolean: '功能状态', scor
 export default function DecisionWorkspace() {
   const location = useLocation()
   const [signedIn, setSignedIn] = useState(false), [open, setOpen] = useState(false)
+  const [rootAdmin, setRootAdmin] = useState(false)
   const [available, setAvailable] = useState<boolean | null>(null), [busy, setBusy] = useState(false)
   const [cooling, setCooling] = useState(false)
   const [yes, setYes] = useState('程序故障，功能异常，页面无法打开'), [no, setNo] = useState('程序正常，功能可用，页面能够打开')
@@ -28,11 +29,11 @@ export default function DecisionWorkspace() {
 
   function cancel() { sequence.current++; request.current?.abort(); request.current = null; setBusy(false) }
   useEffect(() => {
-    cancel(); setOpen(false); setResult(null); setState(''); setError(''); setSignedIn(false); setAvailable(null); setContexts([workspace]); setScope('workspace')
+    cancel(); setOpen(false); setResult(null); setState(''); setError(''); setSignedIn(false); setRootAdmin(false); setAvailable(null); setContexts([workspace]); setScope('workspace')
     if (/^\/(auth|register|project-invite)(\/|$)/.test(location.pathname)) return
     const controller = new AbortController()
     void fetch('/api/auth/me', { credentials: 'same-origin', cache: 'no-store', signal: controller.signal })
-      .then(response => response.ok ? response.json() : null).then(data => { if (!controller.signal.aborted) setSignedIn(Boolean(data?.user)) }).catch(() => {})
+      .then(response => response.ok ? response.json() : null).then(data => { if (!controller.signal.aborted) { setSignedIn(Boolean(data?.user)); setRootAdmin(data?.user?.isRootAdmin === true) } }).catch(() => {})
     return () => { controller.abort(); cancel() }
   }, [location.pathname])
 
@@ -84,6 +85,7 @@ export default function DecisionWorkspace() {
     {open && <section className="fb-decision-panel" role="dialog" aria-label="快速判断">
       <header><div><h2>快速判断</h2><p>小模型快速匹配，查看各选项的相对权重。</p></div><button type="button" aria-label="关闭快速判断" onClick={() => { cancel(); setOpen(false) }}><X size={20} /></button></header>
       <div className="fb-decision-fields">
+        {rootAdmin && <Link to="/admin?tab=api" className="text-sm text-brand-600 underline">API 接入配置与密钥 ↗</Link>}
         {available !== true && <p role="status">{available === null ? '正在检查模型…' : cooling ? '手机温度偏高，模型正在冷却，请稍后重新打开。' : '模型服务尚未就绪，请稍后重新打开。'}</p>}
         <label>参考范围<select value={scope} disabled={busy} onChange={event => { setScope(event.target.value); setResult(null) }}>{contexts.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
         <label>待判断内容<textarea aria-label="待判断内容" rows={3} value={state} disabled={busy} maxLength={3000} onChange={event => { setState(event.target.value); setResult(null) }} placeholder="例如：保存画布后，新增的图形消失了。" /></label>

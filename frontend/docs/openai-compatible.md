@@ -2,6 +2,10 @@
 
 模型：`bge-small-zh-v1.5`。在接入工具中选择 OpenAI 兼容接口，填写你的网站地址加 `/v1`、独立 API Key 和该模型名称。
 
+根管理员登录后，从侧栏“API 接入”、管理后台“API 接入”标签，或“快速判断”面板中的链接打开 `/admin?tab=api`。页面显示当前 Base URL、模型名和默认隐藏的密钥；支持查看／隐藏、单项复制、复制完整配置及下载 JSON。复制和导出会重新核验根管理员会话，并读取当前密钥和公网地址。临时隧道重连后点击“刷新地址”即可更新。普通用户和其他管理员不能查看整机密钥。
+
+`GET /api/settings/decision-api` 只返回配置与掩码，不返回密钥；`POST /api/settings/decision-api/reveal` 在根管理员鉴权及同站提交检查后返回接入密钥。响应禁止缓存，切换标签或离开页面后已显示的密钥会清除，不存入浏览器持久存储。
+
 支持：`GET /v1/models`、`POST /v1/chat/completions`，非流式 ChatCompletion 响应与 SSE ChatCompletionChunk 响应、`stream_options.include_usage`、文本 content parts、`response_format: {type: "json_object"}`。输入必须有最后一条 user 文本消息。结果是分类 JSON，放在 `choices[0].message.content`；SSE 在匹配完成后发送完整结果及 `[DONE]`，没有逐字生成过程。
 
 普通 user 文本使用四个预设类别：程序故障（bug）、需求建议（request）、进度查询（progress）、其他（other）。自定义候选项时，将以下 JSON 序列化后放入最后一条 user 消息：

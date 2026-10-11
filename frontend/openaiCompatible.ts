@@ -10,6 +10,16 @@ const error = (res: ServerResponse, status: number, message: string, type = 'inv
 }
 const hash = (text: string) => createHash('sha256').update(text).digest()
 
+export async function readLocalAPIKey(): Promise<string> {
+  const file = process.env.FLOWBOARD_API_KEY_FILE?.trim()
+  if (!file) throw new Error('API key not configured')
+  const stat = await fs.lstat(file)
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 256 || stat.size < 32) throw new Error('invalid key file')
+  const secret = (await fs.readFile(file, 'utf8')).trim()
+  if (!/^[A-Za-z0-9_-]{32,128}$/.test(secret)) throw new Error('invalid key')
+  return secret
+}
+
 function readBody(req: IncomingMessage, signal: AbortSignal): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     let bytes = 0, done = false
@@ -43,10 +53,7 @@ export async function handleOpenAICompatible(req: IncomingMessage, res: ServerRe
     if (!file) { error(res, 503, 'API key has not been configured', 'server_error', 'api_not_configured'); return true }
     let secret: string
     try {
-      const stat = await fs.lstat(file)
-      if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 256 || stat.size < 32) throw new Error('invalid key file')
-      secret = (await fs.readFile(file, 'utf8')).trim()
-      if (!/^[A-Za-z0-9_-]{32,128}$/.test(secret)) throw new Error('invalid key')
+      secret = await readLocalAPIKey()
     } catch { error(res, 503, 'API key configuration unavailable', 'server_error', 'api_not_configured'); return true }
     const supplied = /^Bearer ([A-Za-z0-9_-]{32,128})$/.exec(req.headers.authorization ?? '')?.[1] ?? ''
     if (!timingSafeEqual(hash(supplied), hash(secret))) { error(res, 401, 'Invalid API key', 'authentication_error', 'invalid_api_key'); req.resume(); return true }

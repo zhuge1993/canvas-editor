@@ -18,7 +18,7 @@ import { ManagementBackupError, exportManagementBackup, stageManagementRestore, 
 import { ManagementWorkflowError } from './managementWorkflow.js'
 import { ManagementFieldError } from './managementFields.js'
 import { handleWebsiteDecision } from './websiteDecision.js'
-import { handleOpenAICompatible } from './openaiCompatible.js'
+import { handleOpenAICompatible, readLocalAPIKey } from './openaiCompatible.js'
 
 const scryptAsync = promisify(scryptCallback) as (
   password: string,
@@ -3382,6 +3382,48 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
 }
 
 async function handleSettings(req: IncomingMessage, res: ServerResponse, paths: RuntimePaths, pathname: string): Promise<boolean> {
+  if (pathname === '/api/settings/decision-api' || pathname === '/api/settings/decision-api/reveal') {
+    res.setHeader('Cache-Control', 'no-store')
+    res.setHeader('Vary', 'Cookie')
+    res.setHeader('X-Content-Type-Options', 'nosniff')
+    const actor = await requireUser(req, res, paths)
+    if (!actor) return true
+    if (actor.id === 'guest' || actor.isAdmin !== true || actor.email.toLowerCase() !== DEFAULT_ADMIN_EMAIL) {
+      sendError(res, 403, '只有根管理员可以查看 API 接入配置')
+      return true
+    }
+    const reveal = pathname.endsWith('/reveal')
+    if (req.method !== (reveal ? 'POST' : 'GET')) { sendError(res, 405, '请求方法不支持'); return true }
+    if (reveal) {
+      const origin = req.headers.origin
+      if (req.headers['sec-fetch-site'] === 'cross-site' || (origin && origin !== publicOrigin(req) && origin !== `http://${req.headers.host}` && origin !== `https://${req.headers.host}`)) {
+        sendError(res, 403, '请在本站页面查看 API 密钥')
+        return true
+      }
+      if ((req.headers['content-type'] ?? '').split(';')[0]?.trim() !== 'application/json') {
+        sendError(res, 415, '请求需要 JSON 格式')
+        return true
+      }
+      req.resume()
+    }
+    let key: string | undefined
+    try { key = await readLocalAPIKey() } catch { /* Configuration is shown as disabled, without file details. */ }
+    if (reveal && !key) { sendError(res, 503, 'API 密钥尚未配置，暂时无法外接'); return true }
+    // Recheck a fresh session after reading the shared server credential.
+    const fresh = await currentUser(req, paths)
+    if (!fresh || fresh.id !== actor.id || fresh.isAdmin !== true || fresh.email.toLowerCase() !== DEFAULT_ADMIN_EMAIL) {
+      sendError(res, 401, '登录已失效，请重新登录')
+      return true
+    }
+    const origin = preferredPublicOrigin() ?? publicOrigin(req)
+    sendJson(res, 200, {
+      apiType: 'OpenAI 兼容', base_url: `${origin.replace(/\/$/, '')}/v1`, model: 'bge-small-zh-v1.5',
+      configured: Boolean(key), keyMasked: key ? `••••••••${key.slice(-4)}` : '',
+      temporaryAddress: !process.env.FLOWBOARD_PUBLIC_HOST?.trim() && Boolean(tunnelPublicOrigin()),
+      ...(reveal ? { api_key: key } : {}),
+    })
+    return true
+  }
   if (pathname !== '/api/settings' && pathname !== '/api/settings/smtp-test') return false
   // SMTP 授权码属于整机机密，仅默认根管理员可修改或测试。
   const user = await requireUser(req, res, paths)
