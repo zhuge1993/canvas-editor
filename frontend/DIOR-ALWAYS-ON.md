@@ -67,6 +67,8 @@ FLOWBOARD_TUNNEL_NOTIFY=true
 
 队列和已发送去重记录存入私有 `auth-data/tunnel-notifications.json`，以文件/目录 `fsync` 确认。状态区分 `not_configured`、`awaiting_public_health`、`retry_pending`、`up_to_date` 和存储错误；未配置 SMTP 或断网时不假装已发送。失败从 30 秒开始退避重试，最长 30 分钟；网址变化会丢弃旧网址未发送任务，只通知当前新网址。已持久确认的同邮箱、同网址记录在正常服务重启后不重复发送。
 
+升级时保留原通知开关，不要用 `FLOWBOARD_TUNNEL_NOTIFY=false` 启动替换进程后只恢复配置文件。服务只在启动时加载环境；恢复文件不会重新启用已经运行的通知 worker。配置启用但进程仍为关闭时，用恢复后的配置重启 FlowBoard，再确认通知 checkpoint 的 `currentUrl` 与 `/var/lib/dior-tunnel/public-url` 一致。保留已发送去重记录，避免清空队列后群发相同网址。
+
 SMTP 接受邮件与本地状态写盘无法构成同一个事务。如果恰好在 SMTP 接受后、去重状态落盘前崩溃，恢复重试仍可能产生重复邮件；每个“网址 + 邮箱”使用固定 `Message-ID`，但邮箱服务器并不保证据此去重。`sent` 表示 SMTP 的 DATA 250 已接受且本地状态保存，不能代替收件人实际查收。
 
 ## 后续固定域名配置
