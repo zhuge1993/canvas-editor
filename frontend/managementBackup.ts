@@ -52,6 +52,15 @@ function timestamp(value: unknown, label: string, optional = false) {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0 || value > 8640000000000000) bad(`${label}时间无效`)
 }
 function keys(value: JsonRecord, allowed: string[], label: string) { if (Object.keys(value).some(key => !allowed.includes(key))) bad(`${label}含未知字段`) }
+function validateDispatch(value: unknown): JsonRecord {
+  const dispatch = record(value, '分派记录')
+  keys(dispatch, ['status','reason','model','assignedAt'], '分派记录')
+  if (!['assigned','pending'].includes(String(dispatch.status)) || dispatch.model !== 'bge-small-zh-v1.5') bad('分派状态或模型无效')
+  string(dispatch.reason, '分派原因', 500, true)
+  if (dispatch.status === 'assigned') timestamp(dispatch.assignedAt, '分派')
+  else if (dispatch.assignedAt !== undefined) bad('待分派记录不应有分派时间')
+  return dispatch
+}
 function validateAttachment(value: unknown, projectId?: string): JsonRecord {
   const asset = record(value, '附件')
   identifier(asset.id, '附件'); string(asset.name, '附件名称', 200, true); string(asset.mime, '附件MIME', 100, true)
@@ -63,7 +72,7 @@ function validateAttachment(value: unknown, projectId?: string): JsonRecord {
 }
 function validateEvent(value: unknown, projectId: string, roles: Set<string>, categories: Set<string>, config?: ReturnType<typeof normalizeTableConfig>, historicalSnapshot = false): JsonRecord {
   const event = record(value, '事件')
-  keys(event, ['id','title','description','roleId','categoryId','source','recorder','assignee','priority','status','createdAt','updatedAt','completedAt','stageChangedAt','stageTimes','transitionNote','attachments','values','assigneeId','recipientIds'], '事件')
+  keys(event, ['id','title','description','roleId','categoryId','source','recorder','assignee','priority','status','createdAt','updatedAt','completedAt','stageChangedAt','stageTimes','transitionNote','attachments','values','assigneeId','recipientIds','dispatch'], '事件')
   identifier(event.id, '事件'); string(event.title, '事件标题', 200, true); string(event.description, '描述', 20000)
   string(event.source, '来源'); string(event.recorder, '记录人'); string(event.assignee, '处理人')
   if (typeof event.roleId !== 'string' || (event.roleId && !roles.has(event.roleId))) bad('事件角色引用无效')
@@ -78,8 +87,15 @@ function validateEvent(value: unknown, projectId: string, roles: Set<string>, ca
   for (const asset of array(event.attachments, '事件附件')) validateAttachment(asset, projectId)
   if (event.assigneeId !== undefined && event.assigneeId !== '') identifier(event.assigneeId, '处理人')
   if (event.recipientIds !== undefined) for (const value of array(event.recipientIds, '接收人')) identifier(value, '接收人')
+  if (event.dispatch !== undefined) {
+    const dispatch = validateDispatch(event.dispatch)
+    if (!historicalSnapshot && dispatch.status === 'assigned' && (!event.roleId || !event.assigneeId)) bad('已分派事件缺少角色或处理人')
+  }
   if (!historicalSnapshot) {
-    const values = validateFieldValues(config?.customFields ?? [], event.values ?? {}, {}, false, event.roleId as string)
+    // Intake can precede completion of required business fields. Supplied values
+    // retain the same type, known-field and role-scope validation as other events.
+    const definitions = event.dispatch === undefined ? config?.customFields ?? [] : (config?.customFields ?? []).map(field => ({ ...field, required: false }))
+    const values = validateFieldValues(definitions, event.values ?? {}, {}, false, event.roleId as string)
     if (event.values !== undefined) event.values = values
   }
   return event
@@ -113,11 +129,12 @@ function validateProject(value: unknown, expectedId: string): JsonRecord {
   const validateTags = (value: unknown, role: boolean) => {
     const set = new Set<string>()
     for (const item of array(value, '标签')) {
-      const tag = record(item, '标签'); keys(tag, role ? ['id','name','color','memberIds'] : ['id','name','color'], '标签')
+      const tag = record(item, '标签'); keys(tag, role ? ['id','name','color','memberIds','description'] : ['id','name','color'], '标签')
       const tagId = identifier(tag.id, '标签'); if (set.has(tagId)) bad('标签ID重复'); set.add(tagId)
       string(tag.name, '标签名称', 200, true)
       if (typeof tag.color !== 'string' || !/^#[a-fA-F0-9]{6}$/.test(tag.color)) bad('标签颜色无效')
       if (tag.memberIds !== undefined) for (const member of array(tag.memberIds, '角色成员')) identifier(member, '角色成员')
+      if (tag.description !== undefined) string(tag.description, '角色职责', 500)
     }
     return set
   }

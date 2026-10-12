@@ -11,3 +11,8 @@ frontend/tmp-anchor/
 /shot.ps1
 /max.ps1
 /开发规则.txt
+
+# Downloaded model assets and local Python runtimes
+models/**/runtime/
+models/**/.venv/
+models/**/__pycache__/

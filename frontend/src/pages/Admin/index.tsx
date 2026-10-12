@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ArrowLeft, Copy, Download, KeyRound, Pencil, Plus, ShieldCheck, Trash2, Upload, Users } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
+import ApiAccessPanel from './ApiAccessPanel'
 import {
   adminCopyDoc,
   adminCopyGroup,
@@ -27,7 +28,7 @@ interface AdminDoc {
   createdAt: number
 }
 
-type AdminTab = 'users' | 'invites' | 'docs'
+type AdminTab = 'users' | 'invites' | 'docs' | 'api'
 
 export default function AdminPage() {
   const navigate = useNavigate()
@@ -35,7 +36,7 @@ export default function AdminPage() {
   const [users, setUsers] = useState<AdminUser[]>([])
   const [invites, setInvites] = useState<AdminInvite[]>([])
   const [docs, setDocs] = useState<AdminDoc[]>([])
-  const [tab, setTab] = useState<AdminTab>('users')
+  const [tab, setTab] = useState<AdminTab>(() => new URLSearchParams(window.location.search).get('tab') === 'api' ? 'api' : 'users')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -202,9 +203,9 @@ export default function AdminPage() {
         <div className="flex items-center gap-3">
           <button className="tool-btn" title="返回" onClick={() => navigate('/')}><ArrowLeft size={16} /></button>
           <ShieldCheck size={18} className="text-brand-600" />
-          <h1 className="text-lg font-semibold text-ink">FlowBoard 管理后台</h1>
+          <h1 className="text-sm font-semibold text-ink sm:text-lg">FlowBoard 管理后台</h1>
         </div>
-        <span className="text-xs text-ink-muted">{user?.email}</span>
+        <span className="hidden text-xs text-ink-muted sm:inline">{user?.email}</span>
       </header>
 
       <main className="flex-1 overflow-y-auto p-6">
@@ -216,9 +217,12 @@ export default function AdminPage() {
             {tabButton('users', '用户管理', <Users size={14} />)}
             {tabButton('invites', '邀请码', <KeyRound size={14} />)}
             {tabButton('docs', '全部画布', <ShieldCheck size={14} />)}
+            {user?.isRootAdmin && tabButton('api', 'API 接入', <KeyRound size={14} />)}
           </div>
 
           {loading ? <div className="flex h-40 items-center justify-center text-ink-muted">加载中...</div> : null}
+
+          {!loading && tab === 'api' && (user?.isRootAdmin ? <ApiAccessPanel /> : <p className="text-sm text-ink-muted">只有根管理员可以查看 API 接入配置。</p>)}
 
           {!loading && tab === 'users' && (
             <div className="space-y-2">

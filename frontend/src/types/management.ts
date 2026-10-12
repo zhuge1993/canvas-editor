@@ -7,6 +7,7 @@ export type {
 import type { ManagementEvent, ManagementProjectMember } from '../../managementTypes'
 
 export type EventDraft = Pick<ManagementEvent, 'title' | 'description' | 'roleId' | 'categoryId' | 'source' | 'assignee' | 'priority' | 'status' | 'attachments'> & Partial<Pick<ManagementEvent, 'values' | 'assigneeId' | 'recipientIds'>>
+export type RequirementDraft = Pick<ManagementEvent, 'title' | 'description' | 'attachments'> & Partial<Pick<ManagementEvent, 'source' | 'categoryId' | 'priority' | 'values'>>
 export interface ProjectDraft { name: string; description: string; color: string; icon?: string; canvasIds?: string[]; members?: ManagementProjectMember[] }
 export interface MutationOptions { revision?: number; mutationId?: string; expectedEventUpdatedAt?: number; baseValues?: Record<string, unknown> }
 

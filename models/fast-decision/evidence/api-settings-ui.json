@@ -1,0 +1,45 @@
+{
+  "api_settings": {
+    "/api/settings/decision-api": {
+      "status": 401,
+      "cache": "no-store"
+    },
+    "/api/settings/decision-api/reveal": {
+      "status": 401,
+      "cache": "no-store"
+    }
+  },
+  "frontend_verified": true,
+  "phone_fixture": {
+    "status": "PASS_REAL_PHONE_API_SETTINGS",
+    "masked_by_default": true,
+    "root_reveal_matches_installed_key": true,
+    "revealed_key_accepted_by_live_api": true,
+    "base_url": "https://regardless-selecting-bass-lowest.trycloudflare.com/v1",
+    "model": "bge-small-zh-v1.5",
+    "isolated_fixture": true,
+    "production_accounts_unchanged": true
+  },
+  "website_deployment": {
+    "status": "WEBSITE_UPDATED",
+    "previous_pid": "7547",
+    "current_pid": "18418",
+    "health": {
+      "status": "ok",
+      "app": "FlowBoard",
+      "version": "dev-build",
+      "uptimeSeconds": 0,
+      "timestamp": "2026-10-11T00:43:08.426Z"
+    },
+    "data_directories_preserved": true,
+    "settings_restored": true,
+    "backup": "/opt/flowboard/.decision-backup-20261011-004307"
+  },
+  "model": "bge-small-zh-v1.5",
+  "browser": {
+    "status": "PASS_REVEAL_HIDE_COPY_AND_DOWNLOAD",
+    "viewport": "390x844 desktop browser",
+    "downloadMatchesInstalledConfig": true,
+    "clipboardRestored": true
+  }
+}

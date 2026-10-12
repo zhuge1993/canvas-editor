@@ -155,6 +155,7 @@ export function buildManagementExport(input: ManagementExportInput): AIDataExpor
     createdAt: event.createdAt, updatedAt: event.updatedAt,
     ...validateManagementStageMetadata(event),
     ...(event.transitionNote === undefined ? {} : { transitionNote: transitionNote(event.transitionNote) }),
+    ...(event.dispatch === undefined ? {} : { dispatch: { ...event.dispatch } }),
     ...(event.completedAt === undefined ? {} : { completedAt: event.completedAt }),
     ...(event.values === undefined ? {} : { values: Object.fromEntries(
       (input.project?.tableConfig?.customFields ?? []).filter(field => !field.roleId || field.roleId === event.roleId)
@@ -176,7 +177,7 @@ export function buildManagementExport(input: ManagementExportInput): AIDataExpor
   if (input.kind === 'management') {
     const project = input.project!
     result.project = jsonCopy({ id: project.id, name: project.name, description: project.description, color: project.color, icon: project.icon,
-      roles: project.roles.map(role => ({ id: role.id, name: role.name, color: role.color })),
+      roles: project.roles.map(role => ({ id: role.id, name: role.name, color: role.color, ...(role.description === undefined ? {} : { description: role.description }) })),
       categories: project.categories.map(category => ({ id: category.id, name: category.name, color: category.color })),
       canvasIds: selectedCanvases.map(canvas => canvas.id), createdAt: project.createdAt, updatedAt: project.updatedAt,
       ...(project.archivedAt === undefined ? {} : { archivedAt: project.archivedAt }), revision: project.revision }, policy) as AIDataExport['project']
@@ -220,6 +221,10 @@ export function renderManagementMarkdown(data: AIDataExport): string {
     lines.push('', '## Included assets', '')
     for (const asset of data.assets) lines.push(`- ${link(asset.name, asset.url)} (${markdown(asset.mime)}, ${asset.bytes} bytes)`)
   }
+  if (data.project?.roles.some(role => role.description)) {
+    lines.push('', '## Role responsibilities', '')
+    for (const role of data.project.roles) if (role.description) lines.push(`- ${markdown(role.name)}: ${markdown(role.description)}`)
+  }
   if (data.stats) {
     lines.push('', '## Scoped statistics', '', `Total: ${data.stats.total}; active: ${data.stats.activeTotal}; cancelled: ${data.stats.cancelled}; completion: ${data.stats.completionPercent}%.`)
     for (const stage of data.stats.byStatus ?? []) lines.push(`- ${markdown(stage.label)} (${markdown(stage.id)}): ${stage.count}`)
@@ -242,6 +247,7 @@ export function renderManagementMarkdown(data: AIDataExport): string {
         `Source: ${markdown(event.source)}; recorder: ${markdown(event.recorder)}; assignee: ${markdown(event.assignee)}.`,
         '', markdown(event.description))
       if (event.transitionNote !== undefined) lines.push(`Stage transition note: ${markdown(transitionNote(event.transitionNote))}`)
+      if (event.dispatch) lines.push(`Dispatch: ${markdown(event.dispatch.status)}; ${markdown(event.dispatch.reason)}; model: ${markdown(event.dispatch.model)}${event.dispatch.assignedAt === undefined ? '' : '; assigned at: ' + markdown(new Date(event.dispatch.assignedAt).toISOString())}.`)
       if (event.stageChangedAt !== undefined) lines.push(`Current stage entered: ${markdown(new Date(event.stageChangedAt).toISOString())}.`)
       for (const [stage, duration] of Object.entries(event.stageTimes ?? {}))
         lines.push(`- ${markdown(MANAGEMENT_STATUS_LABELS[stage as keyof typeof MANAGEMENT_STATUS_LABELS] ?? stage)}: ${duration} ms in completed intervals.`)

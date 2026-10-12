@@ -1,0 +1,30 @@
+{
+  "status": "PASS_REAL_OPENAI_PYTHON_SDK",
+  "base_url": "https://regardless-selecting-bass-lowest.trycloudflare.com/v1",
+  "model": "bge-small-zh-v1.5",
+  "classification_cases": [
+    {
+      "text": "登录页面打不开了，使用时一直报错。",
+      "expected": "bug",
+      "actual": "bug",
+      "network_seconds": 0.625,
+      "model_ms": 137.07
+    },
+    {
+      "text": "希望增加导出PDF功能。",
+      "expected": "request",
+      "actual": "request",
+      "network_seconds": 0.547,
+      "model_ms": 89.94
+    },
+    {
+      "text": "这个任务目前完成到哪一步了？",
+      "expected": "progress",
+      "actual": "progress",
+      "network_seconds": 0.563,
+      "model_ms": 129.43
+    }
+  ],
+  "stream_and_usage": true,
+  "invalid_key_denied": true
+}

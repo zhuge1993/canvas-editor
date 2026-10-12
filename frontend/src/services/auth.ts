@@ -127,17 +127,19 @@ export function revokeShareLink(projectId: string, token: string): Promise<{ ok:
   return request(`/api/projects/${encodeURIComponent(projectId)}/shares/${encodeURIComponent(token)}`, { method: 'DELETE' })
 }
 
-export function getSharedProject(token: string, password?: string): Promise<ProjectAccess> {
+export function getSharedProject(token: string, password?: string, signal?: AbortSignal): Promise<ProjectAccess> {
   return request(`/api/share/${encodeURIComponent(token)}`, {
     headers: password ? { 'X-Share-Password': password } : undefined,
+    cache: 'no-store',
+    signal,
   })
 }
 
 export function saveSharedProject(
   token: string,
-  project: { id: string; title: string; content: string; createdAt: number; updatedAt: number },
+  project: { id: string; title: string; content: string; createdAt: number; updatedAt: number; expectedUpdatedAt?: number },
   password?: string,
-): Promise<{ ok: boolean; permission: 'edit' }> {
+): Promise<{ ok: boolean; permission: 'edit'; updatedAt?: number }> {
   return request(`/api/share/${encodeURIComponent(token)}`, {
     method: 'PUT',
     headers: password ? { 'X-Share-Password': password } : undefined,

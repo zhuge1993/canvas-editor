@@ -1,6 +1,0 @@
-{
-  "tests_run": 3,
-  "failures": 0,
-  "errors": 0,
-  "scope": "actual C++ cooldown branch logic with injected time/temp/sleep; not device thermal evidence"
-}

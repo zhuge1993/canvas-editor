@@ -30,8 +30,8 @@ export function createNotifications(input: NotificationInput): ManagementNotific
   if (!registered.has(input.sender.id)) invalid('推送账号已不存在或未注册')
   if (recipients.some(id => !registered.has(id))) invalid('接收人账号已不存在或未注册')
   const existing = new Set(input.existing.map(notification => notification.id))
-  const definitions = input.project.tableConfig?.customFields ?? []
-  const values = validateFieldValues(definitions, undefined, input.event.values ?? {}, false, input.event.roleId)
+  const definitions = (input.project.tableConfig?.customFields ?? []).map(field => input.event.dispatch === undefined ? field : { ...field, required: false })
+  const values = validateFieldValues(definitions, input.event.values ?? {}, {}, false, input.event.roleId)
   const status = normalizeManagementStatus(input.event.status)
   const stageMetadata = validateManagementStageMetadata(input.event)
   const transitionNote = input.event.transitionNote
@@ -52,6 +52,7 @@ export function createNotifications(input: NotificationInput): ManagementNotific
       source: source.source, recorder: source.recorder, assignee: source.assignee, priority: source.priority, status,
       createdAt: source.createdAt, updatedAt: source.updatedAt,
       ...(transitionNote === undefined ? {} : { transitionNote }),
+      ...(source.dispatch === undefined ? {} : { dispatch: { ...source.dispatch } }),
       ...stageMetadata, ...(stageMetadata.stageTimes === undefined ? {} : { stageTimes: { ...stageMetadata.stageTimes } }),
       ...(source.completedAt === undefined ? {} : { completedAt: source.completedAt }), values: { ...values },
       attachments: source.attachments.map(asset => ({ id: asset.id, name: asset.name, mime: asset.mime, bytes: asset.bytes,

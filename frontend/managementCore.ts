@@ -16,6 +16,7 @@ import { attachProjectLive, publishProjectChange } from './managementLive.js'
 import { ManagementNotificationError, createNotifications, filterNotificationsForRecipient, markNotificationsRead } from './managementNotifications.js'
 import { buildManagementExport, collectCanvasAssetRefs, renderCanvasPreview, renderManagementMarkdown } from './managementExport.js'
 import { managementPendingUploads, sweepManagementUploads, MANAGEMENT_PENDING_UPLOAD_BYTES, MANAGEMENT_PENDING_UPLOAD_COUNT } from './managementMaintenance.js'
+import { DISPATCH_MODEL, dispatchCandidates, dispatchConfiguration, dispatchAssignee, matchDispatchRole } from './managementDispatch.js'
 
 export interface ManagementActor { id: string; email: string; projectInviteId?: string }
 export interface ManagementServices {
@@ -486,7 +487,7 @@ async function memberIds(paths: RuntimePaths, services: ManagementServices, valu
   const ids = stringIds(value, '角色成员'); await validateMembers(paths, services, ids); return ids
 }
 function validateConfiguredEvents(project: StoredManagement, config: ManagementProject['tableConfig']) {
-  for (const event of project.events) validateFieldValues(config?.customFields ?? [], event.values ?? {}, {}, false, event.roleId)
+  for (const event of project.events) validateFieldValues(event.dispatch ? (config?.customFields ?? []).map(field => ({ ...field, required: false })) : config?.customFields ?? [], event.values ?? {}, {}, false, event.roleId)
 }
 interface NotificationReceipt extends Receipt { senderId: string; projectId: string; eventId: string; notificationIds: string[] }
 interface NotificationStore { schemaVersion: 1; notifications: ManagementNotification[]; receipts: NotificationReceipt[] }
@@ -560,7 +561,7 @@ async function notificationRoutes(req: IncomingMessage, res: ServerResponse, pat
   }
   fail(405, '请求方法不支持')
 }
-async function eventFields(body: Record<string, unknown>, project: StoredManagement, paths: RuntimePaths, services: ManagementServices, previous?: ManagementEvent) {
+async function eventFields(body: Record<string, unknown>, project: StoredManagement, paths: RuntimePaths, services: ManagementServices, previous?: ManagementEvent, intake = false) {
   const priority = body.priority ?? previous?.priority ?? 'medium'
   const status = normalizeManagementStatus(body.status, previous?.status ?? 'todo')
   if (body.stageChangedAt !== undefined || body.stageTimes !== undefined) fail(400, '阶段时间由服务器记录，不能由客户端修改')
@@ -570,7 +571,7 @@ async function eventFields(body: Record<string, unknown>, project: StoredManagem
   const recipientIds = body.recipientIds === undefined ? (previous?.recipientIds ?? []) : stringIds(body.recipientIds, '接收人')
   await validateMembers(paths, services, [...recipientIds, ...(assigneeId ? [assigneeId] : [])])
   return {
-    values: validateFieldValues(project.tableConfig?.customFields ?? [], body.values, previous?.values ?? {}, Boolean(body.baseValues && typeof body.baseValues === 'object' && !Array.isArray(body.baseValues) && (body.baseValues as Record<string, unknown>).values !== undefined), roleId), assigneeId, recipientIds,
+    values: validateFieldValues(intake || previous?.dispatch ? (project.tableConfig?.customFields ?? []).map(field => ({ ...field, required: false })) : project.tableConfig?.customFields ?? [], body.values, previous?.values ?? {}, Boolean(body.baseValues && typeof body.baseValues === 'object' && !Array.isArray(body.baseValues) && (body.baseValues as Record<string, unknown>).values !== undefined), roleId), assigneeId, recipientIds,
     title: name(body.title, previous?.title), description: text(body.description, '描述', 20000, previous?.description),
     roleId,
     categoryId: validateTagId(body.categoryId ?? previous?.categoryId ?? '', project.categories, '分类'),
@@ -1042,8 +1043,8 @@ async function management(req: IncomingMessage, res: ServerResponse, paths: Runt
         const role = value as Record<string, unknown>; const roleName = name(role.name)
         const existing = draft.roles.find(item => item.name === roleName)
         const ids = role.memberIds === undefined ? undefined : await memberIds(paths, services, role.memberIds)
-        if (!existing) draft.roles.push({ id: id('role'), name: roleName, color: color(role.color), ...(ids ? { memberIds: ids } : {}) })
-        else { if (role.color !== undefined) existing.color = color(role.color); if (ids) existing.memberIds = ids }
+        if (!existing) draft.roles.push({ id: id('role'), name: roleName, color: color(role.color), description: text(role.description, '角色职责', 500), ...(ids ? { memberIds: ids } : {}) })
+        else { if (role.color !== undefined) existing.color = color(role.color); if (role.description !== undefined) existing.description = text(role.description, '角色职责', 500); if (ids) existing.memberIds = ids }
       }
       draft.tableConfig = normalizeTableConfig(body.tableConfig, draft.tableConfig, draft.roles)
       validateConfiguredEvents(draft, draft.tableConfig)
@@ -1093,6 +1094,7 @@ async function management(req: IncomingMessage, res: ServerResponse, paths: Runt
         const tags = draft[collection]
         if (req.method === 'POST' && !tagId) {
           const tag: ManagementRole = { id: id(collection === 'roles' ? 'role' : 'cat'), name: name(body.name), color: color(body.color) }
+          if (collection === 'roles') tag.description = text(body.description, '角色职责', 500)
           if (collection === 'roles' && body.memberIds !== undefined) tag.memberIds = await memberIds(paths, services, body.memberIds)
           tags.push(tag); history(draft, actor, `${collection}.create`, [{ field: collection, before: null, after: tag }]); return true
         }
@@ -1105,6 +1107,7 @@ async function management(req: IncomingMessage, res: ServerResponse, paths: Runt
         }
         if (req.method !== 'PATCH') fail(405, '请求方法不支持')
         const fields: Partial<ManagementRole> = { name: name(body.name, existing.name), color: color(body.color, existing.color) }
+        if (collection === 'roles' && body.description !== undefined) fields.description = text(body.description, '角色职责', 500)
         if (collection === 'roles' && body.memberIds !== undefined) fields.memberIds = await memberIds(paths, services, body.memberIds)
         const changes = changed(existing as unknown as Record<string, unknown>, fields)
         Object.assign(existing, fields); history(draft, actor, `${collection}.update`, changes); return changes.length > 0
@@ -1142,6 +1145,13 @@ async function management(req: IncomingMessage, res: ServerResponse, paths: Runt
             existing.completedAt = completedAt
           }
           Object.assign(existing, fields, { updatedAt: now }); history(draft, actor, 'event.update', changes, existing.id, changes.some(change => change.field === 'status') ? transitionNote : undefined)
+          if (existing.dispatch && changes.some(change => ['roleId', 'assigneeId', 'assignee'].includes(change.field))) {
+            const before = existing.dispatch
+            existing.dispatch = existing.roleId && existing.assigneeId
+              ? { status: 'assigned', reason: '分派信息已由项目编辑者调整。', model: DISPATCH_MODEL, assignedAt: now }
+              : { status: 'pending', reason: '分派信息已由项目编辑者调整，等待补齐处理角色及处理人。', model: DISPATCH_MODEL }
+            history(draft, actor, 'event.dispatch.update', [{ field: 'dispatch', before, after: existing.dispatch }], existing.id)
+          }
         }
         return changes.length > 0
       }, eventId ?? '*create*')
@@ -1171,10 +1181,112 @@ async function dispatchManagementRequest(req: IncomingMessage, res: ServerRespon
 export async function handleManagementRequest(req: IncomingMessage, res: ServerResponse, paths: RuntimePaths, services: ManagementServices): Promise<boolean> {
   const pathname = new URL(req.url ?? '/', 'http://flowboard.local').pathname
   if (!pathname.startsWith('/ai/') && !pathname.startsWith('/api/ai-shares') && !pathname.startsWith('/api/management/')) return false
+  const intake = pathname.match(/^\/api\/management\/projects\/([A-Za-z0-9_-]+)\/intake$/)
+  if (intake) return handleManagementIntake(req, res, paths, services, intake[1]!)
   return withManagementDataset(paths, async () => {
     await recoverPendingManagementDeletes(paths,services)
     try { await performManagementMaintenance(paths, services) }
     catch { console.warn('Management maintenance deferred after storage validation or IO failure') }
     return dispatchManagementRequest(req,res,paths,services)
   })
+}
+
+/** Separate snapshot and commit locks keep slow inference outside the dataset
+ * lock. A saved receipt wins over retries; fresh membership wins over a model. */
+async function handleManagementIntake(req: IncomingMessage, res: ServerResponse, paths: RuntimePaths, services: ManagementServices, projectId: string): Promise<boolean> {
+  const controller = new AbortController()
+  const aborted = () => controller.abort()
+  const closed = () => { if (!res.writableEnded) controller.abort() }
+  req.once('aborted', aborted); res.once('close', closed)
+  const alive = () => { if (controller.signal.aborted || req.aborted || res.destroyed) fail(499, '需求提交已取消') }
+  safeHeaders(res)
+  try {
+    if (req.method !== 'POST') fail(405, '请使用POST提交需求')
+    const actor = await services.currentUser(req, paths)
+    if (!actor || !await services.ownerExists(paths, actor.id)) fail(401, 'Login required')
+    const origin = req.headers.origin
+    if (req.headers['sec-fetch-site'] === 'cross-site' || (origin && origin !== services.origin(req) && origin !== `http://${req.headers.host}` && origin !== `https://${req.headers.host}`)) fail(403, '请在本站页面提交需求')
+    if ((req.headers['content-type'] ?? '').split(';')[0]?.trim().toLowerCase() !== 'application/json') fail(415, '请求需要JSON格式')
+    const body = await services.readBody(req, JSON_BODY_BYTES)
+    if (!validId(body.mutationId) || body.mutationId.length > 100) fail(400, '需求提交必须提供有效的mutationId')
+    if (['roleId', 'assignee', 'assigneeId', 'recipientIds', 'status', 'dispatch', 'transitionNote', 'expectedEventUpdatedAt', 'baseValues'].some(key => body[key] !== undefined))
+      fail(400, '处理角色、处理人和需求阶段由自动分派记录，提交需求时无需选择')
+    const eventId = `event_${body.mutationId}`
+    if (body.id !== undefined && body.id !== eventId) fail(400, '需求ID必须与mutationId一致')
+    const operation = receipt(body, `${actor.id}:events.intake`)!
+    // A concurrent retry of the same submission must wait for its first
+    // attempt, rather than saving a "model busy" pending event ahead of it.
+    await serial(`management-intake:${projectFile(paths, projectId)}:${actor.id}:${operation.id}`, async () => {
+      alive()
+      const before = await withManagementDataset(paths, async () => {
+        await recoverPendingManagementDeletes(paths, services)
+        const freshActor = await services.currentUser(req, paths)
+        if (!freshActor || freshActor.id !== actor.id || !await services.ownerExists(paths, actor.id)) fail(401, '登录已失效，请重新登录')
+        const project = await readableProject(paths, projectId, actor, services)
+        if (!['owner', 'edit'].includes(projectAccess(project, actor) ?? '')) fail(403, '没有编辑权限')
+        validateRevisionShape(body)
+        if (checkReceipt(project, operation)) return { replay: publicProject(project, actor) }
+        checkRevision(project, body)
+        if (project.events.some(event => event.id === eventId)) fail(409, '需求ID已存在')
+        // A submitter supplies only common business fields. Role-specific
+        // details are completed by the handler after the server selects a role.
+        const fields = await eventFields(body, project, paths, services, undefined, true)
+        await eventAttachments(paths, project, body.attachments)
+        const candidates = dispatchCandidates(project, await services.registeredUsers(paths))
+        return { title: fields.title, description: fields.description, candidates, configuration: dispatchConfiguration(project, candidates) }
+      })
+      if (before.replay) { alive(); services.sendJson(res, 201, before.replay); return true }
+      alive()
+      let match
+      try { match = await matchDispatchRole(actor.id, before.title!, before.description!, before.candidates!, controller.signal) }
+      catch { alive(); throw new Error('dispatch inference failed') }
+      alive()
+      const response = await withManagementDataset(paths, async () => {
+        alive()
+        const currentActor = await services.currentUser(req, paths)
+        if (!currentActor || currentActor.id !== actor.id || !await services.ownerExists(paths, actor.id)) fail(401, '登录已失效，请重新登录')
+        const project = await readableProject(paths, projectId, currentActor, services)
+        if (!['owner', 'edit'].includes(projectAccess(project, currentActor) ?? '')) fail(403, '项目编辑权限已变更')
+        if (checkReceipt(project, operation)) return publicProject(project, currentActor)
+        if (project.events.some(event => event.id === eventId)) fail(409, '需求ID已存在')
+        const fields = await eventFields({ ...body, roleId: '', assigneeId: '', assignee: '', recipientIds: [], status: 'todo' }, project, paths, services, undefined, true)
+        const attachments = await eventAttachments(paths, project, body.attachments)
+        // Recheck accounts after all input/attachment I/O, immediately before
+        // deriving the event to write. Deleted or revoked handlers stay pending.
+        const [users, actorExists, ownerExists] = await Promise.all([services.registeredUsers(paths),
+          services.ownerExists(paths, currentActor.id), services.ownerExists(paths, project.ownerId)])
+        if (!actorExists || !ownerExists) fail(401, '账号已不存在')
+        const candidates = dispatchCandidates(project, users)
+        const configurationChanged = before.configuration !== dispatchConfiguration(project, candidates)
+        const role = !configurationChanged && match.roleId ? project.roles.find(role => role.id === match.roleId) : undefined
+        const assignee = role ? dispatchAssignee(project, role, users) : undefined
+        const assigned = Boolean(role && assignee)
+        fields.roleId = assigned ? role!.id : ''
+        fields.assigneeId = assigned ? assignee!.id : ''
+        fields.assignee = assigned ? assignee!.email.split('@')[0].slice(0, 80) : ''
+        const now = Date.now(), draft = structuredClone(project)
+        const event: ManagementEvent = { id: eventId, ...fields, recorder: currentActor.email, attachments,
+          createdAt: now, updatedAt: now, ...managementTransitionMetadata(undefined, 'todo', now),
+          dispatch: { status: assigned ? 'assigned' : 'pending', model: DISPATCH_MODEL,
+            reason: configurationChanged ? '分派期间角色职责或成员配置已变更，需求已保存，等待重新分派。'
+              : assigned ? match.reason : match.roleId ? '匹配角色当前没有可编辑处理人，需求已保存，等待分派。' : match.reason,
+            ...(assigned ? { assignedAt: now } : {}),
+          },
+        }
+        draft.events.push(event)
+        history(draft, currentActor, 'event.create', [{ field: 'event', before: null, after: event }], event.id, event.dispatch!.reason)
+        draft.updatedAt = now; draft.revision++; draft.receipts = [...(draft.receipts ?? []), operation]
+        alive()
+        await writeProject(paths, draft, services)
+        return publicProject(draft, currentActor)
+      })
+      if (!res.destroyed && !res.writableEnded) services.sendJson(res, 201, response)
+    })
+    return true
+  } catch (error) {
+    if (!(error instanceof ManagementError) && !(error instanceof ManagementFieldError) && !(error instanceof ManagementWorkflowError)) throw error
+    if (!res.destroyed && !res.writableEnded) services.sendJson(res, error.status, { error: error.message,
+      ...(error instanceof ManagementError && error.currentRevision !== undefined ? { currentRevision: error.currentRevision } : {}) })
+    return true
+  } finally { req.off('aborted', aborted); res.off('close', closed) }
 }

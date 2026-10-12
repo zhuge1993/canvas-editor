@@ -17,7 +17,10 @@ import { handleManagementRequest, withProjectRegistrationInvite, maintainManagem
 import { ManagementBackupError, exportManagementBackup, stageManagementRestore, commitManagementRestore } from './managementBackup.js'
 import { ManagementWorkflowError } from './managementWorkflow.js'
 import { ManagementFieldError } from './managementFields.js'
-import { handleWebsiteVoice } from './websiteVoice.js'
+import { handleWebsiteDecision } from './websiteDecision.js'
+import { handleOpenAICompatible, readLocalAPIKey } from './openaiCompatible.js'
+import { CANVAS_FAVORITES_FILE, CanvasFavoriteError, handleCanvasFavorites, validateCanvasFavorites, withCanvasFavorites } from './canvasFavorites.js'
+import type { CanvasFavoriteStore } from './canvasFavorites.js'
 
 const scryptAsync = promisify(scryptCallback) as (
   password: string,
@@ -1228,7 +1231,9 @@ async function writeProject(paths: RuntimePaths, body: Record<string, unknown>, 
     canvas,
     thumbnail: typeof body.thumbnail === 'string' ? body.thumbnail : existing?.thumbnail,
     createdAt: existing?.createdAt ?? (typeof body.createdAt === 'number' ? body.createdAt : now),
-    updatedAt: now,
+    // UpdatedAt is also the shared-editor concurrency version. Separate writes
+    // within one clock millisecond must still invalidate the previous version.
+    updatedAt: existing ? Math.max(now, existing.updatedAt + 1) : now,
     ownerId: existing?.ownerId ?? ownerId,
     deletedAt: existing?.deletedAt,
   }
@@ -1960,6 +1965,10 @@ async function handleShare(req: IncomingMessage, res: ServerResponse, paths: Run
       sendError(res, 400, '项目 ID 不匹配')
       return true
     }
+    if (body.expectedUpdatedAt !== undefined && (!Number.isFinite(body.expectedUpdatedAt) || typeof body.expectedUpdatedAt !== 'number' || body.expectedUpdatedAt < 0)) {
+      sendError(res, 400, '画布原版本时间无效')
+      return true
+    }
     const saved = await withShareMutation(token, async () => {
       const currentShare = (await loadShares(paths)).find(item => item.token === token)
       if (!currentShare) return { ok: false as const, status: 404, error: '分享链接不存在或已撤销' }
@@ -1978,15 +1987,19 @@ async function handleShare(req: IncomingMessage, res: ServerResponse, paths: Run
         const latest = await readProject(paths, currentShare.projectId)
         if (!latest) return { ok: false as const, status: 404, error: '项目不存在' }
         if (latest.deletedAt) return { ok: false as const, status: 410, error: '项目已进入回收站' }
+        if (body.expectedUpdatedAt !== undefined && body.expectedUpdatedAt !== latest.updatedAt) {
+          return { ok: false as const, status: 409, error: '原画布已被更新，请加载最新内容后再保存' }
+        }
         await writeProject(paths, body, latest.ownerId ?? '', latest)
-        return { ok: true as const, permission: currentShare.permission }
+        const written = await readProject(paths, currentShare.projectId)
+        return { ok: true as const, permission: currentShare.permission, updatedAt: written!.updatedAt }
       })
     })
     if (!saved.ok) {
       sendError(res, saved.status, saved.error)
       return true
     }
-    sendJson(res, 200, { ok: true, permission: saved.permission })
+    sendJson(res, 200, { ok: true, permission: saved.permission, updatedAt: saved.updatedAt })
     return true
   }
   sendError(res, 405, 'Method not allowed')
@@ -2225,7 +2238,7 @@ async function handleProjects(req: IncomingMessage, res: ServerResponse, paths: 
         if (!latest) return { ok: false as const, status: 404, error: '文档不存在' }
         if (latest.deletedAt) return { ok: false as const, status: 410, error: '项目已进入回收站，请先恢复项目' }
         const access = await withCurrentProjectAccess(paths, user, latest, async () => {
-          const restored: StoredDocument = { ...latest, canvas, updatedAt: Date.now() }
+          const restored: StoredDocument = { ...latest, canvas, updatedAt: Math.max(Date.now(), latest.updatedAt + 1) }
           await writeJson(projectPath(paths, projectId), restored)
         })
         if (!access.ok) return access
@@ -2263,7 +2276,7 @@ async function handleProjects(req: IncomingMessage, res: ServerResponse, paths: 
         if (!latest) return { ok: false as const, status: 404, error: '文档不存在' }
         if (!latest.deletedAt) return { ok: false as const, status: 400, error: '文档不在回收站中' }
         const access = await withCurrentProjectAccess(paths, user, latest, async () => {
-          const restored: StoredDocument = { ...latest, deletedAt: undefined, updatedAt: Date.now() }
+          const restored: StoredDocument = { ...latest, deletedAt: undefined, updatedAt: Math.max(Date.now(), latest.updatedAt + 1) }
           await writeJson(projectPath(paths, id), restored)
         })
         if (!access.ok) return access
@@ -3015,7 +3028,7 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
         const targetCanvas = canvasGraph(target)
         const result = cloneGroupIntoCanvas(canvasGraph(source), targetCanvas, groupId)
         if (!result) return { ok: false as const, status: 404, error: '源分组不存在' }
-        await writeJson(projectPath(paths, target.id), { ...target, canvas: targetCanvas, updatedAt: Date.now() } satisfies StoredDocument)
+        await writeJson(projectPath(paths, target.id), { ...target, canvas: targetCanvas, updatedAt: Math.max(Date.now(), target.updatedAt + 1) } satisfies StoredDocument)
         return { ok: true as const, ...result, targetDocId: target.id }
       })
     })
@@ -3061,7 +3074,7 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
   if (req.method === 'GET' && pathname === '/api/admin/backup') {
     const dataFiles = await fsp.readdir(paths.dataDirectory).catch(() => [] as string[])
     const authFiles = await fsp.readdir(paths.authDirectory).catch(() => [] as string[])
-    const durableAuthFiles = new Set(['users.json', 'invites.json', 'shares.json'])
+    const durableAuthFiles = new Set(['users.json', 'invites.json', 'shares.json', CANVAS_FAVORITES_FILE])
     const payload: Record<string, unknown> = {
       meta: {
         app: 'FlowBoard',
@@ -3211,6 +3224,7 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
     let stagedUsers: StoredUser[] | undefined
     let stagedInvites: StoredInvite[] | undefined
     let stagedShares: StoredShare[] | undefined
+    let stagedFavorites: CanvasFavoriteStore | undefined
 
     if (payload.data !== undefined) {
       if (!isRecord(payload.data)) throw new RequestBodyError('备份中的 data 格式无效')
@@ -3283,6 +3297,7 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
       }
       if (payload.auth['invites.json'] !== undefined) stagedInvites = validateRestoredInvites(payload.auth['invites.json'])
       if (payload.auth['shares.json'] !== undefined) stagedShares = validateRestoredShares(payload.auth['shares.json'])
+      if (payload.auth[CANVAS_FAVORITES_FILE] !== undefined) stagedFavorites = validateCanvasFavorites(payload.auth[CANVAS_FAVORITES_FILE])
     }
 
     const oldDocumentBytes = Buffer.byteLength(JSON.stringify(payload.data ?? {})) + Buffer.byteLength(JSON.stringify(payload.versions ?? {})) + Buffer.byteLength(JSON.stringify(payload.auth ?? {}))
@@ -3352,6 +3367,10 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
         await writeJson(path.join(paths.authDirectory, 'shares.json'), stagedShares)
         restored++
       }
+      if (stagedFavorites) {
+        await withCanvasFavorites(paths, () => writeJson(path.join(paths.authDirectory, CANVAS_FAVORITES_FILE), stagedFavorites))
+        restored++
+      }
 
       // 恢复完成后统一撤销所有旧会话和一次性认证状态。
       await saveSessions(paths, [])
@@ -3381,6 +3400,48 @@ export async function handleAdmin(req: IncomingMessage, res: ServerResponse, pat
 }
 
 async function handleSettings(req: IncomingMessage, res: ServerResponse, paths: RuntimePaths, pathname: string): Promise<boolean> {
+  if (pathname === '/api/settings/decision-api' || pathname === '/api/settings/decision-api/reveal') {
+    res.setHeader('Cache-Control', 'no-store')
+    res.setHeader('Vary', 'Cookie')
+    res.setHeader('X-Content-Type-Options', 'nosniff')
+    const actor = await requireUser(req, res, paths)
+    if (!actor) return true
+    if (actor.id === 'guest' || actor.isAdmin !== true || actor.email.toLowerCase() !== DEFAULT_ADMIN_EMAIL) {
+      sendError(res, 403, '只有根管理员可以查看 API 接入配置')
+      return true
+    }
+    const reveal = pathname.endsWith('/reveal')
+    if (req.method !== (reveal ? 'POST' : 'GET')) { sendError(res, 405, '请求方法不支持'); return true }
+    if (reveal) {
+      const origin = req.headers.origin
+      if (req.headers['sec-fetch-site'] === 'cross-site' || (origin && origin !== publicOrigin(req) && origin !== `http://${req.headers.host}` && origin !== `https://${req.headers.host}`)) {
+        sendError(res, 403, '请在本站页面查看 API 密钥')
+        return true
+      }
+      if ((req.headers['content-type'] ?? '').split(';')[0]?.trim() !== 'application/json') {
+        sendError(res, 415, '请求需要 JSON 格式')
+        return true
+      }
+      req.resume()
+    }
+    let key: string | undefined
+    try { key = await readLocalAPIKey() } catch { /* Configuration is shown as disabled, without file details. */ }
+    if (reveal && !key) { sendError(res, 503, 'API 密钥尚未配置，暂时无法外接'); return true }
+    // Recheck a fresh session after reading the shared server credential.
+    const fresh = await currentUser(req, paths)
+    if (!fresh || fresh.id !== actor.id || fresh.isAdmin !== true || fresh.email.toLowerCase() !== DEFAULT_ADMIN_EMAIL) {
+      sendError(res, 401, '登录已失效，请重新登录')
+      return true
+    }
+    const origin = preferredPublicOrigin() ?? publicOrigin(req)
+    sendJson(res, 200, {
+      apiType: 'OpenAI 兼容', base_url: `${origin.replace(/\/$/, '')}/v1`, model: 'bge-small-zh-v1.5',
+      configured: Boolean(key), keyMasked: key ? `••••••••${key.slice(-4)}` : '',
+      temporaryAddress: !process.env.FLOWBOARD_PUBLIC_HOST?.trim() && Boolean(tunnelPublicOrigin()),
+      ...(reveal ? { api_key: key } : {}),
+    })
+    return true
+  }
   if (pathname !== '/api/settings' && pathname !== '/api/settings/smtp-test') return false
   // SMTP 授权码属于整机机密，仅默认根管理员可修改或测试。
   const user = await requireUser(req, res, paths)
@@ -3518,7 +3579,13 @@ export async function handleRuntimeRequest(req: IncomingMessage, res: ServerResp
   // 提前记录客户端是否接受 gzip（sendJson 里无法可靠拿到请求头）
   ;(res as GzipAwareResponse).__acceptsGzip = /\bgzip\b/.test(String(req.headers['accept-encoding'] ?? ''))
   try {
-    if (await handleWebsiteVoice(req, res, paths, {
+    if (await handleOpenAICompatible(req, res)) return true
+    // Retired API URLs must not fall through to the SPA's HTML response.
+    if (pathname === '/api/voice' || pathname.startsWith('/api/voice/')) {
+      sendJson(res, 404, { error: '接口不存在' })
+      return true
+    }
+    if (await handleWebsiteDecision(req, res, paths, {
       currentUser,
       ownerExists: async (runtimePaths, ownerId) => (await loadUsers(runtimePaths)).some(user => user.id === ownerId),
       canvasAccess: async (request, runtimePaths, actor, canvas) => {
@@ -3552,6 +3619,12 @@ export async function handleRuntimeRequest(req: IncomingMessage, res: ServerResp
       sendJson,
     })) return true
     if (await handleAuth(req, res, paths, pathname)) return true
+    if (await handleCanvasFavorites(req, res, paths, {
+      currentUser, loadUsers, loadShares, readProject, readBody, writeJson,
+      verifyPassword: verifySharePasswordAttempt,
+      withShare: withShareMutation, withProject: withProjectMutation, withAuth: withAuthMutation,
+      projectResponse, origin: publicOrigin, sendJson,
+    })) return true
     if (await handleAssets(req, res, paths, pathname)) return true
     if (await handleShare(req, res, paths, pathname)) return true
     if (await handleProjects(req, res, paths, pathname)) return true
@@ -3590,7 +3663,7 @@ export async function handleRuntimeRequest(req: IncomingMessage, res: ServerResp
     }
     return false
   } catch (error) {
-    const isClientError = error instanceof RequestBodyError || error instanceof ManagementBackupError || error instanceof ManagementFieldError || error instanceof ManagementWorkflowError || error instanceof ManagementInviteError
+    const isClientError = error instanceof RequestBodyError || error instanceof ManagementBackupError || error instanceof ManagementFieldError || error instanceof ManagementWorkflowError || error instanceof ManagementInviteError || error instanceof CanvasFavoriteError
     const aiToken = pathname.match(/^\/(?:ai|api\/management\/invites)\/([A-Za-z0-9_-]+)/)?.[1]
     const rawMessage = error instanceof Error ? error.message : String(error)
     const redactedMessage = aiToken ? rawMessage.split(aiToken).join('[redacted]') : rawMessage

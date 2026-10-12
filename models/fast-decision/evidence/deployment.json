@@ -1,0 +1,195 @@
+{
+  "old_installations_absent": {
+    "agentjev": {
+      "directory": true,
+      "service": true,
+      "runlevels": true,
+      "user": true
+    },
+    "dior-voice": {
+      "directory": true,
+      "service": true,
+      "runlevels": true,
+      "user": true
+    },
+    "dior-inference": {
+      "directory": true,
+      "service": true,
+      "runlevels": true,
+      "user": true
+    },
+    "dior-voice-candidate": {
+      "directory": true,
+      "service": true,
+      "runlevels": true,
+      "user": true
+    }
+  },
+  "services": {
+    "flowboard": "* status: started",
+    "fast-decision": "* status: started"
+  },
+  "boot_enabled": true,
+  "health": {
+    "status": "ready",
+    "api_version": "fast-decision.v1",
+    "model": "bge-small-zh-v1.5",
+    "available": true,
+    "cooling": false,
+    "output_token_decoding": false,
+    "backend": "onnx-int8-armv7",
+    "max_path_tokens": 128,
+    "types": [
+      "choice",
+      "boolean",
+      "score"
+    ],
+    "probability_semantics": "normalized semantic similarity; not calibrated correctness probability"
+  },
+  "production_routes": {
+    "/api/voice/status": 404,
+    "/api/decision/status": 401,
+    "/v1/models": 401,
+    "/": 200
+  },
+  "key_file_permissions": {
+    "mode": "0o640",
+    "uid": 0,
+    "group": "flowboard"
+  },
+  "website_integration": {
+    "fixture": "isolated real web gateway and phone model",
+    "cases": [
+      {
+        "id": "choice",
+        "seconds": 0.296,
+        "result": {
+          "model": "bge-small-zh-v1.5",
+          "answers": [
+            {
+              "id": "kind",
+              "type": "choice",
+              "distribution": {
+                "bug": 0.4600678247555649,
+                "progress": 0.2296179969718764,
+                "request": 0.31031417827255864
+              },
+              "value": "bug",
+              "description": "程序故障，功能异常，使用时出现问题",
+              "top_probability": 0.4600678247555649,
+              "margin": 0.14975364648300626
+            }
+          ],
+          "sources": [],
+          "readOnly": true,
+          "summaryOnly": true,
+          "generatedTokens": 0,
+          "matchingWeights": true
+        }
+      },
+      {
+        "id": "boolean",
+        "seconds": 0.242,
+        "result": {
+          "model": "bge-small-zh-v1.5",
+          "answers": [
+            {
+              "id": "fault",
+              "type": "boolean",
+              "distribution": {
+                "true": 0.6226222807655974,
+                "false": 0.3773777192344025
+              },
+              "value": true,
+              "probability": 0.6226222807655974
+            }
+          ],
+          "sources": [],
+          "readOnly": true,
+          "summaryOnly": true,
+          "generatedTokens": 0,
+          "matchingWeights": true
+        }
+      },
+      {
+        "id": "score",
+        "seconds": 0.235,
+        "result": {
+          "model": "bge-small-zh-v1.5",
+          "answers": [
+            {
+              "id": "urgency",
+              "type": "score",
+              "distribution": {
+                "0": 0.0707555882435786,
+                "1": 0.06120861269903788,
+                "2": 0.8680357990573835
+              },
+              "value": "2",
+              "score": 1.7972802108138048,
+              "level": 2,
+              "legend": [
+                "不紧急，可以以后再做",
+                "一般紧急，按计划处理",
+                "非常紧急，核心功能受影响，需要立即修复"
+              ]
+            }
+          ],
+          "sources": [],
+          "readOnly": true,
+          "summaryOnly": true,
+          "generatedTokens": 0,
+          "matchingWeights": true
+        }
+      }
+    ],
+    "auth_and_removal": "PASS",
+    "status": "PASS_TRANSPORT_AND_REAL_EXECUTION",
+    "semantic_note": "Normalized semantic matching weights; selected examples do not establish general reasoning or calibrated correctness probability."
+  },
+  "deployment": {
+    "status": "WEBSITE_UPDATED",
+    "previous_pid": "32576",
+    "current_pid": "7547",
+    "health": {
+      "status": "ok",
+      "app": "FlowBoard",
+      "version": "dev-build",
+      "uptimeSeconds": 0,
+      "timestamp": "2026-10-11T00:25:56.337Z"
+    },
+    "data_directories_preserved": true,
+    "settings_restored": true,
+    "backup": "/opt/flowboard/.decision-backup-20261011-002555"
+  },
+  "runtime_manifest": {
+    "model": "bge-small-zh-v1.5",
+    "repo": "BAAI/bge-small-zh-v1.5",
+    "revision": "7999e1d3359715c523056ef9478215996d62a620",
+    "parameters": 23953920,
+    "files": {
+      "encoder.int8.onnx": {
+        "bytes": 23902853,
+        "sha256": "79c5e57659d243eb47138543302706acf39577a5595555ebdecf08ebbe321582"
+      },
+      "vocab.txt": {
+        "bytes": 109540,
+        "sha256": "45bbac6b341c319adc98a532532882e91a9cefc0329aa57bac9ae761c27b291c"
+      },
+      "tokenizer_config.json": {
+        "bytes": 367,
+        "sha256": "e6f3b96db926a37d4039995fbf5ad17de158dfb8f6343d607e4dbaad18d75f5a"
+      },
+      "config.json": {
+        "bytes": 776,
+        "sha256": "3853a7979202c348751b753e36f579c41d8da7d36af617d3d907e1fc9b441f2a"
+      },
+      "model.safetensors": {
+        "bytes": 95827648,
+        "sha256": "354763b9b1357bc9c44f62c6be2276321081ed2567773608c0d0785b61d5a026"
+      }
+    }
+  },
+  "worker_uid": "unprivileged fast-decision account",
+  "frontend_verified": true
+}
