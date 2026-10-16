@@ -1,0 +1,2199 @@
+import { expect, type Page } from '@playwright/test';
+
+const PNG_BYTES = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4//8/AwAI/AL+X1N6AAAAAElFTkSuQmCC',
+  'base64'
+);
+// 64x64 mask whose fully transparent 32x32 center marks 25% of the image.
+const MASK_PNG_BYTES = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAAqUlEQVR4nO3bwQnAMAzAQKd0/5XbIRK4R6QBjBB+Gbxm5puLebSApgBaQFMALaApgBbQFEALaAqgBTQF0AKaAmgBzXtgxjowY4ete8b1G1AALaApgBbQFEALaAqgBTQF0AKaAmgBTQG0gKYAWkBTAC2gKYAW0BRAC2gKoAU0BdACmgJoAU0BtIBm9S9wOQXQApoCaAFNAbSApgBaQFMALaApgBbQFEALaH4NOAN/t9r+BwAAAABJRU5ErkJggg==',
+  'base64'
+);
+
+type GalleryImageFixture = {
+  id: string;
+  prompt: string;
+  size: string;
+  filename: string;
+  image_url?: string;
+  thumbnail_filename?: string | null;
+  thumbnail_url: string;
+  thumbnail_status?: 'ready' | 'queued' | 'missing';
+  created_at: string;
+  completed_at: string;
+  image_width: number;
+  image_height: number;
+  sent_prompt?: string | null;
+  revised_prompt?: string | null;
+  reported_size?: string | null;
+  reported_quality?: string | null;
+  upstream_duration_ms?: number | null;
+  chroma_status?: string | null;
+  diagnostics?: string[];
+  model: string;
+  quality?: string;
+  output_format?: string;
+  output_compression?: number | null;
+  response_format?: string | null;
+  n?: number | null;
+  api_path?: string | null;
+  api_preset_name: string;
+  duration: string;
+  favorite: boolean;
+  bytes: number;
+};
+
+type PromptSnippetFixture = {
+  id: string;
+  title: string;
+  prompt: string;
+  favorite: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+type NodeImageResultStatus = 'ok' | 'error' | 'cancelled';
+type NodeImageJobStatus = 'queued' | 'running' | 'success' | 'partial_failure' | 'cancelled' | 'error';
+
+type NodeImageResultFixture = {
+  image_id: string;
+  filename: string | null;
+  status: NodeImageResultStatus;
+  url: string | null;
+  markdown: string | null;
+  error: string | null;
+};
+
+type NodeImageJobFixture = {
+  job_id: string;
+  status: NodeImageJobStatus;
+  stage: string;
+  message: string;
+  progress: number;
+  requested_count: number;
+  processed_count: number;
+  uploaded_count: number;
+  failed_count: number;
+  cancelled_count: number;
+  results: NodeImageResultFixture[];
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+  updated_at: string;
+  error: string | null;
+  status_url: string;
+  events_url: string;
+  cancel_url: string;
+  cancel_requested: boolean;
+  ids: string[];
+};
+
+type CollectionFixture = {
+  id: string;
+  name: string;
+  position: number;
+  is_default: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+type MockOptions = {
+  authenticated?: boolean;
+  collections?: CollectionFixture[];
+  collectionItems?: Record<string, string[]>;
+  editUploadFailure?: boolean;
+  galleryImages?: GalleryImageFixture[];
+  promptSnippets?: PromptSnippetFixture[];
+  settings?: Record<string, unknown>;
+  generatedJob?: unknown;
+  generatedJobs?: unknown[];
+  runningJobs?: unknown[];
+  historyJobs?: unknown[];
+  language?: 'en' | 'zh-CN' | null;
+  maskSupported?: boolean;
+  maskRestoreStatus?: number;
+  reversePrompt?: string;
+  optimizedPrompts?: string[];
+  optimizeFailureAt?: number;
+  optimizeDelayMs?: number;
+  nodeImageBatchDelayMs?: number;
+  nodeImageBatchFailureIds?: string[];
+  nodeImageCancelFailure?: boolean;
+  nodeImageCancelStatusFailure?: boolean;
+  nodeImageCancelReturnsCompleted?: boolean;
+  /** How the mocked Agent answers a turn: a full reply, a failure, or a reply that never finishes. */
+  agentScenario?: 'reply' | 'fail' | 'hold' | 'search';
+  agentConversations?: AgentConversationFixture[];
+  agentShareState?: boolean;
+};
+
+type AgentBlockFixture = Record<string, unknown> & { id: string; type: string };
+type AgentEventFixture = { event: string; data: Record<string, unknown> };
+type AgentMessageFixture = {
+  id: string;
+  turn_id: string;
+  seq: number;
+  round_no: number;
+  role: 'user' | 'assistant';
+  text: string;
+  blocks: AgentBlockFixture[];
+  status: string;
+  created_at: string;
+  updated_at: string;
+};
+type AgentTurnFixture = {
+  id: string;
+  conversationId: string;
+  roundNo: number;
+  status: 'running' | 'completed' | 'failed' | 'cancelled';
+  events: AgentEventFixture[];
+  attachments: string[];
+  parentTurnId?: string | null;
+  clientTurnId?: string;
+};
+type AgentConversationFixture = {
+  id: string;
+  title: string;
+  messages: AgentMessageFixture[];
+  turns: AgentTurnFixture[];
+  selectedTurnId?: string | null;
+  branchRevision?: number;
+};
+
+const baseGalleryImages: GalleryImageFixture[] = [
+  {
+    id: 'img-1',
+    prompt: 'First gallery image',
+    size: '1024x1024',
+    filename: 'img-1.png',
+    thumbnail_url: '/api/thumb/img-1.png',
+    created_at: '2026-05-18T12:00:00Z',
+    completed_at: '2026-05-18T20:00:01+08:00',
+    image_width: 1,
+    image_height: 1,
+    model: 'gpt-image-2',
+    quality: 'high',
+    output_format: 'webp',
+    output_compression: 80,
+    response_format: 'url',
+    n: 2,
+    api_path: '/v1/responses',
+    api_preset_name: 'Default',
+    duration: '1.00s',
+    favorite: false,
+    bytes: 68
+  },
+  {
+    id: 'img-2',
+    prompt: 'Second gallery image',
+    size: '1536x1024',
+    filename: 'img-2.png',
+    thumbnail_url: '/api/thumb/img-2.png',
+    created_at: '2026-05-18T12:01:00Z',
+    completed_at: '2026-05-18T20:01:01+08:00',
+    image_width: 1,
+    image_height: 1,
+    model: 'gpt-image-2',
+    quality: 'auto',
+    output_format: 'png',
+    output_compression: null,
+    response_format: 'url',
+    n: 1,
+    api_path: '/v1/images/edits',
+    api_preset_name: 'Default',
+    duration: '1.10s',
+    favorite: true,
+    bytes: 68
+  }
+];
+
+const settingsResponse = {
+  active_preset_id: 'default',
+  api_url: 'https://api.example.com',
+  api_key_masked: '********',
+  has_api_key: true,
+  api_key_source: 'stored',
+  api_path: '/v1/images/generations',
+  default_model: 'preset-default-model',
+  default_response_format: 'url',
+  supports_mask: true,
+  has_upstream_socks5_proxy: false,
+  upstream_socks5_proxy_masked: '',
+  has_webhook_url: true,
+  webhook_url_masked: 'https://hooks.example.com/***',
+  prompt_optimizer: {
+    enabled: true,
+    api_url: 'https://example.com/v1/chat/completions',
+    model: 'gpt-4o-mini',
+    timeout_seconds: 60,
+    api_key_masked: '********',
+    has_api_key: true,
+    api_key_source: 'stored',
+    api_key_env_var: null
+  },
+  ai_assistant: {
+    enabled: true,
+    api_url: 'https://example.com',
+    model: 'gpt-4o-mini',
+    vision_model: 'gpt-4o-mini',
+    agent_enabled: false,
+    agent_model: '',
+    agent_max_tool_rounds: 4,
+    agent_system_prompt: '',
+    timeout_seconds: 60,
+    api_path: '/v1/chat/completions',
+    api_key_masked: '********',
+    has_api_key: true,
+    api_key_source: 'stored',
+    api_key_env_var: null
+  },
+  r2_backup: {
+    enabled: false,
+    endpoint_url: '',
+    bucket_name: '',
+    region: 'auto',
+    key_prefix: 'gallery/',
+    sync_interval_hours: 0,
+    access_key_id_masked: '********',
+    has_access_key_id: false,
+    access_key_id_source: 'empty',
+    access_key_id_env_var: null,
+    secret_access_key_masked: '********',
+    has_secret_access_key: false,
+    secret_access_key_source: 'empty',
+    secret_access_key_env_var: null
+  },
+  nodeimage: {
+    enabled: true,
+    api_key_masked: '${TEST_NODEIMAGE_API_KEY}',
+    has_api_key: true,
+    api_key_resolvable: true,
+    api_key_source: 'env',
+    api_key_env_var: 'TEST_NODEIMAGE_API_KEY',
+    api_key_secret_id: null
+  },
+  presets: [
+    {
+      id: 'default',
+      name: 'Default',
+      api_url: 'https://api.example.com',
+      api_key_masked: '********',
+      has_api_key: true,
+      api_key_source: 'stored',
+      api_path: '/v1/images/generations',
+      default_model: 'preset-default-model',
+      default_response_format: 'url',
+      supports_mask: true
+    }
+  ]
+};
+
+const overallConfigResponse = {
+  restart_required_names: [],
+  items: [
+    {
+      name: 'ENABLE_METRICS',
+      type: 'bool',
+      group: 'Observability',
+      description: 'Enable /api/metrics.',
+      value: false,
+      value_masked: 'false',
+      env_value_masked: 'false',
+      override_value_masked: null,
+      source: 'env',
+      is_env_set: true,
+      has_override: false,
+      secret: false,
+      hot_reload: true,
+      restart_required: false,
+      build_only: false,
+      updated_at: '2026-05-18T12:00:00Z',
+      override_updated_at: null
+    },
+    {
+      name: 'WEBHOOK_SIGNING_SECRET',
+      type: 'secret',
+      group: 'Webhooks',
+      description: 'Webhook signing secret.',
+      value: '********',
+      value_masked: '********',
+      env_value_masked: '',
+      override_value_masked: '********',
+      source: 'override',
+      is_env_set: false,
+      has_override: true,
+      secret: true,
+      hot_reload: true,
+      restart_required: false,
+      build_only: false,
+      updated_at: '2026-05-18T12:00:00Z',
+      override_updated_at: '2026-05-18T12:00:00Z'
+    },
+    {
+      name: 'ACCESS_KEY_COOKIE_NAME',
+      type: 'string',
+      group: 'Access / Security',
+      description: 'Access cookie name.',
+      value: '__Host-gpt_image_access',
+      value_masked: '__Host-gpt_image_access',
+      env_value_masked: '__Host-gpt_image_access',
+      override_value_masked: 'custom_access',
+      source: 'override',
+      is_env_set: false,
+      has_override: true,
+      secret: false,
+      hot_reload: false,
+      restart_required: true,
+      build_only: false,
+      updated_at: '2026-05-18T12:00:00Z',
+      override_updated_at: null
+    },
+    {
+      name: 'PYTHON_BASE_IMAGE',
+      type: 'string',
+      group: 'Docker Build',
+      description: 'Python base image for Docker builds.',
+      value: 'python:3.11-slim',
+      value_masked: 'python:3.11-slim',
+      env_value_masked: 'python:3.11-slim',
+      override_value_masked: null,
+      source: 'default',
+      is_env_set: false,
+      has_override: false,
+      secret: false,
+      hot_reload: false,
+      restart_required: false,
+      build_only: true,
+      updated_at: '2026-05-18T12:00:00Z',
+      override_updated_at: null
+    }
+  ]
+};
+
+const basePromptSnippets: PromptSnippetFixture[] = [
+  {
+    id: 'snippet-1',
+    title: 'Portrait base',
+    prompt: 'cinematic portrait prompt',
+    favorite: false,
+    created_at: '2026-05-18T12:00:00Z',
+    updated_at: '2026-05-18T12:00:00Z'
+  },
+  {
+    id: 'snippet-2',
+    title: 'Product hero',
+    prompt: 'studio product photography',
+    favorite: true,
+    created_at: '2026-05-18T12:01:00Z',
+    updated_at: '2026-05-18T12:01:00Z'
+  }
+];
+
+function json(body: unknown, status = 200) {
+  return {
+    status,
+    contentType: 'application/json',
+    body: JSON.stringify(body)
+  };
+}
+
+function galleryCursor(image: GalleryImageFixture | undefined) {
+  if (!image) return null;
+  return Buffer.from(JSON.stringify({ sort_seq: 1, id: image.id }), 'utf8').toString('base64url');
+}
+
+function galleryResponse(
+  images = baseGalleryImages,
+  includeTotalBytes = false,
+  requestedPage = 1,
+  includeCounts = true,
+  includeFilterOptions = true
+) {
+  const pageSize = 9;
+  const totalPages = Math.max(Math.ceil(images.length / pageSize), 1);
+  const parsedPage = Number.isFinite(requestedPage) ? requestedPage : 1;
+  const page = Math.min(Math.max(parsedPage, 1), totalPages);
+  const pageImages = images.slice((page - 1) * pageSize, page * pageSize);
+
+  return {
+    total: includeCounts ? images.length : 0,
+    total_bytes: includeTotalBytes ? images.reduce((sum, image) => sum + image.bytes, 0) : 0,
+    page,
+    page_size: pageSize,
+    total_pages: includeCounts ? totalPages : Math.max(page + (page < totalPages ? 1 : 0), 1),
+    has_prev: page > 1,
+    has_next: page < totalPages,
+    next_cursor: page < totalPages ? galleryCursor(pageImages[pageImages.length - 1]) : null,
+    prev_cursor: page > 1 ? galleryCursor(pageImages[0]) : null,
+    images: pageImages,
+    filter_options: includeFilterOptions
+      ? {
+          models: ['gpt-image-2'],
+          presets: ['Default'],
+          sizes: ['1024x1024', '1536x1024']
+        }
+      : {
+          models: [],
+          presets: [],
+          sizes: []
+        }
+  };
+}
+
+type JobStatus = 'queued' | 'running' | 'success' | 'partial_failure' | 'error' | 'cancelled' | 'interrupted' | 'upstream_error';
+
+function job(jobId: string, prompt: string, status: JobStatus = 'success') {
+  const stage =
+    status === 'success'
+      ? 'completed'
+      : status === 'partial_failure'
+        ? 'completed_with_failures'
+      : status === 'running' || status === 'queued'
+        ? 'waiting_for_api'
+        : status === 'upstream_error'
+          ? 'generation_failed'
+          : status;
+  const message =
+    status === 'success'
+      ? 'Image generation completed'
+      : status === 'partial_failure'
+        ? 'Generated 1 of 2 requested images; 1 failed'
+      : status === 'running' || status === 'queued'
+        ? 'Waiting for upstream API response'
+        : status === 'upstream_error'
+          ? 'Upstream API error'
+          : status === 'interrupted'
+            ? 'Job interrupted by server restart'
+            : 'Generation job cancelled';
+  const terminal = status !== 'running' && status !== 'queued';
+
+  return {
+    job_id: jobId,
+    status,
+    stage,
+    message,
+    operation: 'generation',
+    image_id: 'img-1',
+    image_url: '/api/image/img-1.png',
+    images: [
+      {
+        image_id: 'img-1',
+        image_url: '/api/image/img-1.png',
+        filename: 'img-1.png',
+        image_width: 1,
+        image_height: 1
+      }
+    ],
+    prompt,
+    size: '1024x1024',
+    created_at: '2026-05-18T12:00:00Z',
+    updated_at: '2026-05-18T12:00:01Z',
+    completed_at: terminal ? '2026-05-18T20:00:01+08:00' : null,
+    image_width: 1,
+    image_height: 1,
+    model: 'gpt-image-2',
+    duration: terminal ? '1.00s' : null,
+    n: status === 'partial_failure' ? 2 : 1,
+    completed_count: terminal ? (status === 'partial_failure' ? 2 : 1) : 0,
+    success_count: status === 'success' || status === 'partial_failure' ? 1 : 0,
+    failure_count: status === 'partial_failure' || status === 'error' || status === 'upstream_error' ? 1 : 0,
+    error: status === 'success' || status === 'running' || status === 'queued' ? null : message,
+    stage_timings: {
+      upstream_wait: 1.2,
+      download_decode: 0.4,
+      validate: 0.1,
+      thumbnail: 0.2,
+      db_insert: 0.3
+    }
+  };
+}
+
+function manyJobs(count: number) {
+  return Array.from({ length: count }, (_, index) => job(`job-${index}`, `history prompt ${index}`, 'running'));
+}
+
+function isErrorJob(candidate: unknown) {
+  if (!candidate || typeof candidate !== 'object') return false;
+  const status = (candidate as { status?: unknown }).status;
+  return status === 'partial_failure' || status === 'error' || status === 'upstream_error';
+}
+
+function cloneSettings(settings: Record<string, unknown>) {
+  return structuredClone(settings) as typeof settingsResponse;
+}
+
+function applyActivePresetFields(settings: typeof settingsResponse) {
+  const active = settings.presets.find((preset) => preset.id === settings.active_preset_id) || settings.presets[0];
+  if (!active) return settings;
+  return {
+    ...settings,
+    active_preset_id: active.id,
+    api_url: active.api_url,
+    api_key_masked: active.api_key_masked,
+    has_api_key: active.has_api_key,
+    api_key_source: active.api_key_source,
+    api_path: active.api_path,
+    default_model: active.default_model,
+    default_response_format: active.default_response_format,
+    supports_mask: active.supports_mask
+  };
+}
+
+function manyGalleryImages(count: number) {
+  return Array.from({ length: count }, (_, index) => ({
+    ...baseGalleryImages[index % baseGalleryImages.length],
+    id: `paged-img-${index + 1}`,
+    prompt: `Paged gallery image ${index + 1}`,
+    filename: `paged-img-${index + 1}.png`,
+    thumbnail_url: `/api/thumb/paged-img-${index + 1}.png`,
+    thumbnail_status: 'ready' as const
+  }));
+}
+
+async function mockApi(page: Page, options: MockOptions = {}) {
+  let authenticated = options.authenticated ?? true;
+  let galleryImages = [...(options.galleryImages ?? baseGalleryImages)];
+  let promptSnippets = [...(options.promptSnippets ?? basePromptSnippets)];
+  let promptSnippetCounter = promptSnippets.length + 1;
+  let mockedSettings = cloneSettings(options.settings ?? settingsResponse);
+  if (options.maskSupported === false) {
+    mockedSettings = {
+      ...mockedSettings,
+      supports_mask: false,
+      presets: mockedSettings.presets.map((preset) => ({ ...preset, supports_mask: false }))
+    };
+  }
+  const agentConversations: AgentConversationFixture[] = options.agentShareState ? options.agentConversations ?? [] : structuredClone(options.agentConversations ?? []);
+  for (const conversation of agentConversations) {
+    conversation.turns.forEach((turn, index) => {
+      if (turn.parentTurnId === undefined) turn.parentTurnId = conversation.turns[index - 1]?.id ?? null;
+    });
+    if (conversation.selectedTurnId === undefined) conversation.selectedTurnId = conversation.turns.at(-1)?.id ?? null;
+    conversation.branchRevision ??= 0;
+  }
+  let agentIdSeq = 0;
+  const agentScenario = options.agentScenario ?? 'reply';
+
+  function agentNow() {
+    return '2026-05-18T12:00:00Z';
+  }
+
+  function reduceAgentBlocks(events: AgentEventFixture[]): AgentBlockFixture[] {
+    let blocks: AgentBlockFixture[] = [];
+    for (const { event, data } of events) {
+      if (event === 'block.upsert') {
+        const block = data.block as AgentBlockFixture;
+        const index = blocks.findIndex((item) => item.id === block.id);
+        blocks = index === -1 ? [...blocks, block] : blocks.map((item, i) => (i === index ? block : item));
+      } else if (event === 'block.text') {
+        blocks = blocks.map((item) =>
+          item.id === data.block_id ? { ...item, text: `${item.text as string}${data.delta as string}` } : item
+        );
+      }
+    }
+    return blocks;
+  }
+
+  function agentScript(roundNo: number): AgentEventFixture[] {
+    const started: AgentEventFixture = { event: 'turn.started', data: { turn_id: 'ignored', round_no: roundNo, model: 'agent-model' } };
+    if (agentScenario === 'fail') {
+      return [
+        started,
+        { event: 'block.upsert', data: { block: { id: 'e1', type: 'error', message: 'The model endpoint rejected the request.' } } },
+        { event: 'turn.failed', data: { message: 'The model endpoint rejected the request.' } }
+      ];
+    }
+    const task = (status: string, stage: string) => ({
+      id: 'i1',
+      type: 'image_task',
+      call_id: 'call-1',
+      item_id: 'fox',
+      ref_label: `round-${roundNo}-image-1`,
+      round_no: roundNo,
+      image_index: 1,
+      job_id: 'job-agent-1',
+      prompt: 'a red fox in snow',
+      mode: 'generate',
+      source_refs: [],
+      status,
+      stage,
+      error: null,
+      image_id: status === 'succeeded' ? 'img-1' : null,
+      filename: status === 'succeeded' ? 'img-1.png' : null
+    });
+    const events: AgentEventFixture[] = [
+      started,
+      { event: 'block.upsert', data: { block: { id: 't1', type: 'text', text: '' } } },
+      { event: 'block.text', data: { block_id: 't1', delta: 'Here are ' } },
+      { event: 'block.text', data: { block_id: 't1', delta: 'your images.' } },
+      { event: 'block.upsert', data: { block: { id: 'p1', type: 'batch_params', call_id: 'call-1', status: 'ready', items: [{ id: 'fox', prompt: 'a red fox in snow' }] } } },
+      { event: 'block.upsert', data: { block: task('pending', 'queued') } },
+      { event: 'block.upsert', data: { block: task('succeeded', 'completed') } }
+    ];
+    if (agentScenario === 'search') {
+      const text = '# Verified answer\n\n😀 Paris is the capital.\n\n| City | Country |\n| --- | --- |\n| Paris | France |\n\n```js\nconst city = "Paris";\n```\n\n<script>window.agentUnsafe = true</script>\n[unsafe](javascript:alert(1))';
+      const end = Array.from(text.slice(0, text.indexOf('capital.') + 'capital.'.length)).length;
+      events.splice(1, 3,
+        { event: 'block.upsert', data: { block: { id: 's1', type: 'search', call_id: 'web-1', status: 'searching', action: 'search', queries: ['capital of France'], url: '' } } },
+        { event: 'block.upsert', data: { block: { id: 't1', type: 'text', text } } },
+        { event: 'block.upsert', data: { block: { id: 's1', type: 'search', call_id: 'web-1', status: 'completed', action: 'search', queries: ['capital of France'], url: '' } } },
+        { event: 'block.upsert', data: { block: { id: 'c1', type: 'sources', sources: [{ id: 'source-1', title: 'Official city guide', url: 'https://example.org/paris', text_block_id: 't1', start_index: end - 24, end_index: end, excerpt: 'Paris is the capital.' }] } } }
+      );
+    }
+    if (agentScenario === 'reply' || agentScenario === 'search') events.push({ event: 'turn.completed', data: { rounds_used: 1 } });
+    return events;
+  }
+
+  function agentSse(turn: AgentTurnFixture, afterId: number) {
+    const frames = turn.events
+      .map((event, index) => ({ id: index + 1, ...event }))
+      .filter((event) => event.id > afterId)
+      .map((event) => `id: ${event.id}\nevent: ${event.event}\ndata: ${JSON.stringify(event.data)}\n\n`);
+    return `retry: 100\n\n${frames.join('')}`;
+  }
+
+  function agentDetail(conversation: AgentConversationFixture) {
+    const active = conversation.turns.find((turn) => turn.status === 'running');
+    const depths = new Map<string, number>();
+    for (const turn of conversation.turns) depths.set(turn.id, (depths.get(turn.parentTurnId ?? '') ?? 0) + 1);
+    const path: string[] = [];
+    let head = conversation.selectedTurnId;
+    while (head) {
+      path.unshift(head);
+      head = conversation.turns.find((turn) => turn.id === head)?.parentTurnId;
+    }
+    const messages = conversation.messages.filter((message) => path.includes(message.turn_id)).map((original) => {
+      const message = { ...original, path_round_no: path.indexOf(original.turn_id) + 1 };
+      if (message.role !== 'assistant') return message;
+      const turn = conversation.turns.find((candidate) => candidate.id === message.turn_id);
+      if (!turn || turn.status === 'running') return { ...message, blocks: [], status: 'streaming' };
+      return {
+        ...message,
+        blocks: reduceAgentBlocks(turn.events).map((block) => block.type === 'image_task' ? { ...block, path_round_no: message.path_round_no } : block),
+        status: turn.status === 'completed' ? 'complete' : turn.status
+      };
+    });
+    const imageRefs = conversation.turns.filter((turn) => path.includes(turn.id)).flatMap((turn) => {
+      const blocks = turn.status === 'running' ? [] : reduceAgentBlocks(turn.events);
+      const inputs = turn.attachments.map((imageId, index) => ({
+        ref_label: `round-${turn.roundNo}-input-${index + 1}`,
+        round_no: turn.roundNo,
+        path_round_no: path.indexOf(turn.id) + 1,
+        image_index: index + 1,
+        role: 'input',
+        image_id: imageId,
+        filename: `${imageId}.png`,
+        job_id: null,
+        item_id: null,
+        prompt: '',
+        mode: 'generate',
+        status: 'succeeded',
+        error: null,
+        deleted: false,
+        message_id: conversation.messages.find((m) => m.turn_id === turn.id && m.role === 'user')?.id ?? ''
+      }));
+      const outputs = blocks
+        .filter((block) => block.type === 'image_task' && block.status === 'succeeded')
+        .map((block) => ({
+          ref_label: block.ref_label,
+          round_no: block.round_no,
+          path_round_no: path.indexOf(turn.id) + 1,
+          image_index: block.image_index,
+          role: 'output',
+          image_id: block.image_id,
+          filename: block.filename,
+          job_id: block.job_id,
+          item_id: block.item_id,
+          prompt: block.prompt,
+          mode: 'generate',
+          status: 'succeeded',
+          error: null,
+          deleted: false,
+          message_id: conversation.messages.find((m) => m.turn_id === turn.id && m.role === 'assistant')?.id ?? ''
+        }));
+      return [...inputs, ...outputs];
+    });
+    return {
+      conversation: agentSummary(conversation),
+      messages,
+      image_refs: imageRefs,
+      branches: conversation.turns.map((turn) => ({ id: turn.id, parent_turn_id: turn.parentTurnId ?? null, round_no: turn.roundNo, path_round_no: depths.get(turn.id), preview: conversation.messages.find((message) => message.turn_id === turn.id && message.role === 'user')?.text ?? '', status: turn.status })),
+      active_turn: active ? { id: active.id, status: 'running', round_no: active.roundNo } : null,
+      has_more: false
+    };
+  }
+
+  function agentSummary(conversation: AgentConversationFixture) {
+    const active = conversation.turns.find((turn) => turn.status === 'running');
+    return {
+      id: conversation.id,
+      title: conversation.title,
+      message_count: conversation.messages.length,
+      turn_count: conversation.turns.length,
+      created_at: agentNow(),
+      updated_at: agentNow(),
+      active_turn_id: active?.id ?? null,
+      selected_turn_id: conversation.selectedTurnId ?? null,
+      branch_revision: conversation.branchRevision ?? 0
+    };
+  }
+
+  let mockedOverallConfig: any = structuredClone(overallConfigResponse);
+  let optimizerSystemPrompt = 'Default optimizer system prompt';
+  let selectionTokenSeq = 0;
+  let nodeImageJobSeq = 0;
+  let imagePromptOptimizeCount = 0;
+  let nodeImageCancelStatusFailurePending = Boolean(options.nodeImageCancelStatusFailure);
+  const selectionTokens = new Map<string, { prompt: string; favorite?: boolean | null }>();
+  const nodeImageJobs = new Map<string, NodeImageJobFixture>();
+  const nodeImageCancellationTerminals = new Map<string, NodeImageJobFixture>();
+  const nodeImageFailureIds = new Set(options.nodeImageBatchFailureIds || []);
+  const runningJobs = options.runningJobs ?? [];
+  const generatedJobs = options.generatedJobs?.length
+    ? options.generatedJobs
+    : [options.generatedJob ?? job('job-generated', 'browser smoke prompt')];
+  let generatedJobIndex = 0;
+  let historyJobs = options.historyJobs ?? [job('history-1', 'saved prompt')];
+  let collections: CollectionFixture[] = structuredClone(options.collections ?? []);
+  const collectionItems = new Map<string, Set<string>>(
+    Object.entries(options.collectionItems ?? {}).map(([id, ids]) => [id, new Set(ids)])
+  );
+  let collectionSeq = collections.length;
+  let exportJobSeq = 0;
+
+  function publicCollection(collection: CollectionFixture) {
+    const members = [...(collectionItems.get(collection.id) || [])].filter((id) => galleryImages.some((image) => image.id === id));
+    const cover = members.at(-1) ? galleryImages.find((image) => image.id === members.at(-1)) : undefined;
+    return {
+      ...collection,
+      image_count: members.length,
+      cover_image_id: members.at(-1) ?? null,
+      cover_filename: cover?.filename ?? null
+    };
+  }
+
+  function sortedCollections() {
+    return [...collections].sort((left, right) => left.position - right.position).map(publicCollection);
+  }
+  const initialLanguage = options.language === undefined ? 'en' : options.language;
+
+  function matchesGalleryFilters(image: GalleryImageFixture, filters: { prompt?: string; favorite?: boolean | null }) {
+    const prompt = String(filters.prompt || '').trim().toLowerCase();
+    if (prompt && !image.prompt.toLowerCase().includes(prompt)) return false;
+    if (filters.favorite === true && !image.favorite) return false;
+    if (filters.favorite === false && image.favorite) return false;
+    return true;
+  }
+
+  function resolveBatchIds(body: { ids?: string[]; selection_token?: string }) {
+    if (body.selection_token) {
+      const filters = selectionTokens.get(body.selection_token) || { prompt: '' };
+      return galleryImages.filter((image) => matchesGalleryFilters(image, filters)).map((image) => image.id);
+    }
+    return body.ids || [];
+  }
+
+  function nodeImageResult(
+    imageId: string,
+    status: NodeImageResultStatus,
+    error: string | null = null
+  ): NodeImageResultFixture {
+    const image = galleryImages.find((entry) => entry.id === imageId);
+    const filename = image?.filename || null;
+    if (status === 'ok' && image) {
+      const direct = `https://cdn.nodeimage.com/${encodeURIComponent(image.filename)}`;
+      return {
+        image_id: imageId,
+        filename,
+        status,
+        url: direct,
+        markdown: `![${image.prompt}](${direct})`,
+        error: null
+      };
+    }
+    return {
+      image_id: imageId,
+      filename,
+      status,
+      url: null,
+      markdown: null,
+      error
+    };
+  }
+
+  function nodeImageResultsById(results: NodeImageResultFixture[]) {
+    return new Map(results.map((item) => [item.image_id, item]));
+  }
+
+  function orderedNodeImageResults(job: NodeImageJobFixture, results: NodeImageResultFixture[]) {
+    const resultsById = nodeImageResultsById(results);
+    return job.ids.flatMap((imageId) => {
+      const item = resultsById.get(imageId);
+      return item ? [item] : [];
+    });
+  }
+
+  function nodeImageSnapshot(
+    job: NodeImageJobFixture,
+    status: NodeImageJobStatus,
+    stage: string,
+    message: string,
+    results: NodeImageResultFixture[],
+    cancelRequested = job.cancel_requested
+  ): NodeImageJobFixture {
+    const uploadedCount = results.filter((item) => item.status === 'ok').length;
+    const failedCount = results.filter((item) => item.status === 'error').length;
+    const cancelledCount = results.filter((item) => item.status === 'cancelled').length;
+    const processedCount = results.length;
+    const terminal = status === 'success' || status === 'partial_failure' || status === 'cancelled' || status === 'error';
+    return {
+      ...job,
+      status,
+      stage,
+      message,
+      progress: terminal ? 100 : Math.round((processedCount / Math.max(1, job.requested_count)) * 100),
+      processed_count: processedCount,
+      uploaded_count: uploadedCount,
+      failed_count: failedCount,
+      cancelled_count: cancelledCount,
+      results,
+      started_at: status === 'queued' ? null : job.started_at || '2026-05-18T12:00:01Z',
+      completed_at: terminal ? '2026-05-18T12:00:02Z' : null,
+      updated_at: '2026-05-18T12:00:01Z',
+      error: status === 'error' ? message : null,
+      cancel_requested: cancelRequested
+    };
+  }
+
+  function publicNodeImageJob(job: NodeImageJobFixture) {
+    const { cancel_requested: _cancelRequested, ids: _ids, ...publicJob } = job;
+    return publicJob;
+  }
+
+  function createNodeImageJob(ids: string[]) {
+    const jobId = `nodeimage-job-${++nodeImageJobSeq}`;
+    const initialResults = ids.flatMap((imageId) =>
+      galleryImages.some((image) => image.id === imageId)
+        ? []
+        : [nodeImageResult(imageId, 'error', 'Gallery entry not found')]
+    );
+    const baseJob: NodeImageJobFixture = {
+      job_id: jobId,
+      status: 'queued',
+      stage: 'queued',
+      message: 'Queued NodeImage upload',
+      progress: 0,
+      requested_count: ids.length,
+      processed_count: initialResults.length,
+      uploaded_count: 0,
+      failed_count: initialResults.length,
+      cancelled_count: 0,
+      results: initialResults,
+      created_at: '2026-05-18T12:00:00Z',
+      started_at: null,
+      completed_at: null,
+      updated_at: '2026-05-18T12:00:00Z',
+      error: null,
+      status_url: `/api/gallery/nodeimage-upload-jobs/${encodeURIComponent(jobId)}`,
+      events_url: `/api/gallery/nodeimage-upload-jobs/${encodeURIComponent(jobId)}/events`,
+      cancel_url: `/api/gallery/nodeimage-upload-jobs/${encodeURIComponent(jobId)}/cancel`,
+      cancel_requested: false,
+      ids
+    };
+    return baseJob;
+  }
+
+  function buildNodeImageEvents(job: NodeImageJobFixture) {
+    const events: NodeImageJobFixture[] = [];
+    let results = [...job.results];
+    let current = nodeImageSnapshot(job, 'running', 'uploading', 'Uploading images to NodeImage', results);
+    events.push(current);
+
+    for (const imageId of job.ids) {
+      if (results.some((item) => item.image_id === imageId)) continue;
+      const status: NodeImageResultStatus = nodeImageFailureIds.has(imageId) ? 'error' : 'ok';
+      const item = status === 'error'
+        ? nodeImageResult(imageId, status, 'NodeImage upload failed in fixture')
+        : nodeImageResult(imageId, status);
+      results = [...results, item];
+      current = nodeImageSnapshot(job, 'running', 'uploading', 'Uploading images to NodeImage', results);
+      events.push(current);
+    }
+
+    const terminalStatus: NodeImageJobStatus = current.failed_count ? 'partial_failure' : 'success';
+    events.push(
+      nodeImageSnapshot(
+        current,
+        terminalStatus,
+        'completed',
+        terminalStatus === 'success' ? 'NodeImage upload complete' : 'NodeImage upload completed with failures',
+        results
+      )
+    );
+    return events;
+  }
+
+  function buildCancelledNodeImageJob(job: NodeImageJobFixture) {
+    const resultsById = nodeImageResultsById(job.results);
+    let completedAnUpload = job.results.some((item) => item.status === 'ok');
+    for (const imageId of job.ids) {
+      if (resultsById.has(imageId)) continue;
+      const image = galleryImages.find((entry) => entry.id === imageId);
+      if (!image) {
+        resultsById.set(imageId, nodeImageResult(imageId, 'error', 'Gallery entry not found'));
+      } else if (!completedAnUpload) {
+        resultsById.set(imageId, nodeImageResult(imageId, 'ok'));
+        completedAnUpload = true;
+      } else {
+        resultsById.set(imageId, nodeImageResult(imageId, 'cancelled', 'Cancelled before upload'));
+      }
+    }
+    const results = orderedNodeImageResults(job, [...resultsById.values()]);
+    return nodeImageSnapshot(
+      job,
+      'cancelled',
+      'cancelled',
+      'NodeImage upload cancelled',
+      results,
+      true
+    );
+  }
+
+  function sseBody(events: NodeImageJobFixture[]) {
+    return events
+      .map((event) => `event: nodeimage_upload\ndata: ${JSON.stringify(publicNodeImageJob(event))}\n\n`)
+      .join('');
+  }
+
+  await page.addInitScript((languageValue: 'en' | 'zh-CN' | null) => {
+    if (languageValue) {
+      localStorage.setItem('gpt-image-panel-language', languageValue);
+    } else {
+      localStorage.removeItem('gpt-image-panel-language');
+    }
+    if (!sessionStorage.getItem('gpt-image-panel-theme-init')) {
+      localStorage.removeItem('gpt-image-panel-theme');
+      sessionStorage.setItem('gpt-image-panel-theme-init', '1');
+    }
+  }, initialLanguage);
+
+  await page.route('**/*', async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+
+    if (url.pathname === '/api/access/status') {
+      await route.fulfill(json({ authenticated, expires_at: authenticated ? '2026-05-18T14:00:00Z' : null }));
+      return;
+    }
+    if (url.pathname === '/api/access') {
+      const body = JSON.parse(request.postData() || '{}');
+      authenticated = body.access_key === 'open-sesame';
+      await route.fulfill(json({ authenticated, expires_at: authenticated ? '2026-05-18T14:00:00Z' : null }));
+      return;
+    }
+    if (url.pathname === '/api/version') {
+      await route.fulfill(json({ version: 'v0.test', github_repo: 'test/repo', release_url: null }));
+      return;
+    }
+    if (url.pathname === '/api/version/latest') {
+      await route.fulfill(json({ latest_version: null, has_update: false, checked_at: null }));
+      return;
+    }
+    if (url.pathname === '/api/settings/overall-config' && request.method() === 'GET') {
+      await route.fulfill(json(mockedOverallConfig));
+      return;
+    }
+    if (url.pathname === '/api/settings/overall-config' && request.method() === 'PUT') {
+      const body = JSON.parse(request.postData() || '{}');
+      const restartNames: string[] = [];
+      mockedOverallConfig = {
+        ...mockedOverallConfig,
+        restart_required_names: restartNames,
+        items: mockedOverallConfig.items.map((item: any) => {
+          const update = body.updates?.find((candidate: { name?: string }) => candidate.name === item.name);
+          if (!update) return item;
+          if (update.clear_override) {
+            return { ...item, has_override: false, override_value_masked: null, source: item.is_env_set ? 'env' : 'default' };
+          }
+          if (item.restart_required || item.build_only) restartNames.push(item.name);
+          const masked = item.secret ? '********' : String(update.value);
+          return {
+            ...item,
+            value: item.secret ? '********' : update.value,
+            value_masked: masked,
+            override_value_masked: masked,
+            source: 'override',
+            has_override: true
+          };
+        })
+      };
+      await route.fulfill(json(mockedOverallConfig));
+      return;
+    }
+    if (url.pathname === '/api/settings') {
+      if (request.method() === 'POST') {
+        const body = JSON.parse(request.postData() || '{}');
+        if (typeof body.prompt_guard === 'boolean') {
+          mockedSettings = {
+            ...mockedSettings,
+            presets: mockedSettings.presets.map((preset) =>
+              preset.id === mockedSettings.active_preset_id ? { ...preset, prompt_guard: body.prompt_guard } : preset
+            )
+          } as typeof mockedSettings;
+        }
+        if (body.provider_kind === 'openai' || body.provider_kind === 'async_json') {
+          mockedSettings = {
+            ...mockedSettings,
+            provider_kind: body.provider_kind,
+            presets: mockedSettings.presets.map((preset) =>
+              preset.id === mockedSettings.active_preset_id
+                ? {
+                    ...preset,
+                    provider_kind: body.provider_kind,
+                    provider_config: body.provider_config ?? (preset as { provider_config?: unknown }).provider_config ?? null,
+                    ...(body.provider_kind === 'async_json' ? { supports_mask: false } : {})
+                  }
+                : preset
+            )
+          } as typeof mockedSettings;
+        }
+        if (typeof body.supports_mask === 'boolean') {
+          mockedSettings = applyActivePresetFields({
+            ...mockedSettings,
+            supports_mask: body.supports_mask,
+            presets: mockedSettings.presets.map((preset) =>
+              preset.id === mockedSettings.active_preset_id
+                ? { ...preset, supports_mask: body.supports_mask }
+                : preset
+            )
+          });
+        }
+      }
+      await route.fulfill(json(mockedSettings));
+      return;
+    }
+    if (url.pathname === '/api/settings/presets' && request.method() === 'POST') {
+      // Mirrors the backend: the created preset becomes the active one.
+      const body = JSON.parse(request.postData() || '{}');
+      const source =
+        mockedSettings.presets.find((preset) => preset.id === body.source_preset_id) || mockedSettings.presets[0];
+      const created = {
+        ...source,
+        id: `preset-${mockedSettings.presets.length + 1}`,
+        name: `Preset ${mockedSettings.presets.length + 1}`,
+        api_url: body.api_url ?? source.api_url,
+        default_model: body.default_model ?? source.default_model,
+        has_api_key: false,
+        api_key_masked: '',
+        api_key_source: 'none'
+      } as typeof source;
+      mockedSettings = applyActivePresetFields({
+        ...mockedSettings,
+        active_preset_id: created.id,
+        presets: [...mockedSettings.presets, created]
+      });
+      await route.fulfill(json(mockedSettings));
+      return;
+    }
+    if (url.pathname.match(/^\/api\/settings\/presets\/[^/]+\/activate$/) && request.method() === 'POST') {
+      const id = decodeURIComponent(url.pathname.split('/').at(-2) || '');
+      if (!mockedSettings.presets.some((preset) => preset.id === id)) {
+        await route.fulfill(json({ detail: 'Preset not found' }, 404));
+        return;
+      }
+      mockedSettings = applyActivePresetFields({ ...mockedSettings, active_preset_id: id });
+      await route.fulfill(json(mockedSettings));
+      return;
+    }
+    if (url.pathname.match(/^\/api\/settings\/presets\/[^/]+$/) && request.method() === 'DELETE') {
+      const id = decodeURIComponent(url.pathname.split('/').pop() || '');
+      if (mockedSettings.presets.length <= 1) {
+        await route.fulfill(json({ detail: 'At least one preset is required' }, 400));
+        return;
+      }
+      const deleteIndex = mockedSettings.presets.findIndex((preset) => preset.id === id);
+      if (deleteIndex < 0) {
+        await route.fulfill(json({ detail: 'Preset not found' }, 404));
+        return;
+      }
+      const nextPresets = mockedSettings.presets.filter((preset) => preset.id !== id);
+      const nextActiveId =
+        mockedSettings.active_preset_id === id
+          ? nextPresets[Math.min(deleteIndex, nextPresets.length - 1)].id
+          : mockedSettings.active_preset_id;
+      mockedSettings = applyActivePresetFields({
+        ...mockedSettings,
+        active_preset_id: nextActiveId,
+        presets: nextPresets
+      });
+      await route.fulfill(json(mockedSettings));
+      return;
+    }
+    if (url.pathname === '/api/settings/presets/export' && request.method() === 'POST') {
+      const body = JSON.parse(request.postData() || '{}');
+      const preset =
+        mockedSettings.presets.find((candidate) => candidate.id === body.preset_id) || mockedSettings.presets[0];
+      await route.fulfill(
+        json({
+          format: 'gpt-image-panel-presets',
+          format_version: 1,
+          exported_at: '2026-05-18T12:00:00Z',
+          presets: [
+            {
+              name: preset.name,
+              api_url: preset.api_url,
+              api_path: preset.api_path,
+              default_model: preset.default_model,
+              default_response_format: preset.default_response_format,
+              supports_mask: preset.supports_mask,
+              prompt_guard: Boolean((preset as { prompt_guard?: boolean }).prompt_guard),
+              provider_kind: (preset as { provider_kind?: string }).provider_kind || 'openai',
+              provider_config: (preset as { provider_config?: unknown }).provider_config ?? null
+            }
+          ]
+        })
+      );
+      return;
+    }
+    if (url.pathname === '/api/settings/presets/import/preview' && request.method() === 'POST') {
+      const body = JSON.parse(request.postData() || '{}');
+      const pkg = body.package as { format?: string; format_version?: number; presets?: unknown[] } | null;
+      const valid = Boolean(
+        pkg &&
+          pkg.format === 'gpt-image-panel-presets' &&
+          pkg.format_version === 1 &&
+          Array.isArray(pkg.presets) &&
+          pkg.presets.length
+      );
+      if (!valid) {
+        await route.fulfill(
+          json({
+            valid: false,
+            errors: [{ path: 'package', message: 'unexpected package shape' }],
+            items: [],
+            total_bytes: 10
+          })
+        );
+        return;
+      }
+      const items = (pkg?.presets || []).map((raw, index) => {
+        const item = raw as { name?: string; api_url?: string; provider_kind?: string };
+        const name = String(item.name || '');
+        const duplicate = mockedSettings.presets.find(
+          (candidate) => candidate.name.toLowerCase() === name.toLowerCase()
+        );
+        return {
+          index,
+          name,
+          api_url: String(item.api_url || ''),
+          provider_kind: String(item.provider_kind || 'openai'),
+          duplicate_preset_id: duplicate?.id ?? null,
+          duplicate_preset_name: duplicate?.name ?? null,
+          will_reuse_api_key: false,
+          warnings: ['The API key is not included; enter it after importing.']
+        };
+      });
+      await route.fulfill(json({ valid: true, errors: [], items, total_bytes: 128 }));
+      return;
+    }
+    if (url.pathname === '/api/settings/presets/import' && request.method() === 'POST') {
+      const body = JSON.parse(request.postData() || '{}') as {
+        package?: { presets?: unknown[] };
+        items?: { index: number; action: string; target_preset_id?: string }[];
+      };
+      const instructions = body.items || [];
+      const presets = [...mockedSettings.presets];
+      (body.package?.presets || []).forEach((raw, index) => {
+        const instruction = instructions.find((entry) => entry.index === index);
+        const action = instruction?.action || 'create';
+        if (action === 'skip') return;
+        const item = raw as Record<string, unknown>;
+        if (action === 'update') {
+          const targetIndex = presets.findIndex((preset) => preset.id === instruction?.target_preset_id);
+          if (targetIndex >= 0) {
+            presets[targetIndex] = {
+              ...presets[targetIndex],
+              name: String(item.name || presets[targetIndex].name),
+              api_url: String(item.api_url || presets[targetIndex].api_url),
+              default_model: String(item.default_model || presets[targetIndex].default_model),
+              has_api_key: false,
+              api_key_masked: ''
+            };
+          }
+          return;
+        }
+        presets.push({
+          ...mockedSettings.presets[0],
+          id: `preset-import-${index + 1}`,
+          name: String(item.name || `Imported ${index + 1}`),
+          api_url: String(item.api_url || 'https://import.example.com'),
+          has_api_key: false,
+          api_key_masked: '',
+          api_key_source: 'none'
+        } as (typeof mockedSettings.presets)[number]);
+      });
+      mockedSettings = { ...mockedSettings, presets } as typeof mockedSettings;
+      await route.fulfill(json(mockedSettings));
+      return;
+    }
+    if (url.pathname === '/api/settings/presets/order' && request.method() === 'PUT') {
+      const body = JSON.parse(request.postData() || '{}') as { preset_ids?: string[] };
+      const byId = new Map(mockedSettings.presets.map((preset) => [preset.id, preset]));
+      const ordered = (body.preset_ids || [])
+        .map((id) => byId.get(id))
+        .filter((preset): preset is (typeof mockedSettings.presets)[number] => Boolean(preset));
+      if (ordered.length !== mockedSettings.presets.length) {
+        await route.fulfill(json({ detail: 'preset_ids must list every existing preset exactly once' }, 422));
+        return;
+      }
+      mockedSettings = { ...mockedSettings, presets: ordered };
+      await route.fulfill(json(mockedSettings));
+      return;
+    }
+    if (url.pathname === '/api/settings/provider-mapping/prompt' && request.method() === 'GET') {
+      await route.fulfill(json({ prompt: 'Write a mapping using {{prompt}} and {{task_id}}; output "version": 2 JSON.' }));
+      return;
+    }
+    if (url.pathname === '/api/settings/provider-mapping/validate' && request.method() === 'POST') {
+      const body = JSON.parse(request.postData() || '{}') as { provider_config?: unknown };
+      const valid = Boolean(body.provider_config && typeof body.provider_config === 'object');
+      await route.fulfill(
+        json(
+          valid
+            ? {
+                valid: true,
+                errors: [],
+                extraction: {
+                  task_id: { found: true, value: 'job-1', source: 'submit', detail: null },
+                  status_url: { found: true, value: '/jobs/job-1', source: 'submit', detail: null },
+                  result_url: { found: false, value: null, source: null, detail: 'not configured' },
+                  status_value: { found: true, value: 'done', source: 'poll', detail: 'done (done=(done,), failed=())' },
+                  image_count: 1,
+                  image_kind: 'url',
+                  image_samples: [],
+                  notes: []
+                }
+              }
+            : { valid: false, errors: [{ path: 'submit', message: 'Field required' }], extraction: null }
+        )
+      );
+      return;
+    }
+    if (url.pathname.match(/^\/api\/generate\/[^/]+\/diagnostics$/) && request.method() === 'GET') {
+      const jobId = decodeURIComponent(url.pathname.split('/').at(-2) || '');
+      await route.fulfill(
+        json({
+          job_id: jobId,
+          units: [
+            {
+              unit_id: 'unit-1',
+              unit_index: 0,
+              status: 'upstream_error',
+              stage: 'generation_failed',
+              message: 'Provider response did not include a task id',
+              error: 'Provider response did not include a task id at $.id',
+              attempts: 2,
+              recovery_count: 1,
+              remote: {
+                phase: 'submitting',
+                task_id: null,
+                submitted_at: '2026-05-18T12:00:00Z',
+                deadline_at: null,
+                has_status_url: false,
+                has_result_url: false,
+                has_cancel_url: false,
+                has_idempotency_key: false
+              },
+              diagnostics: {
+                code: 'task_id_missing',
+                stages: [
+                  {
+                    phase: 'submit',
+                    http: { method: 'POST', url: 'https://api.example.com/submit', status: 200 },
+                    mapping_path: '$.id',
+                    snapshot: { id: null }
+                  }
+                ]
+              }
+            }
+          ]
+        })
+      );
+      return;
+    }
+    if (url.pathname === '/api/prompt-snippets/search' && request.method() === 'POST') {
+      const body = JSON.parse(request.postData() || '{}');
+      const query = String(body.query || '').toLowerCase();
+      const snippets = (query
+        ? promptSnippets.filter(
+            (snippet) => snippet.title.toLowerCase().includes(query) || snippet.prompt.toLowerCase().includes(query)
+          )
+        : promptSnippets
+      ).sort((a, b) => Number(b.favorite) - Number(a.favorite) || b.updated_at.localeCompare(a.updated_at));
+      await route.fulfill(json({ snippets }));
+      return;
+    }
+    if (url.pathname === '/api/prompt-snippets' && request.method() === 'POST') {
+      const body = JSON.parse(request.postData() || '{}');
+      const now = `2026-05-18T12:${String(promptSnippetCounter).padStart(2, '0')}:00Z`;
+      const snippet = {
+        id: `snippet-${promptSnippetCounter}`,
+        title: body.title,
+        prompt: body.prompt,
+        favorite: Boolean(body.favorite),
+        created_at: now,
+        updated_at: now
+      };
+      promptSnippetCounter += 1;
+      promptSnippets = [snippet, ...promptSnippets];
+      await route.fulfill(json(snippet));
+      return;
+    }
+    if (url.pathname.match(/^\/api\/prompt-snippets\/[^/]+$/) && request.method() === 'PATCH') {
+      const id = decodeURIComponent(url.pathname.split('/').pop() || '');
+      const body = JSON.parse(request.postData() || '{}');
+      const existing = promptSnippets.find((snippet) => snippet.id === id);
+      if (!existing) {
+        await route.fulfill(json({ detail: 'Prompt snippet not found' }, 404));
+        return;
+      }
+      const updated = { ...existing, ...body, updated_at: '2026-05-18T13:00:00Z' };
+      promptSnippets = promptSnippets.map((snippet) => (snippet.id === id ? updated : snippet));
+      await route.fulfill(json(updated));
+      return;
+    }
+    if (url.pathname.match(/^\/api\/prompt-snippets\/[^/]+$/) && request.method() === 'DELETE') {
+      const id = decodeURIComponent(url.pathname.split('/').pop() || '');
+      promptSnippets = promptSnippets.filter((snippet) => snippet.id !== id);
+      await route.fulfill(json({ status: 'ok', message: 'Deleted prompt snippet' }));
+      return;
+    }
+    if (url.pathname === '/api/prompt/optimize' && request.method() === 'POST') {
+      const body = JSON.parse(request.postData() || '{}');
+      await route.fulfill(
+        json({
+          optimized_prompt: `Optimized ${body.prompt}`,
+          model: 'gpt-4o-mini',
+          duration_ms: 12
+        })
+      );
+      return;
+    }
+    if (url.pathname === '/api/prompt/optimizer-health' && request.method() === 'POST') {
+      await route.fulfill(
+        json({
+          status: 'ok',
+          message: 'Prompt optimizer responded successfully with model gpt-4o-mini',
+          model: 'gpt-4o-mini',
+          duration_ms: 13,
+          status_code: 200
+        })
+      );
+      return;
+    }
+    if (url.pathname === '/api/prompt/optimizer-system-prompt' && request.method() === 'GET') {
+      await route.fulfill(
+        json({
+          system_prompt: optimizerSystemPrompt,
+          default_system_prompt: 'Default optimizer system prompt',
+          customized: optimizerSystemPrompt !== 'Default optimizer system prompt'
+        })
+      );
+      return;
+    }
+    if (url.pathname === '/api/prompt/optimizer-system-prompt' && request.method() === 'POST') {
+      const body = JSON.parse(request.postData() || '{}');
+      optimizerSystemPrompt = String(body.system_prompt || '').trim();
+      await route.fulfill(
+        json({
+          system_prompt: optimizerSystemPrompt,
+          default_system_prompt: 'Default optimizer system prompt',
+          customized: true
+        })
+      );
+      return;
+    }
+    if (url.pathname === '/api/assistant/image/prompt/optimize' && request.method() === 'POST') {
+      imagePromptOptimizeCount += 1;
+      if (options.optimizeDelayMs) await new Promise((resolve) => setTimeout(resolve, options.optimizeDelayMs));
+      if (options.optimizeFailureAt === imagePromptOptimizeCount) {
+        await route.fulfill(json({ detail: 'Trial generation failed: custom size unsupported' }, 502));
+        return;
+      }
+      const prompt = options.optimizedPrompts?.[imagePromptOptimizeCount - 1] ?? `Refined reverse prompt ${imagePromptOptimizeCount}`;
+      await route.fulfill(
+        json({
+          prompt,
+          comparison_summary: `Comparison summary ${imagePromptOptimizeCount}`,
+          model: 'assistant-vision-model',
+          duration_ms: 29,
+          warnings: [],
+          temporary_image: {
+            b64: PNG_BYTES.toString('base64'),
+            mime_type: 'image/png',
+            width: 896,
+            height: 896,
+            model: 'preset-default-model',
+            duration_ms: 140
+          }
+        })
+      );
+      return;
+    }
+    if (url.pathname === '/api/assistant/image/prompt' && request.method() === 'POST') {
+      await route.fulfill(
+        json({
+          prompt: options.reversePrompt ?? 'A bright red square centered on a clean white background',
+          model: 'assistant-vision-model',
+          duration_ms: 18,
+          warnings: []
+        })
+      );
+      return;
+    }
+    if (url.pathname === '/api/assistant/gallery/batch/analyze' && request.method() === 'POST') {
+      const body = request.postDataJSON() as { ids?: string[]; selection_token?: string };
+      const requestedCount = resolveBatchIds(body).length;
+      await route.fulfill(
+        json(
+          {
+            job_id: 'assistant-analysis-job',
+            status: 'queued',
+            stage: 'queued',
+            message: 'queued',
+            progress: 0,
+            requested_count: requestedCount,
+            processed_count: 0,
+            analyzed_count: 0,
+            missing_count: 0,
+            failed_count: 0
+          },
+          202
+        )
+      );
+      return;
+    }
+    if (url.pathname === '/api/assistant/gallery/batch/analyze/assistant-analysis-job/events') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/event-stream',
+        body: `event: analysis\ndata: ${JSON.stringify({
+          job_id: 'assistant-analysis-job',
+          status: 'success',
+          stage: 'completed',
+          message: 'done',
+          progress: 100,
+          requested_count: 1,
+          processed_count: 1,
+          analyzed_count: 1,
+          missing_count: 0,
+          failed_count: 0
+        })}\n\n`
+      });
+      return;
+    }
+    if (url.pathname.match(/^\/api\/assistant\/gallery\/[^/]+\/metadata$/) && request.method() === 'GET') {
+      const imageId = decodeURIComponent(url.pathname.split('/').at(-2) || '');
+      await route.fulfill(
+        json({
+          image_id: imageId,
+          description: 'Stored AI description',
+          prompt: 'Stored AI prompt',
+          analysis: { subjects: ['square'] },
+          model: 'assistant-vision-model',
+          created_at: '2026-05-18T12:00:00Z',
+          updated_at: '2026-05-18T12:00:00Z'
+        })
+      );
+      return;
+    }
+    if (url.pathname === '/api/settings/r2/health') {
+      await route.fulfill(json({ status: 'ok', checks: [{ name: 'configuration', status: 'ok', message: 'ok' }] }));
+      return;
+    }
+    if (url.pathname.endsWith('/health') && url.pathname.startsWith('/api/settings/presets/')) {
+      await route.fulfill(json({ status: 'ok', checks: [{ name: 'api_url', status: 'ok', message: 'ok' }] }));
+      return;
+    }
+    if (url.pathname === '/api/gallery' && request.method() === 'GET') {
+      const requestedPage = Number.parseInt(url.searchParams.get('page') || '1', 10);
+      await route.fulfill(
+        json(
+          galleryResponse(
+            galleryImages,
+            url.searchParams.get('include_total_bytes') === 'true',
+            requestedPage
+          )
+        )
+      );
+      return;
+    }
+    if (url.pathname === '/api/gallery/collections' && request.method() === 'GET') {
+      await route.fulfill(json(sortedCollections()));
+      return;
+    }
+    if (url.pathname === '/api/gallery/collections' && request.method() === 'POST') {
+      const body = request.postDataJSON() as { name?: string };
+      const name = String(body.name || '').trim();
+      if (collections.some((collection) => collection.name.toLowerCase() === name.toLowerCase())) {
+        await route.fulfill(json({ detail: 'A collection with this name already exists' }, 409));
+        return;
+      }
+      const collection: CollectionFixture = {
+        id: `col-${++collectionSeq}`,
+        name,
+        position: collections.length,
+        is_default: false,
+        created_at: '2026-05-18T12:00:00Z',
+        updated_at: '2026-05-18T12:00:00Z'
+      };
+      collections = [...collections, collection];
+      collectionItems.set(collection.id, new Set());
+      await route.fulfill(json(publicCollection(collection), 201));
+      return;
+    }
+    if (url.pathname === '/api/gallery/collections/order' && request.method() === 'PUT') {
+      const body = request.postDataJSON() as { ids?: string[] };
+      const ids = body.ids || [];
+      collections = collections.map((collection) => ({ ...collection, position: ids.indexOf(collection.id) }));
+      await route.fulfill(json(sortedCollections()));
+      return;
+    }
+    const collectionItemsMatch = url.pathname.match(/^\/api\/gallery\/collections\/([^/]+)\/items(\/remove)?$/);
+    if (collectionItemsMatch && request.method() === 'POST') {
+      const id = decodeURIComponent(collectionItemsMatch[1]);
+      const collection = collections.find((item) => item.id === id);
+      if (!collection) {
+        await route.fulfill(json({ detail: 'Collection not found' }, 404));
+        return;
+      }
+      const members = collectionItems.get(id) || new Set<string>();
+      collectionItems.set(id, members);
+      let changed = 0;
+      for (const imageId of resolveBatchIds(request.postDataJSON() as { ids?: string[]; selection_token?: string })) {
+        if (collectionItemsMatch[2]) {
+          if (members.delete(imageId)) changed += 1;
+        } else if (!members.has(imageId) && galleryImages.some((image) => image.id === imageId)) {
+          members.add(imageId);
+          changed += 1;
+        }
+      }
+      await route.fulfill(json({ collection: publicCollection(collection), changed_count: changed }));
+      return;
+    }
+    const collectionMatch = url.pathname.match(/^\/api\/gallery\/collections\/([^/]+)$/);
+    if (collectionMatch && request.method() === 'PATCH') {
+      const id = decodeURIComponent(collectionMatch[1]);
+      const body = request.postDataJSON() as { name?: string; is_default?: boolean };
+      collections = collections.map((collection) => {
+        if (collection.id === id) {
+          return {
+            ...collection,
+            name: body.name ?? collection.name,
+            is_default: body.is_default ?? collection.is_default
+          };
+        }
+        return body.is_default ? { ...collection, is_default: false } : collection;
+      });
+      const collection = collections.find((item) => item.id === id);
+      await route.fulfill(collection ? json(publicCollection(collection)) : json({ detail: 'Collection not found' }, 404));
+      return;
+    }
+    if (collectionMatch && request.method() === 'DELETE') {
+      const id = decodeURIComponent(collectionMatch[1]);
+      collections = collections.filter((collection) => collection.id !== id);
+      collectionItems.delete(id);
+      await route.fulfill({ status: 204 });
+      return;
+    }
+    const imageCollectionsMatch = url.pathname.match(/^\/api\/gallery\/([^/]+)\/collections$/);
+    if (imageCollectionsMatch && request.method() === 'GET') {
+      const imageId = decodeURIComponent(imageCollectionsMatch[1]);
+      await route.fulfill(
+        json({
+          image_id: imageId,
+          collection_ids: sortedCollections()
+            .filter((collection) => collectionItems.get(collection.id)?.has(imageId))
+            .map((collection) => collection.id)
+        })
+      );
+      return;
+    }
+    if (url.pathname === '/api/gallery/export-jobs' && request.method() === 'POST') {
+      const body = (request.postDataJSON() || {}) as { ids?: string[]; collection_id?: string };
+      const count = body.collection_id ? collectionItems.get(body.collection_id)?.size || 0 : body.ids?.length || galleryImages.length;
+      const jobId = `export-job-${++exportJobSeq}`;
+      await route.fulfill(
+        json(
+          {
+            job_id: jobId,
+            status: 'queued',
+            stage: 'queued',
+            message: 'Queued gallery ZIP export',
+            progress: 0,
+            requested_count: count,
+            processed_count: 0,
+            exported_count: 0,
+            missing_count: 0,
+            bytes_total: 0,
+            bytes_written: 0,
+            filename: 'gpt-images-export.zip',
+            download_url: null
+          },
+          202
+        )
+      );
+      return;
+    }
+    const exportEventsMatch = url.pathname.match(/^\/api\/gallery\/export-jobs\/([^/]+)\/events$/);
+    if (exportEventsMatch) {
+      const jobId = decodeURIComponent(exportEventsMatch[1]);
+      const finished = {
+        job_id: jobId,
+        status: 'success',
+        stage: 'ready',
+        message: 'ZIP archive ready',
+        progress: 100,
+        requested_count: 1,
+        processed_count: 1,
+        exported_count: 1,
+        missing_count: 0,
+        bytes_total: PNG_BYTES.length,
+        bytes_written: PNG_BYTES.length,
+        filename: 'gpt-images-export.zip',
+        download_url: `/api/gallery/export-jobs/${encodeURIComponent(jobId)}/download`
+      };
+      await route.fulfill({ status: 200, contentType: 'text/event-stream', body: `event: export\ndata: ${JSON.stringify(finished)}\n\n` });
+      return;
+    }
+    if (url.pathname.match(/^\/api\/gallery\/export-jobs\/[^/]+\/download$/)) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/zip',
+        headers: { 'Content-Disposition': 'attachment; filename="gpt-images-export.zip"' },
+        body: PNG_BYTES
+      });
+      return;
+    }
+    if (url.pathname === '/api/gallery/search' && request.method() === 'POST') {
+      const body = request.postDataJSON() as Record<string, unknown>;
+      const prompt = String(body.prompt || '');
+      const favoriteParam = body.favorite;
+      const requestedPage = Number(body.page || 1);
+      const collectionMembers = body.collection_id ? collectionItems.get(String(body.collection_id)) || new Set<string>() : null;
+      const images = galleryImages.filter(
+        (image) =>
+          (!collectionMembers || collectionMembers.has(image.id)) &&
+          matchesGalleryFilters(image, {
+            prompt,
+            favorite: typeof favoriteParam === 'boolean' ? favoriteParam : null
+          })
+      );
+      await route.fulfill(
+        json(
+          galleryResponse(
+            images,
+            body.include_total_bytes === true,
+            requestedPage,
+            body.include_counts !== false,
+            body.include_filter_options !== false
+          )
+        )
+      );
+      return;
+    }
+    if (url.pathname === '/api/gallery/batch/selection-tokens' && request.method() === 'POST') {
+      const body = JSON.parse(request.postData() || '{}');
+      const filters = body.filters || {};
+      const token = `sel-${++selectionTokenSeq}`;
+      selectionTokens.set(token, {
+        prompt: String(filters.prompt || ''),
+        favorite: filters.favorite ?? null
+      });
+      const count = galleryImages.filter((image) => matchesGalleryFilters(image, selectionTokens.get(token) || {})).length;
+      await route.fulfill(
+        json(
+          {
+            selection_token: token,
+            count,
+            expires_at: '2026-05-18T13:00:00Z'
+          },
+          201
+        )
+      );
+      return;
+    }
+    if (url.pathname === '/api/gallery/thumbnails/status' && request.method() === 'POST') {
+      const body = request.postDataJSON() as { ids?: string[] };
+      const ids = new Set(body.ids || []);
+      await route.fulfill(
+        json(
+          galleryImages
+            .filter((image) => ids.has(image.id))
+            .map(({ id, thumbnail_filename, thumbnail_url, thumbnail_status }) => ({
+              id,
+              thumbnail_filename,
+              thumbnail_url,
+              thumbnail_status
+            }))
+        )
+      );
+      return;
+    }
+    const nodeImageJobMatch = url.pathname.match(/^\/api\/gallery\/nodeimage-upload-jobs\/([^/]+)$/);
+    if (nodeImageJobMatch && request.method() === 'GET') {
+      const jobId = decodeURIComponent(nodeImageJobMatch[1]);
+      const cancelledTerminal = nodeImageCancellationTerminals.get(jobId);
+      if (cancelledTerminal && nodeImageCancelStatusFailurePending) {
+        nodeImageCancelStatusFailurePending = false;
+        await route.fulfill(json({ detail: 'Temporary cancellation status failure' }, 503));
+        return;
+      }
+      if (cancelledTerminal) {
+        nodeImageCancellationTerminals.delete(jobId);
+        nodeImageJobs.set(jobId, cancelledTerminal);
+      }
+      const nodeImageJob = cancelledTerminal || nodeImageJobs.get(jobId);
+      await route.fulfill(
+        nodeImageJob
+          ? json(publicNodeImageJob(nodeImageJob))
+          : json({ detail: 'NodeImage upload job not found' }, 404)
+      );
+      return;
+    }
+    const nodeImageEventsMatch = url.pathname.match(/^\/api\/gallery\/nodeimage-upload-jobs\/([^/]+)\/events$/);
+    if (nodeImageEventsMatch && request.method() === 'GET') {
+      const jobId = decodeURIComponent(nodeImageEventsMatch[1]);
+      const nodeImageJob = nodeImageJobs.get(jobId);
+      if (!nodeImageJob) {
+        await route.fulfill(json({ detail: 'NodeImage upload job not found' }, 404));
+        return;
+      }
+
+      const events = buildNodeImageEvents(nodeImageJob);
+      const delayMs = Math.max(0, options.nodeImageBatchDelayMs || 0);
+      if (delayMs > 0) {
+        const firstProgress = events[1] || events[0] || nodeImageJob;
+        nodeImageJobs.set(jobId, firstProgress);
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+
+      const latestJob = nodeImageJobs.get(jobId) || nodeImageJob;
+      if (latestJob.cancel_requested || latestJob.status === 'cancelled') {
+        const cancelledJob = latestJob.status === 'cancelled' ? latestJob : buildCancelledNodeImageJob(latestJob);
+        nodeImageJobs.set(jobId, cancelledJob);
+        await route.fulfill({ status: 200, contentType: 'text/event-stream', body: sseBody([cancelledJob]) });
+      } else {
+        const terminalJob = events[events.length - 1] || nodeImageJob;
+        nodeImageJobs.set(jobId, terminalJob);
+        await route.fulfill({ status: 200, contentType: 'text/event-stream', body: sseBody(events) });
+      }
+      return;
+    }
+    const nodeImageCancelMatch = url.pathname.match(/^\/api\/gallery\/nodeimage-upload-jobs\/([^/]+)(?:\/cancel)?$/);
+    if (
+      nodeImageCancelMatch &&
+      (request.method() === 'DELETE' || (request.method() === 'POST' && url.pathname.endsWith('/cancel')))
+    ) {
+      const jobId = decodeURIComponent(nodeImageCancelMatch[1]);
+      const nodeImageJob = nodeImageJobs.get(jobId);
+      if (!nodeImageJob) {
+        await route.fulfill(json({ detail: 'NodeImage upload job not found' }, 404));
+        return;
+      }
+      if (options.nodeImageCancelFailure) {
+        await route.fulfill(json({ detail: 'Temporary cancellation failure' }, 503));
+        return;
+      }
+      if (options.nodeImageCancelReturnsCompleted) {
+        const completedJob = buildNodeImageEvents(nodeImageJob).at(-1) || nodeImageJob;
+        nodeImageJobs.set(jobId, completedJob);
+        await route.fulfill(json(publicNodeImageJob(completedJob)));
+        return;
+      }
+      const cancelledJob = nodeImageJob.status === 'cancelled'
+        ? nodeImageJob
+        : buildCancelledNodeImageJob({ ...nodeImageJob, cancel_requested: true });
+      if (nodeImageJob.status === 'queued') {
+        nodeImageJobs.set(jobId, cancelledJob);
+        await route.fulfill(json(publicNodeImageJob(cancelledJob)));
+        return;
+      }
+      const cancellingJob = nodeImageSnapshot(
+        nodeImageJob,
+        'running',
+        'cancelling',
+        'Cancelling NodeImage upload',
+        nodeImageJob.results,
+        true
+      );
+      nodeImageJobs.set(jobId, cancellingJob);
+      nodeImageCancellationTerminals.set(jobId, cancelledJob);
+      await route.fulfill(json(publicNodeImageJob(cancellingJob)));
+      return;
+    }
+    if (url.pathname.match(/^\/api\/gallery\/[^/]+$/) && request.method() === 'GET') {
+      const id = decodeURIComponent(url.pathname.split('/').pop() || '');
+      const image = galleryImages.find((entry) => entry.id === id);
+      await route.fulfill(image ? json(image) : json({ detail: 'Gallery entry not found' }, 404));
+      return;
+    }
+    if (url.pathname.match(/^\/api\/gallery\/(?!batch\/)[^/]+\/nodeimage-upload$/) && request.method() === 'POST') {
+      const id = decodeURIComponent(url.pathname.split('/').at(-2) || '');
+      const image = galleryImages.find((entry) => entry.id === id);
+      if (!image) {
+        await route.fulfill(json({ detail: 'Gallery entry not found' }, 404));
+        return;
+      }
+      const direct = `https://cdn.nodeimage.com/${encodeURIComponent(image.filename)}`;
+      await route.fulfill(json({ url: direct, markdown: `![${image.prompt}](${direct})` }));
+      return;
+    }
+    if (url.pathname.match(/^\/api\/gallery\/[^/]+$/) && request.method() === 'DELETE') {
+      const id = decodeURIComponent(url.pathname.split('/').pop() || '');
+      galleryImages = galleryImages.filter((entry) => entry.id !== id);
+      await route.fulfill(json({ status: 'ok', message: 'Deleted gallery entry and 1 image file(s)' }));
+      return;
+    }
+    if (url.pathname === '/api/gallery' && request.method() === 'DELETE') {
+      galleryImages = [];
+      await route.fulfill(json({ status: 'ok', message: 'Deleted all images' }));
+      return;
+    }
+    if (url.pathname === '/api/gallery/batch/delete') {
+      const body = JSON.parse(request.postData() || '{}');
+      const ids = new Set<string>(resolveBatchIds(body));
+      galleryImages = galleryImages.filter((entry) => !ids.has(entry.id));
+      await route.fulfill(json({ status: 'ok', count: ids.size, file_count: ids.size, requested_count: ids.size, updated_count: ids.size }));
+      return;
+    }
+    if (url.pathname === '/api/gallery/batch/favorite') {
+      const body = JSON.parse(request.postData() || '{}');
+      const ids = new Set<string>(resolveBatchIds(body));
+      galleryImages = galleryImages.map((entry) => (ids.has(entry.id) ? { ...entry, favorite: Boolean(body.favorite) } : entry));
+      await route.fulfill(json({ status: 'ok', count: ids.size, file_count: 0, requested_count: ids.size, updated_count: ids.size }));
+      return;
+    }
+    if (url.pathname === '/api/gallery/batch/nodeimage-upload' && request.method() === 'POST') {
+      const body = request.postDataJSON() as { ids?: string[]; selection_token?: string };
+      const ids = resolveBatchIds(body);
+      if (!ids.length) {
+        await route.fulfill(json({ detail: 'Gallery entries not found' }, 404));
+        return;
+      }
+      const nodeImageJob = createNodeImageJob(ids);
+      nodeImageJobs.set(nodeImageJob.job_id, nodeImageJob);
+      await route.fulfill(json(publicNodeImageJob(nodeImageJob), 202));
+      return;
+    }
+    if (url.pathname.match(/^\/api\/gallery\/[^/]+\/favorite$/)) {
+      const id = decodeURIComponent(url.pathname.split('/').at(-2) || '');
+      const body = JSON.parse(request.postData() || '{}');
+      const image = galleryImages.find((entry) => entry.id === id) || galleryImages[0];
+      if (image) {
+        galleryImages = galleryImages.map((entry) => (entry.id === image.id ? { ...entry, favorite: body.favorite ?? true } : entry));
+      }
+      await route.fulfill(json(image ? { ...image, favorite: body.favorite ?? true } : { ...baseGalleryImages[0], favorite: true }));
+      return;
+    }
+    if (url.pathname.startsWith('/api/thumb/') || url.pathname.startsWith('/api/image/')) {
+      await route.fulfill({ status: 200, contentType: 'image/png', body: PNG_BYTES });
+      return;
+    }
+    if (url.pathname === '/api/generate' && request.method() === 'POST') {
+      const generatedJob = generatedJobs[Math.min(generatedJobIndex++, generatedJobs.length - 1)] as Record<string, unknown>;
+      await route.fulfill(
+        json(
+          {
+            job_id: generatedJob.job_id,
+            status: 'queued',
+            stage: 'queued',
+            operation: generatedJob.operation || 'generation'
+          },
+          202
+        )
+      );
+      return;
+    }
+    if (url.pathname === '/api/edits/from-gallery/img-1' && request.method() === 'POST') {
+      await route.fulfill(json({ job_id: 'job-edited', status: 'queued', stage: 'queued', operation: 'edit' }, 202));
+      return;
+    }
+    if (url.pathname === '/api/edits' && request.method() === 'POST') {
+      if (options.editUploadFailure) {
+        await route.fulfill(json({ detail: 'Upload image is required.' }, 422));
+        return;
+      }
+      await route.fulfill(json({ job_id: 'job-upload-edited', status: 'queued', stage: 'queued', operation: 'edit' }, 202));
+      return;
+    }
+    if (url.pathname === '/api/generate/jobs') {
+      const includeFinished = url.searchParams.get('include_finished') === 'true';
+      const failedOnly = url.searchParams.get('failed_only') === 'true';
+      await route.fulfill(json(includeFinished ? (failedOnly ? historyJobs.filter(isErrorJob) : historyJobs) : runningJobs));
+      return;
+    }
+    if (url.pathname === '/api/generate/history-mask/mask/restore' && request.method() === 'POST') {
+      if (options.maskRestoreStatus && options.maskRestoreStatus !== 200) {
+        await route.fulfill(json({ detail: 'Edit source does not match this job' }, options.maskRestoreStatus));
+        return;
+      }
+      await route.fulfill({ status: 200, contentType: 'image/png', body: MASK_PNG_BYTES });
+      return;
+    }
+    if (url.pathname === '/api/generate/jobs/history' && request.method() === 'DELETE') {
+      historyJobs = [];
+      await route.fulfill(json({ status: 'success', message: 'Deleted job history' }));
+      return;
+    }
+    if (url.pathname === '/api/generate/jobs/events') {
+      await route.fulfill({ status: 204 });
+      return;
+    }
+    if (url.pathname === '/api/generate/job-generated/events') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/event-stream',
+        body: `event: job\ndata: ${JSON.stringify(generatedJobs.find((candidate) => (candidate as { job_id?: string }).job_id === 'job-generated') || generatedJobs[0])}\n\n`
+      });
+      return;
+    }
+    if (url.pathname === '/api/generate/job-edited/events') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/event-stream',
+        body: `event: job\ndata: ${JSON.stringify({ ...job('job-edited', 'browser edit prompt'), operation: 'edit' })}\n\n`
+      });
+      return;
+    }
+    if (url.pathname === '/api/generate/job-upload-edited/events') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/event-stream',
+        body: `event: job\ndata: ${JSON.stringify({ ...job('job-upload-edited', 'browser upload edit prompt'), operation: 'edit' })}\n\n`
+      });
+      return;
+    }
+    const eventJobMatch = url.pathname.match(/^\/api\/generate\/(job-[^/]+)\/events$/);
+    if (eventJobMatch) {
+      const eventJob = generatedJobs.find((candidate) => (candidate as { job_id?: string }).job_id === eventJobMatch[1]);
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/event-stream',
+        body: `event: job\ndata: ${JSON.stringify(eventJob || job(eventJobMatch[1], 'polled prompt'))}\n\n`
+      });
+      return;
+    }
+    if (url.pathname.startsWith('/api/generate/job-')) {
+      const id = url.pathname.split('/').pop() || 'job-generated';
+      const generatedJob = generatedJobs.find((candidate) => (candidate as { job_id?: string }).job_id === id);
+      await route.fulfill(json(generatedJob ?? job(id, 'polled prompt')));
+      return;
+    }
+
+    if (url.pathname === '/api/agent/conversations' && request.method() === 'GET') {
+      await route.fulfill(json({ items: agentConversations.map(agentSummary) }));
+      return;
+    }
+    if (url.pathname === '/api/agent/conversations' && request.method() === 'POST') {
+      const body = JSON.parse(request.postData() || '{}');
+      agentIdSeq += 1;
+      const conversation: AgentConversationFixture = { id: `conv-${agentIdSeq}`, title: body.title || '', messages: [], turns: [], selectedTurnId: null, branchRevision: 0 };
+      agentConversations.unshift(conversation);
+      await route.fulfill(json(agentSummary(conversation), 201));
+      return;
+    }
+    const agentBranchMatch = url.pathname.match(/^\/api\/agent\/conversations\/([^/]+)\/branch$/);
+    if (agentBranchMatch && request.method() === 'PATCH') {
+      const conversation = agentConversations.find((item) => item.id === agentBranchMatch[1]);
+      const body = JSON.parse(request.postData() || '{}');
+      if (!conversation || body.expected_revision !== conversation.branchRevision) {
+        await route.fulfill(json({ detail: 'The selected branch changed. Refresh before retrying.' }, 409));
+        return;
+      }
+      conversation.selectedTurnId = body.selected_turn_id;
+      conversation.branchRevision = (conversation.branchRevision ?? 0) + 1;
+      await route.fulfill(json(agentDetail(conversation)));
+      return;
+    }
+    const agentConversationMatch = url.pathname.match(/^\/api\/agent\/conversations\/([^/]+)$/);
+    if (agentConversationMatch) {
+      const conversation = agentConversations.find((item) => item.id === agentConversationMatch[1]);
+      if (!conversation) {
+        await route.fulfill(json({ detail: 'Agent conversation not found' }, 404));
+        return;
+      }
+      if (request.method() === 'PATCH') {
+        conversation.title = JSON.parse(request.postData() || '{}').title;
+        await route.fulfill(json(agentSummary(conversation)));
+        return;
+      }
+      if (request.method() === 'DELETE') {
+        agentConversations.splice(agentConversations.indexOf(conversation), 1);
+        await route.fulfill(json({ status: 'success', message: 'Agent conversation deleted' }));
+        return;
+      }
+      await route.fulfill(json(agentDetail(conversation)));
+      return;
+    }
+    const agentTurnCreateMatch = url.pathname.match(/^\/api\/agent\/conversations\/([^/]+)\/turns$/);
+    if (agentTurnCreateMatch && request.method() === 'POST') {
+      const conversation = agentConversations.find((item) => item.id === agentTurnCreateMatch[1]);
+      if (!conversation) {
+        await route.fulfill(json({ detail: 'Agent conversation not found' }, 404));
+        return;
+      }
+      const body = JSON.parse(request.postData() || '{}');
+      const replay = conversation.turns.find((turn) => turn.clientTurnId === body.client_turn_id);
+      if (replay) {
+        await route.fulfill(json({ turn_id: replay.id, conversation_id: conversation.id, round_no: replay.roundNo, status: replay.status, user_message_id: conversation.messages.find((message) => message.turn_id === replay.id && message.role === 'user')?.id, assistant_message_id: conversation.messages.find((message) => message.turn_id === replay.id && message.role === 'assistant')?.id, replayed: true }, 202));
+        return;
+      }
+      if (body.branch_revision !== conversation.branchRevision || conversation.turns.some((turn) => turn.status === 'running')) {
+        await route.fulfill(json({ detail: 'The selected branch changed or a turn is still running.' }, 409));
+        return;
+      }
+      const source = conversation.turns.find((turn) => turn.id === body.source_turn_id);
+      if (body.action === 'regenerate' && source) body.text = conversation.messages.find((message) => message.turn_id === source.id && message.role === 'user')?.text;
+      const roundNo = conversation.turns.length + 1;
+      agentIdSeq = Math.max(agentIdSeq, ...agentConversations.flatMap((item) => item.turns.map((turn) => Number(turn.id.replace('turn-', '')) || 0))) + 1;
+      const turn: AgentTurnFixture = {
+        id: `turn-${agentIdSeq}`,
+        conversationId: conversation.id,
+        roundNo,
+        status: 'running',
+        events: agentScript(roundNo),
+        attachments: (body.attachments || []).map((item: { image_id: string }) => item.image_id),
+        parentTurnId: body.action === 'edit' || body.action === 'regenerate' ? source?.parentTurnId ?? null : conversation.selectedTurnId ?? null,
+        clientTurnId: body.client_turn_id
+      };
+      conversation.turns.push(turn);
+      conversation.selectedTurnId = turn.id;
+      conversation.branchRevision = (conversation.branchRevision ?? 0) + 1;
+      if (!conversation.title) conversation.title = String(body.text).slice(0, 40);
+      const seq = conversation.messages.length;
+      const userId = `msg-${agentIdSeq}-u`;
+      const assistantId = `msg-${agentIdSeq}-a`;
+      conversation.messages.push(
+        { id: userId, turn_id: turn.id, seq: seq + 1, round_no: roundNo, role: 'user', text: body.text, blocks: [], status: 'complete', created_at: agentNow(), updated_at: agentNow() },
+        { id: assistantId, turn_id: turn.id, seq: seq + 2, round_no: roundNo, role: 'assistant', text: '', blocks: [], status: 'streaming', created_at: agentNow(), updated_at: agentNow() }
+      );
+      await route.fulfill(
+        json(
+          {
+            turn_id: turn.id,
+            conversation_id: conversation.id,
+            round_no: roundNo,
+            status: 'running',
+            user_message_id: userId,
+            assistant_message_id: assistantId,
+            replayed: false
+          },
+          202
+        )
+      );
+      return;
+    }
+    const agentTurnEventsMatch = url.pathname.match(/^\/api\/agent\/turns\/([^/]+)\/events$/);
+    if (agentTurnEventsMatch) {
+      const turn = agentConversations.flatMap((item) => item.turns).find((item) => item.id === agentTurnEventsMatch[1]);
+      if (!turn) {
+        await route.fulfill(json({ detail: 'Agent turn not found' }, 404));
+        return;
+      }
+      const lastEventId = Number(request.headers()['last-event-id'] || url.searchParams.get('after') || 0);
+      if (turn.status === 'running' && turn.events.some((event) => event.event.startsWith('turn.') && event.event !== 'turn.started')) {
+        const last = turn.events.at(-1)?.event;
+        turn.status = last === 'turn.failed' ? 'failed' : last === 'turn.cancelled' ? 'cancelled' : 'completed';
+      }
+      await route.fulfill({ status: 200, contentType: 'text/event-stream', body: agentSse(turn, lastEventId) });
+      return;
+    }
+    const agentTurnStatusMatch = url.pathname.match(/^\/api\/agent\/turns\/([^/]+)$/);
+    if (agentTurnStatusMatch && request.method() === 'GET') {
+      const turn = agentConversations.flatMap((item) => item.turns).find((item) => item.id === agentTurnStatusMatch[1]);
+      await route.fulfill(turn ? json({ turn_id: turn.id, conversation_id: turn.conversationId, round_no: turn.roundNo, status: turn.status, rounds_used: 1, error_message: null }) : json({ detail: 'Agent turn not found' }, 404));
+      return;
+    }
+    const agentTurnCancelMatch = url.pathname.match(/^\/api\/agent\/turns\/([^/]+)\/cancel$/);
+    if (agentTurnCancelMatch && request.method() === 'POST') {
+      const turn = agentConversations.flatMap((item) => item.turns).find((item) => item.id === agentTurnCancelMatch[1]);
+      if (!turn) {
+        await route.fulfill(json({ detail: 'Agent turn not found' }, 404));
+        return;
+      }
+      turn.events.push({ event: 'turn.cancelled', data: {} });
+      turn.status = 'cancelled';
+      await route.fulfill(
+        json(
+          { turn_id: turn.id, conversation_id: turn.conversationId, round_no: turn.roundNo, status: 'cancelled', rounds_used: 0, error_message: null },
+          202
+        )
+      );
+      return;
+    }
+    const galleryItemMatch = url.pathname.match(/^\/api\/gallery\/([^/]+)$/);
+    if (galleryItemMatch && request.method() === 'GET') {
+      const entry = galleryImages.find((item) => item.id === galleryItemMatch[1]);
+      if (entry) {
+        await route.fulfill(json(entry));
+        return;
+      }
+    }
+
+    await route.continue();
+  });
+}
+
+async function loadApp(page: Page, options: MockOptions = {}) {
+  await mockApi(page, options);
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: options.language === 'zh-CN' ? '提示词' : 'Prompt', exact: true })).toBeVisible({ timeout: 15_000 });
+}
+
+/**
+ * Pre-seed the mask editor's region-processing preference. Call it *before*
+ * `loadApp`: the editor reads localStorage when it opens.
+ *
+ * Automatic gap filling is on by default, so tests that assert exact exported
+ * pixels or an exact coverage percentage opt out here instead of depending on
+ * how many pixels the pipeline happens to add.
+ */
+async function setRegionPreference(page: Page, preferences: Record<string, unknown>) {
+  await page.addInitScript((value: string) => {
+    localStorage.setItem('maskEditor.region', value);
+  }, JSON.stringify(preferences));
+}
+
+/** Turn the automatic gap filling off for one test. */
+async function disableRegionProcessing(page: Page) {
+  await setRegionPreference(page, {
+    enabled: false,
+    strength: 'normal',
+    edgeSnap: false,
+    edgeRange: null,
+    grow: 0
+  });
+}
+
+export {
+  PNG_BYTES,
+  baseGalleryImages,
+  settingsResponse,
+  overallConfigResponse,
+  basePromptSnippets,
+  json,
+  galleryCursor,
+  galleryResponse,
+  job,
+  manyJobs,
+  isErrorJob,
+  cloneSettings,
+  applyActivePresetFields,
+  manyGalleryImages,
+  mockApi,
+  loadApp,
+  setRegionPreference,
+  disableRegionProcessing
+};
+export type { CollectionFixture, GalleryImageFixture, PromptSnippetFixture, MockOptions, JobStatus };
