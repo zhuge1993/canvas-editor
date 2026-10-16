@@ -77,7 +77,7 @@ jobs:
           cache-dependency-path: tools/gpt-image-panel/frontend/package-lock.json
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      - run: npm run test:e2e -- agent access-settings edit-mask jobs-edit prompt-submit
+      - run: npm run test:e2e -- agent access-settings edit-mask jobs-edit prompt-submit image-25
 
   docker:
     name: Docker Compose config and local image build

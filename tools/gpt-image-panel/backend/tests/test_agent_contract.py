@@ -1,3 +1,4 @@
+import asyncio
 import json
 import threading
 import time
@@ -416,10 +417,28 @@ def test_agent_cancel_does_not_wait_for_the_poll_interval(client, monkeypatch):
 def test_agent_cancel_before_the_watcher_starts_is_still_seen(client, monkeypatch):
     enable_agent(client)
     monkeypatch.setattr(agent_run_lifecycle, "CANCEL_POLL_SECONDS", 60.0)
-    release = threading.Event()
+    release_model = threading.Event()
+    runtime_resolving = threading.Event()
+    release_runtime = threading.Event()
+    original_resolve = agent_run_lifecycle.assistant_runtime.resolve_agent_runtime_async
+
+    async def hold_runtime_until_cancel_is_persisted(*args, **kwargs):
+        # Hold the worker before it creates the cancellation watcher. This makes
+        # the pre-watcher cancellation condition deterministic rather than
+        # depending on which thread wins immediately after start_turn returns.
+        runtime_resolving.set()
+        while not release_runtime.is_set():
+            await asyncio.sleep(0.01)
+        return await original_resolve(*args, **kwargs)
+
+    monkeypatch.setattr(
+        agent_run_lifecycle.assistant_runtime,
+        "resolve_agent_runtime_async",
+        hold_runtime_until_cancel_is_persisted,
+    )
 
     async def held(kwargs):
-        while not release.is_set():
+        while not release_model.is_set():
             await asyncio.sleep(0.02)
         while True:
             await asyncio.sleep(0.05)
@@ -428,10 +447,12 @@ def test_agent_cancel_before_the_watcher_starts_is_still_seen(client, monkeypatc
     install_model(monkeypatch, [held])
     conversation_id = new_conversation(client)
     accepted = start_turn(client, conversation_id, "go")
-    # The flag is already set when the runner is still starting up.
+    assert runtime_resolving.wait(5), "Agent worker did not reach runtime startup"
+    # Persist cancellation before the lifecycle can create its watcher.
     agent_repo.request_turn_cancel(accepted["turn_id"])
-    release.set()
-    assert wait_turn(client, accepted["turn_id"], timeout=5)["status"] == "cancelled"
+    release_model.set()
+    release_runtime.set()
+    assert wait_turn(client, accepted["turn_id"], timeout=10)["status"] == "cancelled"
 
 
 def test_agent_cancel_cancels_pending_image_jobs(client, monkeypatch):
