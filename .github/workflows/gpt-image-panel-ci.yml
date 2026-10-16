@@ -64,12 +64,20 @@ jobs:
   e2e:
     name: Browser tests for agent, access, mask editor and image clipboard
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 35
     defaults:
       run:
         working-directory: tools/gpt-image-panel/frontend
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install Python helpers used by browser tests
+        run: |
+          python -m venv ../.venv
+          ../.venv/bin/python -m pip install --upgrade pip
+          ../.venv/bin/python -m pip install -r ../backend/requirements-dev.txt
       - uses: actions/setup-node@v6
         with:
           node-version: "24"
