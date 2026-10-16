@@ -1565,7 +1565,7 @@
 />
 {/if}
 
-<main id="main-content" tabindex="-1" class:optimizer-gutter={optimizerAssistantEnabled} class="mx-auto max-w-5xl space-y-6 px-4 py-6 pb-28 sm:px-6 sm:pb-32">
+<main id="main-content" tabindex="-1" class:optimizer-gutter={optimizerAssistantEnabled} class="workspace-shell mx-auto w-full max-w-[1600px] space-y-6 px-3 py-4 pb-28 sm:px-5 sm:py-5 sm:pb-32 2xl:px-8">
   <ToastHost toast={$toastStore} />
 
   {#if $workspaceModeStore.mode === 'agent'}
