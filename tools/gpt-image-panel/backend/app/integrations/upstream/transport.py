@@ -1,0 +1,519 @@
+import aiohttp
+import asyncio
+import base64
+import json
+import logging
+import os
+import re
+import tempfile
+from collections.abc import (
+    AsyncIterator,
+    Callable,
+)
+from pathlib import Path
+from typing import Any
+from urllib.parse import urljoin
+
+from ...core import settings as config
+from ...core.api_paths import build_upstream_url
+from ...core import validators as ssrf
+from ...core.media import validate_image_bytes
+from ...runtime.blocking import run_file_operation, run_image_operation
+from ..session_pool import (
+    TIMEOUT_PROBE,
+    get_pool,
+)
+
+ProgressCallback = Callable[[str, str], None]
+logger = logging.getLogger(__name__)
+
+
+from .errors import (
+    UpstreamApiError,
+    UpstreamImageDownloadError,
+)
+from .payloads import (
+    is_json_content_type,
+    looks_like_json_body,
+    parse_sse_events,
+)
+from .errors import (
+    raise_upstream_error,
+)
+
+MAX_IMAGE_REDIRECTS = 3
+IMAGE_DOWNLOAD_CHUNK_SIZE = 1024 * 1024
+UPSTREAM_RESPONSE_CHUNK_SIZE = 1024 * 1024
+
+
+async def read_limited_response(response: aiohttp.ClientResponse, max_bytes: int) -> bytes:
+    content_length = response.headers.get("Content-Length")
+    if content_length:
+        try:
+            if int(content_length) > max_bytes:
+                raise UpstreamImageDownloadError(
+                    f"Image too large: {content_length} bytes (max {max_bytes})"
+                )
+        except ValueError:
+            pass
+
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in response.content.iter_chunked(IMAGE_DOWNLOAD_CHUNK_SIZE):
+        total += len(chunk)
+        if total > max_bytes:
+            raise UpstreamImageDownloadError(f"Image too large: {total} bytes (max {max_bytes})")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def get_response_charset(response: aiohttp.ClientResponse) -> str:
+    charset = getattr(response, "charset", None)
+    if charset:
+        return charset
+
+    content_type = response.headers.get("Content-Type", "")
+    match = re.search(r"charset=([^;]+)", content_type, re.IGNORECASE)
+    if match:
+        return match.group(1).strip()
+    return "utf-8"
+
+
+async def read_limited_text_response(
+    response: aiohttp.ClientResponse,
+    max_bytes: int,
+    *,
+    label: str = "Upstream response",
+) -> str:
+    content_length = response.headers.get("Content-Length")
+    if content_length:
+        try:
+            if int(content_length) > max_bytes:
+                raise UpstreamApiError(
+                    f"{label} too large: {content_length} bytes (max {max_bytes})"
+                )
+        except ValueError:
+            pass
+
+    content = getattr(response, "content", None)
+    if content is None or not hasattr(content, "iter_chunked"):
+        response_text = await response.text()
+        response_size = len(response_text.encode("utf-8"))
+        if response_size > max_bytes:
+            raise UpstreamApiError(
+                f"{label} too large: {response_size} bytes (max {max_bytes})"
+            )
+        return response_text
+
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in content.iter_chunked(UPSTREAM_RESPONSE_CHUNK_SIZE):
+        total += len(chunk)
+        if total > max_bytes:
+            raise UpstreamApiError(f"{label} too large: {total} bytes (max {max_bytes})")
+        chunks.append(chunk)
+
+    body = b"".join(chunks)
+    encoding = get_response_charset(response)
+    try:
+        return body.decode(encoding)
+    except (LookupError, UnicodeDecodeError) as e:
+        raise UpstreamApiError(f"{label} is not valid {encoding} text") from e
+
+
+async def spool_limited_response(
+    response: aiohttp.ClientResponse,
+    max_bytes: int,
+    *,
+    label: str,
+) -> tuple[Path, str, str]:
+    content_length = response.headers.get("Content-Length")
+    if content_length:
+        try:
+            if int(content_length) > max_bytes:
+                raise UpstreamApiError(
+                    f"{label} too large: {content_length} bytes (max {max_bytes})"
+                )
+        except ValueError:
+            pass
+
+    fd, temp_name = tempfile.mkstemp(prefix="upstream-json-", suffix=".tmp")
+    path = Path(temp_name)
+    total = 0
+    preview = bytearray()
+    try:
+        with os.fdopen(fd, "wb") as output:
+            content = getattr(response, "content", None)
+            if content is None or not hasattr(content, "iter_chunked"):
+                response_text = await response.text()
+                chunks = (response_text.encode(get_response_charset(response)),)
+            else:
+                chunks = content.iter_chunked(UPSTREAM_RESPONSE_CHUNK_SIZE)
+
+            async def iter_chunks():
+                if hasattr(chunks, "__aiter__"):
+                    async for item in chunks:
+                        yield item
+                else:
+                    for item in chunks:
+                        yield item
+
+            async for chunk in iter_chunks():
+                total += len(chunk)
+                if total > max_bytes:
+                    raise UpstreamApiError(
+                        f"{label} too large: {total} bytes (max {max_bytes})"
+                    )
+                if len(preview) < 2048:
+                    preview.extend(chunk[: 2048 - len(preview)])
+                await run_file_operation(
+                    output.write,
+                    chunk,
+                    metric_name="spool_upstream_response",
+                )
+    except BaseException:
+        path.unlink(missing_ok=True)
+        raise
+
+    encoding = get_response_charset(response)
+    try:
+        preview_text = bytes(preview).decode(encoding)
+    except (LookupError, UnicodeDecodeError) as e:
+        path.unlink(missing_ok=True)
+        raise UpstreamApiError(f"{label} is not valid {encoding} text") from e
+    return path, preview_text, encoding
+
+
+def _decode_sse_frame(frame_bytes: bytes, encoding: str, label: str) -> Any | None:
+    try:
+        frame_text = frame_bytes.decode(encoding)
+    except (LookupError, UnicodeDecodeError) as e:
+        raise UpstreamApiError(f"{label} is not valid {encoding} text") from e
+
+    data_lines = [line[5:].strip() for line in frame_text.split("\n") if line.startswith("data:")]
+    if not data_lines:
+        return None
+    data = "\n".join(data_lines).strip()
+    if not data or data == "[DONE]":
+        return None
+    try:
+        return json.loads(data)
+    except json.JSONDecodeError as e:
+        raise UpstreamApiError(f"{label} contains malformed SSE JSON: {data[:200]}") from e
+
+
+async def iter_bounded_sse_json_events(
+    response: aiohttp.ClientResponse,
+    *,
+    max_total_bytes: int,
+    max_frame_bytes: int,
+    label: str = "Upstream stream",
+) -> AsyncIterator[Any]:
+    """Incrementally parse a `text/event-stream` response into JSON event
+    payloads without ever buffering the whole response in memory.
+
+    Enforces a total-stream byte cap (`max_total_bytes`) and a per-frame byte
+    cap (`max_frame_bytes`, one SSE "data:" block) so a runaway or malicious
+    upstream can't exhaust worker memory.
+    """
+    total = 0
+    encoding = get_response_charset(response)
+    pending = b""
+    async for chunk in response.content.iter_chunked(UPSTREAM_RESPONSE_CHUNK_SIZE):
+        total += len(chunk)
+        if total > max_total_bytes:
+            raise UpstreamApiError(f"{label} exceeded max size ({max_total_bytes} bytes)")
+        pending += chunk.replace(b"\r\n", b"\n")
+
+        while True:
+            idx = pending.find(b"\n\n")
+            if idx == -1:
+                if len(pending) > max_frame_bytes:
+                    raise UpstreamApiError(f"{label} frame exceeded max size ({max_frame_bytes} bytes)")
+                break
+            frame_bytes, pending = pending[:idx], pending[idx + 2 :]
+            if len(frame_bytes) > max_frame_bytes:
+                raise UpstreamApiError(f"{label} frame exceeded max size ({max_frame_bytes} bytes)")
+            event = _decode_sse_frame(frame_bytes, encoding, label)
+            if event is not None:
+                yield event
+
+    if pending.strip():
+        if len(pending) > max_frame_bytes:
+            raise UpstreamApiError(f"{label} frame exceeded max size ({max_frame_bytes} bytes)")
+        event = _decode_sse_frame(pending, encoding, label)
+        if event is not None:
+            yield event
+
+
+def _load_json_file(path: Path, encoding: str) -> Any:
+    try:
+        with path.open("r", encoding=encoding) as stream:
+            return json.load(stream)
+    except (LookupError, UnicodeDecodeError) as e:
+        raise UpstreamApiError(f"Upstream response is not valid {encoding} text") from e
+
+
+def _read_response_file(path: Path, encoding: str, max_chars: int | None = None) -> str:
+    with path.open("r", encoding=encoding) as stream:
+        return stream.read(max_chars) if max_chars is not None else stream.read()
+
+
+async def download_image_url(
+    session: aiohttp.ClientSession,
+    image_url: str,
+    *,
+    max_redirects: int = MAX_IMAGE_REDIRECTS,
+) -> bytes:
+    current_url = image_url
+    max_bytes = config.MAX_FILE_SIZE_MB * 1024 * 1024
+
+    for _ in range(max_redirects + 1):
+        await ssrf.validate_image_url_async(current_url)
+        async with session.get(
+            current_url,
+            headers={"User-Agent": config.UPSTREAM_USER_AGENT},
+            allow_redirects=False,
+        ) as img_resp:
+            if 300 <= img_resp.status < 400:
+                location = img_resp.headers.get("Location")
+                if not location:
+                    raise UpstreamImageDownloadError(f"Image URL redirect missing Location: {current_url}")
+                current_url = urljoin(current_url, location)
+                continue
+            if img_resp.status != 200:
+                raise UpstreamImageDownloadError(
+                    f"Failed to download image from {current_url}: {img_resp.status}"
+                )
+            ssrf.validate_response_peer_ip(img_resp, "Image URL")
+            return await read_limited_response(img_resp, max_bytes)
+
+    raise UpstreamImageDownloadError("Image URL redirected too many times")
+
+
+async def extract_image_bytes(
+    download_session: aiohttp.ClientSession,
+    image_data: dict,
+    response_preview: str,
+    max_bytes: int,
+) -> bytes:
+    if "b64_json" in image_data and image_data["b64_json"]:
+        b64_json = str(image_data.pop("b64_json"))
+        max_b64_chars = ((max_bytes + 2) // 3) * 4 + 4
+        if len(b64_json) > max_b64_chars:
+            raise UpstreamImageDownloadError(
+                f"Image too large: base64 payload is {len(b64_json)} chars "
+                f"(max {max_b64_chars})"
+            )
+        return await run_image_operation(
+            base64.b64decode,
+            b64_json,
+            metric_name="decode_upstream_base64",
+        )
+
+    if "url" in image_data and image_data["url"]:
+        return await download_image_url(download_session, image_data["url"])
+
+    raise UpstreamImageDownloadError(
+        f"No image data (b64_json or url) in upstream response: {response_preview}"
+    )
+
+
+def validate_generated_image_bytes(image_bytes: bytes, filename: str) -> None:
+    validate_image_bytes(image_bytes, filename=filename)
+
+
+def classify_probe_status(method: str, status: int) -> tuple[str, str]:
+    if status in {200, 204}:
+        return "ok", f"{method} probe succeeded with HTTP {status}"
+    if status in {401, 403}:
+        return "ok", f"{method} probe reached the endpoint and got HTTP {status}"
+    if method == "OPTIONS" and status in {404, 410}:
+        return "warning", f"{method} probe returned HTTP {status}; upstream may only support POST"
+    if status in {404, 410}:
+        return "error", f"{method} probe returned HTTP {status}; check API URL/path"
+    if status in {405, 501}:
+        return "warning", f"{method} probe is not supported by upstream (HTTP {status})"
+    if 300 <= status < 400:
+        return "error", f"{method} probe returned redirect HTTP {status}; redirects are not followed"
+    if status >= 500:
+        return "warning", f"{method} probe reached upstream but got HTTP {status}"
+    return "ok", f"{method} probe reached upstream with HTTP {status}"
+
+
+async def probe_upstream_endpoint(
+    api_url: str,
+    api_path: str,
+    api_key: str = "",
+) -> dict[str, Any]:
+    upstream_url = build_upstream_url(api_url, api_path)
+    await ssrf.validate_upstream_url_async(upstream_url, config.UPSTREAM_HOST_ALLOWLIST)
+
+    headers = {"User-Agent": config.UPSTREAM_USER_AGENT}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    probe_errors: list[str] = []
+    unsupported_method_result: dict[str, Any] | None = None
+    session = get_pool().get(timeout_kind=TIMEOUT_PROBE)
+    for method in ("OPTIONS", "HEAD"):
+        try:
+            async with session.request(
+                method,
+                upstream_url,
+                headers=headers,
+                allow_redirects=False,
+            ) as resp:
+                ssrf.validate_response_peer_ip(resp, "Upstream API probe")
+                status, message = classify_probe_status(method, resp.status)
+                result = {
+                    "status": status,
+                    "message": message,
+                    "method": method,
+                    "status_code": resp.status,
+                }
+                if resp.status in {405, 501}:
+                    unsupported_method_result = result
+                    continue
+                return result
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as e:
+            probe_errors.append(f"{method}: {e}")
+
+    if unsupported_method_result:
+        return unsupported_method_result
+
+    return {
+        "status": "error",
+        "message": "Upstream probe failed: " + "; ".join(probe_errors),
+        "method": None,
+        "status_code": None,
+    }
+
+
+async def parse_upstream_json_response(
+    resp: aiohttp.ClientResponse,
+    api_path: str,
+    progress: ProgressCallback | None,
+) -> tuple[dict[str, Any], str]:
+    status = resp.status
+    max_response_bytes = config.MAX_UPSTREAM_JSON_MB * 1024 * 1024
+    response_path, response_preview, encoding = await spool_limited_response(
+        resp,
+        max_response_bytes,
+        label="Upstream JSON response",
+    )
+    try:
+        if progress:
+            progress("received_api_response", "Received upstream API response")
+        content_type = resp.headers.get("Content-Type", "")
+        is_json_response = is_json_content_type(content_type) or looks_like_json_body(
+            response_preview
+        )
+        if status >= 400:
+            error_text = await run_file_operation(
+                _read_response_file,
+                response_path,
+                encoding,
+                65536,
+                metric_name="read_upstream_error",
+            )
+            raise_upstream_error(status, error_text, is_json_response, api_path)
+        if not is_json_response:
+            raise UpstreamApiError(
+                f"Upstream returned non-JSON content-type ({status}): {response_preview[:200]}"
+            )
+        if progress:
+            progress("parsing_json_response", "Parsing JSON response")
+        try:
+            result = await run_file_operation(
+                _load_json_file,
+                response_path,
+                encoding,
+                metric_name="parse_upstream_json",
+            )
+        except json.JSONDecodeError as e:
+            raise UpstreamApiError(
+                f"Upstream returned non-JSON ({status}): {response_preview[:200]}"
+            ) from e
+        if not isinstance(result, dict):
+            raise UpstreamApiError("Upstream JSON response must be an object")
+        return result, response_preview
+    finally:
+        response_path.unlink(missing_ok=True)
+
+
+async def parse_upstream_chat_completion_response(
+    resp: aiohttp.ClientResponse,
+    api_path: str,
+    progress: ProgressCallback | None,
+) -> tuple[dict[str, Any], str]:
+    status = resp.status
+    max_response_bytes = config.MAX_UPSTREAM_JSON_MB * 1024 * 1024
+    response_path, response_preview, encoding = await spool_limited_response(
+        resp,
+        max_response_bytes,
+        label="Upstream chat response",
+    )
+    try:
+        if progress:
+            progress("received_api_response", "Received upstream API response")
+        content_type = resp.headers.get("Content-Type", "")
+        is_json_response = is_json_content_type(content_type) or looks_like_json_body(
+            response_preview
+        )
+        is_sse_response = (
+            "text/event-stream" in content_type
+            or response_preview.lstrip().startswith("data:")
+        )
+        if status >= 400:
+            error_text = await run_file_operation(
+                _read_response_file,
+                response_path,
+                encoding,
+                65536,
+                metric_name="read_upstream_chat_error",
+            )
+            raise_upstream_error(status, error_text, is_json_response, api_path)
+        if progress:
+            progress("parsing_json_response", "Parsing upstream response")
+        if is_json_response:
+            try:
+                result = await run_file_operation(
+                    _load_json_file,
+                    response_path,
+                    encoding,
+                    metric_name="parse_upstream_chat_json",
+                )
+            except json.JSONDecodeError as e:
+                raise UpstreamApiError(
+                    f"Upstream returned non-JSON ({status}): {response_preview[:200]}"
+                ) from e
+            if not isinstance(result, dict):
+                raise UpstreamApiError("Upstream chat response must be an object")
+            return result, response_preview
+        if is_sse_response:
+            response_text = await run_file_operation(
+                _read_response_file,
+                response_path,
+                encoding,
+                metric_name="read_upstream_chat_sse",
+            )
+            events = await run_file_operation(
+                parse_sse_events,
+                response_text,
+                metric_name="parse_upstream_chat_sse",
+            )
+            if not events:
+                raise UpstreamApiError(
+                    "No SSE chat completion events in upstream response: "
+                    f"{response_preview[:200]}"
+                )
+            return {"_sse_events": events}, response_preview
+        raise UpstreamApiError(
+            f"Upstream returned unsupported content-type ({status}): {response_preview[:200]}"
+        )
+    finally:
+        response_path.unlink(missing_ok=True)
+
+
+DOWNLOAD_CONCURRENCY = 3

@@ -1,0 +1,391 @@
+import json
+import logging
+import re
+from collections.abc import Callable
+from typing import Any
+
+from ...core import settings as config
+from ...schemas.generation import GenerateRequest
+
+ProgressCallback = Callable[[str, str], None]
+logger = logging.getLogger(__name__)
+
+
+from .errors import UpstreamApiError
+
+def get_output_format_info(output_format: str) -> dict[str, str]:
+    return OUTPUT_FORMATS.get(output_format, OUTPUT_FORMATS["png"])
+
+
+def extract_response_image_result(value: Any) -> dict[str, str] | None:
+    if isinstance(value, str) and value:
+        if value.startswith(("http://", "https://")):
+            return {"url": value}
+        return {"b64_json": value}
+
+    if isinstance(value, dict):
+        for key in ("url", "b64_json", "base64", "data", "result"):
+            image = extract_response_image_result(value.get(key))
+            if image:
+                return image
+
+    if isinstance(value, list):
+        for item in value:
+            image = extract_response_image_result(item)
+            if image:
+                return image
+
+    return None
+
+
+def reported_image_fields(value: Any) -> dict[str, str]:
+    if not isinstance(value, dict):
+        return {}
+    fields = {}
+    for source, target in (("revised_prompt", "revised_prompt"), ("size", "reported_size"), ("quality", "reported_quality")):
+        if isinstance(value.get(source), str) and value[source]:
+            fields[target] = value[source]
+    return fields
+
+
+def extract_response_image_results(result: dict[str, Any]) -> list[dict[str, str]]:
+    image_results: list[dict[str, str]] = []
+
+    for item in result.get("output", []):
+        if not isinstance(item, dict) or item.get("type") != "image_generation_call":
+            continue
+
+        image = extract_response_image_result(item.get("result"))
+        if image:
+            image_results.append({**image, **reported_image_fields(item.get("result")), **reported_image_fields(item)})
+
+    return image_results
+
+
+def build_chat_completions_request_data(
+    payload: GenerateRequest,
+    *,
+    prompt_guard: bool = False,
+) -> dict[str, Any]:
+    return {
+        "model": payload.model,
+        "messages": [{"role": "user", "content": sent_generation_prompt(payload, prompt_guard=prompt_guard)}],
+        "stream": False,
+    }
+
+
+def parse_sse_events(response_text: str) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+    data_lines: list[str] = []
+
+    def flush_data_lines():
+        if not data_lines:
+            return
+        data = "\n".join(data_lines).strip()
+        data_lines.clear()
+        if not data or data == "[DONE]":
+            return
+        try:
+            events.append(json.loads(data))
+        except json.JSONDecodeError as e:
+            raise UpstreamApiError(f"Upstream returned malformed SSE JSON: {data[:200]}") from e
+
+    for raw_line in response_text.splitlines():
+        line = raw_line.rstrip("\r")
+        if not line:
+            flush_data_lines()
+            continue
+        if line.startswith("data:"):
+            data_lines.append(line[5:].strip())
+
+    flush_data_lines()
+    return events
+
+
+def extract_usage_from_sse_events(events: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Chat Completions streams only attach `usage` to the final chunk (and only
+    when the client opted into it), so scan from the end for the first hit."""
+    for event in reversed(events):
+        if not isinstance(event, dict):
+            continue
+        usage = event.get("usage")
+        if isinstance(usage, dict) and usage:
+            return usage
+    return None
+
+
+def is_json_content_type(content_type: str) -> bool:
+    media_type = content_type.split(";", 1)[0].strip().lower()
+    return media_type == "application/json" or media_type.endswith("+json")
+
+
+def looks_like_json_body(response_text: str) -> bool:
+    stripped = response_text.lstrip()
+    return stripped.startswith("{") or stripped.startswith("[")
+
+
+def append_unique_image_result(
+    images: list[dict[str, str]],
+    seen: set[tuple[str, str]],
+    image: dict[str, str] | None,
+) -> None:
+    if not image:
+        return
+    key_name = "url" if image.get("url") else "b64_json"
+    key_value = image.get(key_name, "")
+    if not key_value:
+        return
+    dedupe_key = (key_name, key_value)
+    if dedupe_key in seen:
+        return
+    seen.add(dedupe_key)
+    images.append(image)
+
+
+def normalize_chat_image_reference(value: str) -> dict[str, str] | None:
+    text = value.strip().strip("<>")
+    if not text:
+        return None
+
+    data_url_match = DATA_IMAGE_URL_RE.fullmatch(text)
+    if data_url_match:
+        return {"b64_json": re.sub(r"\s+", "", data_url_match.group("data"))}
+
+    if text.startswith(("http://", "https://")):
+        return {"url": text}
+
+    return None
+
+
+def extract_chat_image_references_from_text(text: str) -> list[dict[str, str]]:
+    images: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+
+    for match in DATA_IMAGE_URL_RE.finditer(text):
+        append_unique_image_result(
+            images,
+            seen,
+            {"b64_json": re.sub(r"\s+", "", match.group("data"))},
+        )
+
+    for match in MARKDOWN_IMAGE_RE.finditer(text):
+        append_unique_image_result(
+            images,
+            seen,
+            normalize_chat_image_reference(match.group("target")),
+        )
+
+    for match in HTTP_IMAGE_URL_RE.finditer(text):
+        append_unique_image_result(
+            images,
+            seen,
+            normalize_chat_image_reference(match.group(0)),
+        )
+
+    return images
+
+
+def collect_chat_completion_text(result: dict[str, Any]) -> list[str]:
+    events = result.get("_sse_events")
+    items = events if isinstance(events, list) else [result]
+    chunks_by_choice: dict[int, list[str]] = {}
+
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        for choice in item.get("choices", []):
+            if not isinstance(choice, dict):
+                continue
+            index = int(choice.get("index") or 0)
+            chunks = chunks_by_choice.setdefault(index, [])
+            for key in ("message", "delta"):
+                container = choice.get(key)
+                if not isinstance(container, dict):
+                    continue
+                content = container.get("content")
+                if isinstance(content, str):
+                    chunks.append(content)
+
+    return ["".join(chunks) for chunks in chunks_by_choice.values() if chunks]
+
+
+def collect_chat_image_results(
+    value: Any,
+    images: list[dict[str, str]],
+    seen: set[tuple[str, str]],
+    key_hint: str = "",
+) -> None:
+    if isinstance(value, str):
+        if key_hint in {"url", "image_url"}:
+            append_unique_image_result(images, seen, normalize_chat_image_reference(value))
+            return
+        if key_hint in {"b64_json", "base64"}:
+            append_unique_image_result(images, seen, {"b64_json": value.strip()})
+            return
+        for image in extract_chat_image_references_from_text(value):
+            append_unique_image_result(images, seen, image)
+        return
+
+    if isinstance(value, list):
+        for item in value:
+            collect_chat_image_results(item, images, seen, key_hint)
+        return
+
+    if isinstance(value, dict):
+        for key, child in value.items():
+            collect_chat_image_results(child, images, seen, str(key))
+
+
+def extract_chat_completion_image_results(result: dict[str, Any]) -> list[dict[str, str]]:
+    images: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+
+    for text in collect_chat_completion_text(result):
+        for image in extract_chat_image_references_from_text(text):
+            append_unique_image_result(images, seen, image)
+
+    collect_chat_image_results(result, images, seen)
+    return images
+
+
+def get_image_transfer_stage(image_data: dict) -> tuple[str, str]:
+    if image_data.get("b64_json"):
+        return ("decoding_b64_json", "Decoding b64_json image")
+    if image_data.get("url"):
+        return ("downloading_image_url", "Downloading image URL")
+    return ("extracting_image_bytes", "Extracting image bytes")
+
+
+def _build_image_params(payload: GenerateRequest, *, prompt_guard: bool = False) -> dict[str, Any]:
+    payload.normalize_model_options("/v1/images/generations")
+    request_data: dict[str, Any] = {
+        "model": payload.model,
+        "prompt": sent_generation_prompt(payload, prompt_guard=prompt_guard),
+        "size": payload.size,
+        "n": payload.n,
+        "quality": payload.quality,
+        "output_format": "png" if payload.background.startswith("chroma_") else payload.output_format,
+    }
+    if payload.response_format is not None:
+        request_data["response_format"] = payload.response_format
+    if payload.output_format != "png" and payload.output_compression is not None:
+        request_data["output_compression"] = payload.output_compression
+    if payload.background != "auto":
+        request_data["background"] = "opaque" if payload.background.startswith("chroma_") else payload.background
+    return request_data
+
+
+# Widely used wording that keeps GPT-image upstreams from expanding the prompt.
+PROMPT_GUARD_PREFIX = (
+    "I NEED to test how the tool works with extremely simple prompts. "
+    "DO NOT add any detail, just use it AS-IS:"
+)
+
+
+def sent_generation_prompt(payload: GenerateRequest, *, prompt_guard: bool = False) -> str:
+    prompt = payload.prompt
+    color = {"chroma_green": "pure bright green (#00FF00)", "chroma_magenta": "pure bright magenta (#FF00FF)"}.get(payload.background)
+    if color is not None:
+        prompt = (
+            f"{prompt}\n\nUse a flat, uniform {color} background covering the entire canvas "
+            "behind the subject. Keep the subject clearly separated from the background; "
+            "do not add shadows, gradients, texture, or objects to the background."
+        )
+    if prompt_guard:
+        prompt = f"{PROMPT_GUARD_PREFIX}\n\n{prompt}"
+    return prompt
+
+
+def build_gallery_metadata(
+    payload: GenerateRequest,
+    api_path: str,
+    api_preset_name: str | None,
+    *,
+    mask_coverage: float | None = None,
+) -> dict[str, Any]:
+    metadata: dict[str, Any] = {
+        "model": payload.model,
+        "quality": payload.quality,
+        "output_format": payload.output_format,
+        "output_compression": payload.output_compression,
+        "background": payload.background,
+        "response_format": payload.response_format,
+        "n": payload.n,
+        "api_path": api_path,
+        "api_preset_name": api_preset_name,
+    }
+    if mask_coverage is not None:
+        metadata["mask_coverage"] = round(mask_coverage, 4)
+    return metadata
+
+
+def build_responses_request_data(
+    payload: GenerateRequest,
+    *,
+    prompt_guard: bool = False,
+    stream: bool = False,
+    partial_images: int = 2,
+) -> dict[str, Any]:
+    model = (payload.model or config.DEFAULT_RESPONSES_MODEL or "").strip()
+    request_data: dict[str, Any] = {
+        "prompt": sent_generation_prompt(payload, prompt_guard=prompt_guard),
+        "model": model or payload.model,
+    }
+    if stream:
+        # Streamed image previews only arrive through the image_generation
+        # tool; non-streaming requests keep the historical prompt-only shape.
+        request_data["stream"] = True
+        request_data["tools"] = [
+            {
+                "type": "image_generation",
+                "partial_images": max(1, min(3, int(partial_images or 2))),
+            }
+        ]
+    return request_data
+
+
+OUTPUT_FORMATS = {
+    "png": {"extension": "png", "media_type": "image/png"},
+    "jpeg": {"extension": "jpg", "media_type": "image/jpeg"},
+    "webp": {"extension": "webp", "media_type": "image/webp"},
+}
+
+
+DETECTED_FORMAT_EXTENSIONS = {
+    "avif": "avif",
+    "bmp": "bmp",
+    "gif": "gif",
+    "heif": "heif",
+    "ico": "ico",
+    "jpeg": "jpg",
+    "png": "png",
+    "tiff": "tiff",
+    "webp": "webp",
+}
+
+
+DATA_IMAGE_URL_RE = re.compile(
+    r"data:image/(?:png|jpe?g|webp|gif|avif|bmp);base64,(?P<data>[A-Za-z0-9+/=\s]+)",
+    re.IGNORECASE,
+)
+
+
+MARKDOWN_IMAGE_RE = re.compile(
+    r"!\[[^\]]*\]\((?P<target><[^>]+>|[^\s)]+)(?:\s+[\"'][^\"']*[\"'])?\)"
+)
+
+
+HTTP_IMAGE_URL_RE = re.compile(r"https?://[^\s<>'\")]+")
+
+
+def validate_upstream_image_data(value: Any) -> list[dict[str, Any]]:
+    """Keep every returned image, even when a relay returns a batch for n=1."""
+    if not isinstance(value, list):
+        raise UpstreamApiError("Upstream image data must be an array")
+    # Bound downstream downloads independently of the requested image count.
+    # Reject oversized batches explicitly instead of silently dropping results.
+    if len(value) > 10:
+        raise UpstreamApiError("Upstream image data exceeds the limit of 10 images per response")
+    if any(not isinstance(item, dict) for item in value):
+        raise UpstreamApiError("Upstream image data entries must be objects")
+    return value
