@@ -1,0 +1,818 @@
+from backend.tests.support.contract import *  # noqa: F403
+
+
+def test_preview_context_migration_preserves_legacy_jobs():
+    from backend.app.repositories.db import migrations as schema
+
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.execute("CREATE TABLE generate_jobs (job_id TEXT PRIMARY KEY, status TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)")
+    conn.execute("INSERT INTO generate_jobs (job_id, status, created_at, updated_at) VALUES ('old-job', 'queued', 'before', 'before')")
+    schema._migration_image_job_preview_context(conn)
+    schema._migration_image_job_preview_context(conn)
+    row = conn.execute("SELECT * FROM generate_jobs WHERE job_id = 'old-job'").fetchone()
+    assert row["status"] == "queued"
+    assert row["agent_turn_id"] is None and row["agent_conversation_id"] is None
+    assert row["unit_statuses_json"] is None
+    conn.close()
+
+
+def test_storage_connect_reuses_nested_sqlite_handle_and_closes_on_exit(tmp_path, monkeypatch):
+    _configure_runtime(tmp_path)
+    closed_paths: list[str] = []
+    real_connect = sqlite3.connect
+
+    class TrackedConnection(sqlite3.Connection):
+        def close(self):
+            closed_paths.append(config.DATABASE_FILE)
+            super().close()
+
+    def tracked_connect(*args, **kwargs):
+        kwargs["factory"] = TrackedConnection
+        return real_connect(*args, **kwargs)
+
+    monkeypatch.setattr(db_repo.sqlite3, "connect", tracked_connect)
+
+    with db_repo._connect() as conn:
+        first_conn = conn
+        assert conn.execute("SELECT 1").fetchone()[0] == 1
+        with db_repo._connect() as nested_conn:
+            assert nested_conn is first_conn
+            assert nested_conn.execute("SELECT 1").fetchone()[0] == 1
+        assert closed_paths == []
+
+    assert closed_paths == [config.DATABASE_FILE]
+    with pytest.raises(sqlite3.ProgrammingError):
+        first_conn.execute("SELECT 1")
+
+    with db_repo._connect() as conn:
+        assert conn is not first_conn
+        assert conn.execute("SELECT 1").fetchone()[0] == 1
+
+    assert closed_paths == [config.DATABASE_FILE, config.DATABASE_FILE]
+def test_storage_enqueue_image_job_rejects_queue_full_atomically(tmp_path):
+    _configure_runtime(tmp_path)
+
+    image_jobs_repo.enqueue_image_job(
+        parent_job={"job_id": "capacity-parent", "status": "queued"},
+        operation="generation",
+        request={"prompt": "fills queue", "n": 2},
+        image_units=2,
+        api_preset_id="default",
+        api_preset_name="Default",
+        api_path="/v1/images/generations",
+        max_active_generate_jobs=1,
+        max_queued_generate_jobs=1,
+        max_pending_edit_source_bytes=1024 * 1024,
+    )
+
+    with pytest.raises(db_repo.ImageJobQueueFullError):
+        image_jobs_repo.enqueue_image_job(
+            parent_job={"job_id": "overflow-parent", "status": "queued"},
+            operation="generation",
+            request={"prompt": "overflow", "n": 1},
+            image_units=1,
+            api_preset_id="default",
+            api_preset_name="Default",
+            api_path="/v1/images/generations",
+            max_active_generate_jobs=1,
+            max_queued_generate_jobs=1,
+            max_pending_edit_source_bytes=1024 * 1024,
+        )
+
+    assert image_jobs_repo.get_generate_job("overflow-parent") is None
+    assert image_jobs_repo.count_pending_image_job_units() == (0, 2)
+
+
+def test_storage_claim_prefers_expired_running_unit_over_queued_unit(tmp_path):
+    _configure_runtime(tmp_path)
+
+    _parent, units = image_jobs_repo.enqueue_image_job(
+        parent_job={"job_id": "claim-parent", "status": "queued"},
+        operation="generation",
+        request={"prompt": "claim order", "n": 2},
+        image_units=2,
+        api_preset_id="default",
+        api_preset_name="Default",
+        api_path="/v1/images/generations",
+        max_active_generate_jobs=2,
+        max_queued_generate_jobs=2,
+        max_pending_edit_source_bytes=1024 * 1024,
+    )
+
+    first = image_jobs_repo.claim_next_image_job_unit(
+        worker_id="worker-a",
+        claim_token="token-a",
+        lease_expires_at="2099-01-01T00:00:00+00:00",
+        now="2026-01-01T00:00:00+00:00",
+        running_limit=2,
+    )
+    assert first is not None
+    assert first["unit_id"] == units[0]["unit_id"]
+
+    image_jobs_repo.update_image_job_unit_progress(
+        str(first["unit_id"]),
+        claim_token=str(first["claim_token"]),
+        stage="waiting_for_api",
+        message="expired lease",
+        claim_expires_at="2026-01-01T00:00:01+00:00",
+    )
+
+    reclaimed = image_jobs_repo.claim_next_image_job_unit(
+        worker_id="worker-b",
+        claim_token="token-b",
+        lease_expires_at="2099-01-01T00:00:00+00:00",
+        now="2026-01-01T00:00:02+00:00",
+        running_limit=2,
+    )
+
+    assert reclaimed is not None
+    assert reclaimed["unit_id"] == first["unit_id"]
+    assert reclaimed["claimed_by"] == "worker-b"
+
+
+def test_storage_sse_slots_enforce_global_and_per_ip_leases(tmp_path):
+    _configure_runtime(tmp_path)
+    now = "2099-01-01T00:00:00+00:00"
+    expires = "2099-01-01T00:01:00+00:00"
+
+    assert coordination_repo.acquire_sse_slot(
+        client_ip="203.0.113.10",
+        connection_id="sse-1",
+        lease_expires_at=expires,
+        max_global=2,
+        max_per_ip=1,
+        now=now,
+    ) == (True, "acquired")
+    assert coordination_repo.acquire_sse_slot(
+        client_ip="203.0.113.10",
+        connection_id="sse-2",
+        lease_expires_at=expires,
+        max_global=2,
+        max_per_ip=1,
+        now=now,
+    ) == (False, "per_ip_limit")
+    assert coordination_repo.acquire_sse_slot(
+        client_ip="203.0.113.11",
+        connection_id="sse-3",
+        lease_expires_at=expires,
+        max_global=2,
+        max_per_ip=2,
+        now=now,
+    ) == (True, "acquired")
+    assert coordination_repo.acquire_sse_slot(
+        client_ip="203.0.113.12",
+        connection_id="sse-4",
+        lease_expires_at=expires,
+        max_global=2,
+        max_per_ip=2,
+        now=now,
+    ) == (False, "global_limit")
+
+    assert coordination_repo.count_active_sse_slots() == 2
+    assert coordination_repo.refresh_sse_slot(
+        connection_id="sse-1",
+        lease_expires_at="2099-01-01T00:02:00+00:00",
+        now=now,
+    )
+    assert coordination_repo.release_sse_slot("sse-3", now=now)
+    assert coordination_repo.count_active_sse_slots() == 1
+
+    assert coordination_repo.acquire_sse_slot(
+        client_ip="203.0.113.12",
+        connection_id="sse-4",
+        lease_expires_at="2099-01-01T00:04:00+00:00",
+        max_global=2,
+        max_per_ip=2,
+        now="2099-01-01T00:03:00+00:00",
+    ) == (True, "acquired")
+
+
+def test_storage_background_lease_completion_blocks_startup_storm(tmp_path):
+    _configure_runtime(tmp_path)
+
+    assert coordination_repo.acquire_background_lease(
+        name="startup_maintenance",
+        owner="worker-a",
+        lease_expires_at="2026-01-01T00:01:00+00:00",
+        now="2026-01-01T00:00:00+00:00",
+        completed_ttl_seconds=600,
+    )
+    assert not coordination_repo.acquire_background_lease(
+        name="startup_maintenance",
+        owner="worker-b",
+        lease_expires_at="2026-01-01T00:01:00+00:00",
+        now="2026-01-01T00:00:10+00:00",
+        completed_ttl_seconds=600,
+    )
+    assert coordination_repo.complete_background_lease(
+        name="startup_maintenance",
+        owner="worker-a",
+        now="2026-01-01T00:00:20+00:00",
+    )
+    assert not coordination_repo.acquire_background_lease(
+        name="startup_maintenance",
+        owner="worker-b",
+        lease_expires_at="2026-01-01T00:02:00+00:00",
+        now="2026-01-01T00:00:30+00:00",
+        completed_ttl_seconds=600,
+    )
+    assert coordination_repo.acquire_background_lease(
+        name="startup_maintenance",
+        owner="worker-b",
+        lease_expires_at="2026-01-01T00:12:00+00:00",
+        now="2026-01-01T00:11:00+00:00",
+        completed_ttl_seconds=600,
+    )
+
+
+def test_storage_edit_source_reservation_is_global_and_released_on_terminal(tmp_path):
+    _configure_runtime(tmp_path)
+    source_bytes = 600 * 1024
+    max_pending_bytes = 1024 * 1024
+
+    image_jobs_repo.enqueue_image_job(
+        parent_job={"job_id": "edit-parent", "status": "queued"},
+        operation="edit",
+        request={"prompt": "edit", "n": 1},
+        image_units=1,
+        api_preset_id="default",
+        api_preset_name="Default",
+        api_path="/v1/images/edits",
+        pending_edit_source_bytes=source_bytes,
+        max_active_generate_jobs=1,
+        max_queued_generate_jobs=20,
+        max_pending_edit_source_bytes=max_pending_bytes,
+    )
+
+    with pytest.raises(db_repo.EditSourceQueueFullError):
+        image_jobs_repo.enqueue_image_job(
+            parent_job={"job_id": "edit-overflow", "status": "queued"},
+            operation="edit",
+            request={"prompt": "overflow", "n": 1},
+            image_units=1,
+            api_preset_id="default",
+            api_preset_name="Default",
+            api_path="/v1/images/edits",
+            pending_edit_source_bytes=source_bytes,
+            max_active_generate_jobs=1,
+            max_queued_generate_jobs=20,
+            max_pending_edit_source_bytes=max_pending_bytes,
+        )
+
+    assert image_jobs_repo.get_pending_edit_source_bytes() == source_bytes
+    assert image_jobs_repo.get_generate_job("edit-overflow") is None
+
+    image_jobs_repo.upsert_generate_job({"job_id": "edit-parent", "status": "cancelled"})
+
+    assert image_jobs_repo.get_pending_edit_source_bytes() == 0
+
+
+def test_schema_migrations_are_recorded_and_idempotent(tmp_path):
+    _configure_runtime(tmp_path)
+    db_repo.verify_storage_writable()
+    with db_repo._connect() as conn:
+        versions = conn.execute(
+            "SELECT version, name FROM schema_migrations ORDER BY version"
+        ).fetchall()
+        gallery_version = conn.execute(
+            "SELECT value FROM gallery_meta WHERE key = 'gallery_version'"
+        ).fetchone()
+        anchor_table = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE name = 'gallery_page_anchors'"
+        ).fetchone()
+    assert [row["version"] for row in versions] == list(range(1, len(db_repo.SCHEMA_MIGRATIONS) + 1))
+    assert gallery_version["value"] == 0
+    assert anchor_table is not None
+
+    db_repo.close_database_connections()
+    db_repo.verify_storage_writable()
+    with db_repo._connect() as conn:
+        repeated_versions = conn.execute(
+            "SELECT version, name FROM schema_migrations ORDER BY version"
+        ).fetchall()
+    assert [(row["version"], row["name"]) for row in repeated_versions] == [
+        (row["version"], row["name"]) for row in versions
+    ]
+
+
+def test_mask_paste_back_migration_adds_nullable_columns(tmp_path):
+    _configure_runtime(tmp_path)
+    db_repo.verify_storage_writable()
+    with db_repo._connect() as conn:
+        gallery_columns = {row["name"] for row in conn.execute("PRAGMA table_info(gallery_entries)")}
+        job_columns = {row["name"] for row in conn.execute("PRAGMA table_info(generate_jobs)")}
+        version = conn.execute(
+            "SELECT name FROM schema_migrations WHERE version = 25"
+        ).fetchone()
+    assert {"paste_back", "paste_back_scale"} <= gallery_columns
+    assert "paste_back" in job_columns
+    assert version["name"] == "mask_paste_back"
+
+
+def test_gallery_collections_migration(tmp_path):
+    _configure_runtime(tmp_path)
+    db_repo.verify_storage_writable()
+    with db_repo._connect() as conn:
+        tables = {row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        indexes = {row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'index'")}
+        name = conn.execute("SELECT name FROM schema_migrations WHERE version = 27").fetchone()["name"]
+        with db_repo._transaction(conn):
+            conn.execute(
+                "INSERT INTO gallery_collections(id, name, is_default, created_at, updated_at) VALUES('a', 'A', 1, 'now', 'now')"
+            )
+            with pytest.raises(sqlite3.IntegrityError):
+                conn.execute(
+                    "INSERT INTO gallery_collections(id, name, is_default, created_at, updated_at) VALUES('b', 'B', 1, 'now', 'now')"
+                )
+            with pytest.raises(sqlite3.IntegrityError):
+                conn.execute(
+                    "INSERT INTO gallery_collections(id, name, created_at, updated_at) VALUES('c', 'a', 'now', 'now')"
+                )
+    assert {"gallery_collections", "gallery_collection_items"} <= tables
+    assert {"idx_gallery_collections_single_default", "idx_gallery_collection_items_image"} <= indexes
+    assert name == "gallery_collections"
+
+
+def test_prompt_guard_and_diagnostics_migrations(tmp_path):
+    _configure_runtime(tmp_path)
+    db_repo.verify_storage_writable()
+    with db_repo._connect() as conn:
+        preset_columns = {row["name"] for row in conn.execute("PRAGMA table_info(api_presets)")}
+        gallery_columns = {row["name"] for row in conn.execute("PRAGMA table_info(gallery_entries)")}
+        names = {
+            row["version"]: row["name"]
+            for row in conn.execute("SELECT version, name FROM schema_migrations WHERE version IN (28, 29)")
+        }
+    assert "prompt_guard" in preset_columns
+    assert "diagnostics" in gallery_columns
+    assert names == {28: "api_preset_prompt_guard", 29: "gallery_diagnostics"}
+
+
+def test_generate_job_preset_id_migration(tmp_path):
+    _configure_runtime(tmp_path)
+    db_repo.verify_storage_writable()
+    with db_repo._connect() as conn:
+        job_columns = {row["name"] for row in conn.execute("PRAGMA table_info(generate_jobs)")}
+        name = conn.execute("SELECT name FROM schema_migrations WHERE version = 30").fetchone()["name"]
+    assert "api_preset_id" in job_columns
+    assert name == "generate_job_preset_id"
+
+
+def test_agent_conversations_migration(tmp_path):
+    _configure_runtime(tmp_path)
+    db_repo.verify_storage_writable()
+    with db_repo._connect() as conn:
+        tables = {
+            row["name"]
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+        }
+        indexes = {
+            row["name"]
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'index'")
+        }
+        name = conn.execute("SELECT name FROM schema_migrations WHERE version = 31").fetchone()["name"]
+        image_fks = {
+            (row["table"], row["on_delete"])
+            for row in conn.execute("PRAGMA foreign_key_list(agent_message_images)")
+        }
+    assert {
+        "agent_conversations",
+        "agent_turns",
+        "agent_messages",
+        "agent_message_images",
+        "agent_turn_events",
+    }.issubset(tables)
+    assert "idx_agent_turns_single_active" in indexes
+    assert name == "agent_conversations"
+    assert ("gallery_entries", "SET NULL") in image_fks
+
+
+def test_agent_performance_indexes_migration(tmp_path):
+    _configure_runtime(tmp_path)
+    db_repo.verify_storage_writable()
+    with db_repo._connect() as conn:
+        indexes = {
+            row["name"]
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'index'")
+        }
+        name = conn.execute("SELECT name FROM schema_migrations WHERE version = 32").fetchone()["name"]
+        plan = [
+            row["detail"]
+            for row in conn.execute(
+                "EXPLAIN QUERY PLAN SELECT * FROM agent_message_images "
+                "WHERE conversation_id = 'c' ORDER BY round_no ASC, role DESC, image_index ASC"
+            )
+        ]
+    assert {
+        "idx_agent_message_images_conversation_order",
+        "idx_agent_message_images_pending",
+        "idx_agent_turns_finished",
+    }.issubset(indexes)
+    assert name == "agent_performance_indexes"
+    assert any("idx_agent_message_images_conversation_order" in detail for detail in plan)
+
+
+def test_performance_indexes_are_created(tmp_path):
+    _configure_runtime(tmp_path)
+    db_repo.verify_storage_writable()
+    with db_repo._connect() as conn:
+        index_names = {
+            row["name"]
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'index'")
+        }
+    assert {
+        "idx_image_job_units_active_status",
+        "idx_worker_heartbeats_last_seen",
+        "idx_gallery_jobs_kind_path",
+        "idx_access_failures_last_failed_client",
+    }.issubset(index_names)
+
+
+def test_active_unit_count_uses_partial_index(tmp_path):
+    """The queue counts filter both active statuses at once; neither
+    single-status partial index can serve that predicate."""
+    _configure_runtime(tmp_path)
+    db_repo.verify_storage_writable()
+    now = "2026-01-01T00:00:00+00:00"
+    with db_repo._connect() as conn:
+        with db_repo._transaction(conn):
+            conn.executemany(
+                """
+                INSERT INTO image_job_units(
+                    unit_id, parent_job_id, operation, unit_index, status,
+                    created_at, updated_at, request_json
+                ) VALUES(?, 'plan-parent', 'generation', ?, ?, ?, ?, '{}')
+                """,
+                [
+                    (
+                        f"unit-{index}",
+                        index,
+                        "queued" if index % 2 else "success",
+                        now,
+                        now,
+                    )
+                    for index in range(50)
+                ],
+            )
+        plan = [
+            row["detail"]
+            for row in conn.execute(
+                "EXPLAIN QUERY PLAN SELECT COUNT(*) FROM image_job_units "
+                "WHERE status IN ('queued', 'running')"
+            )
+        ]
+    assert any("idx_image_job_units_active_status" in detail for detail in plan)
+
+
+def test_gallery_mask_only_filter_uses_partial_index(tmp_path):
+    """gallery_only=mask filters gallery_entries down before the usual
+    (sort_seq DESC, id DESC) keyset page; without a matching partial index
+    this degrades to a full scan + sort once the gallery has many rows."""
+    _configure_runtime(tmp_path)
+    db_repo.verify_storage_writable()
+    with db_repo._connect() as conn:
+        index_names = {
+            row["name"]
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'index'")
+        }
+        assert "idx_gallery_entries_masked_sort_seq_id" in index_names
+
+        plan = [
+            row["detail"]
+            for row in conn.execute(
+                "EXPLAIN QUERY PLAN SELECT * FROM gallery_entries "
+                "WHERE mask_coverage IS NOT NULL ORDER BY sort_seq DESC, id DESC"
+            )
+        ]
+    assert any("idx_gallery_entries_masked_sort_seq_id" in detail for detail in plan)
+
+
+def test_gallery_and_access_migrations_own_only_their_schema():
+    with sqlite3.connect(":memory:") as conn:
+        conn.row_factory = sqlite3.Row
+        db_repo._migration_gallery_page_anchors(conn)
+        tables_after_gallery = {
+            row["name"]
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+        }
+        gallery_version = conn.execute(
+            "SELECT value FROM gallery_meta WHERE key = 'gallery_version'"
+        ).fetchone()
+
+        assert {"gallery_meta", "gallery_page_anchors"}.issubset(tables_after_gallery)
+        assert "access_failures" not in tables_after_gallery
+        assert gallery_version["value"] == 0
+
+    with sqlite3.connect(":memory:") as conn:
+        conn.row_factory = sqlite3.Row
+        db_repo._migration_access_failures(conn)
+        tables_after_access = {
+            row["name"]
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+        }
+
+        assert "access_failures" in tables_after_access
+        assert "gallery_meta" not in tables_after_access
+        assert "gallery_page_anchors" not in tables_after_access
+
+
+def test_generate_job_count_migration_preserves_legacy_rows_as_null():
+    with sqlite3.connect(":memory:") as conn:
+        conn.row_factory = sqlite3.Row
+        conn.execute(
+            """
+            CREATE TABLE generate_jobs (
+                job_id TEXT PRIMARY KEY,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO generate_jobs (job_id, status, created_at, updated_at)
+            VALUES ('legacy-job', 'success', '2026-01-01T00:00:00Z', '2026-01-01T00:00:01Z')
+            """
+        )
+
+        db_repo._migration_generate_job_counts(conn)
+        columns = db_repo._table_columns(conn, "generate_jobs")
+        row = conn.execute(
+            """
+            SELECT completed_count, success_count, failure_count
+            FROM generate_jobs
+            WHERE job_id = 'legacy-job'
+            """
+        ).fetchone()
+
+    assert {"completed_count", "success_count", "failure_count"}.issubset(columns)
+    assert row["completed_count"] is None
+    assert row["success_count"] is None
+    assert row["failure_count"] is None
+
+
+def test_background_column_migration_adds_column_idempotently():
+    with sqlite3.connect(":memory:") as conn:
+        conn.row_factory = sqlite3.Row
+        conn.execute(
+            """
+            CREATE TABLE gallery_entries (
+                id TEXT PRIMARY KEY,
+                prompt TEXT NOT NULL,
+                size TEXT NOT NULL,
+                filename TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE generate_jobs (
+                job_id TEXT PRIMARY KEY,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+
+        db_repo._migration_background_column(conn)
+        assert "background" in db_repo._table_columns(conn, "gallery_entries")
+        assert "background" in db_repo._table_columns(conn, "generate_jobs")
+
+        # Calling again should be idempotent without error
+        db_repo._migration_background_column(conn)
+        assert "background" in db_repo._table_columns(conn, "gallery_entries")
+        assert "background" in db_repo._table_columns(conn, "generate_jobs")
+
+
+def test_generate_job_usage_cost_migration_adds_columns_idempotently():
+    with sqlite3.connect(":memory:") as conn:
+        conn.row_factory = sqlite3.Row
+        conn.execute(
+            """
+            CREATE TABLE generate_jobs (
+                job_id TEXT PRIMARY KEY,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE image_job_units (
+                unit_id TEXT PRIMARY KEY,
+                parent_job_id TEXT NOT NULL,
+                status TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO generate_jobs (job_id, status, created_at, updated_at)
+            VALUES ('legacy-job', 'success', '2026-01-01T00:00:00Z', '2026-01-01T00:00:01Z')
+            """
+        )
+
+        db_repo._migration_generate_job_usage_cost_columns(conn)
+        jobs_columns = db_repo._table_columns(conn, "generate_jobs")
+        units_columns = db_repo._table_columns(conn, "image_job_units")
+        row = conn.execute(
+            "SELECT usage_json, cost_json FROM generate_jobs WHERE job_id = 'legacy-job'"
+        ).fetchone()
+
+        assert {"usage_json", "cost_json"}.issubset(jobs_columns)
+        assert {"usage_json", "cost_json"}.issubset(units_columns)
+        assert row["usage_json"] is None
+        assert row["cost_json"] is None
+
+        # Calling again on an already-migrated database must not raise.
+        db_repo._migration_generate_job_usage_cost_columns(conn)
+        assert {"usage_json", "cost_json"}.issubset(
+            db_repo._table_columns(conn, "generate_jobs")
+        )
+
+
+def test_generate_job_streaming_columns_migration_adds_columns_idempotently():
+    with sqlite3.connect(":memory:") as conn:
+        conn.row_factory = sqlite3.Row
+        conn.execute(
+            """
+            CREATE TABLE generate_jobs (
+                job_id TEXT PRIMARY KEY,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO generate_jobs (job_id, status, created_at, updated_at)
+            VALUES ('legacy-job', 'success', '2026-01-01T00:00:00Z', '2026-01-01T00:00:01Z')
+            """
+        )
+
+        db_repo._migration_generate_job_streaming_columns(conn)
+        columns = db_repo._table_columns(conn, "generate_jobs")
+        row = conn.execute(
+            "SELECT streaming, partial_images FROM generate_jobs WHERE job_id = 'legacy-job'"
+        ).fetchone()
+
+        assert {"streaming", "partial_images"}.issubset(columns)
+        assert row["streaming"] is None
+        assert row["partial_images"] is None
+
+        db_repo._migration_generate_job_streaming_columns(conn)
+        assert {"streaming", "partial_images"}.issubset(
+            db_repo._table_columns(conn, "generate_jobs")
+        )
+
+
+def test_schema_migrations_upgrade_legacy_gallery_schema(tmp_path):
+    _configure_runtime(tmp_path)
+    db_path = Path(config.DATABASE_FILE)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE gallery_entries (
+                id TEXT PRIMARY KEY,
+                prompt TEXT NOT NULL,
+                size TEXT NOT NULL,
+                filename TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO gallery_entries (id, prompt, size, filename, created_at)
+            VALUES ('legacy-1', 'legacy prompt', '1024x1024', 'legacy-1.png', '2026-01-01T00:00:00+00:00')
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE api_presets (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                api_url TEXT NOT NULL,
+                api_key TEXT NOT NULL,
+                api_path TEXT NOT NULL,
+                position INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+
+    db_repo.verify_storage_writable()
+    with db_repo._connect() as conn:
+        versions = [
+            row["version"]
+            for row in conn.execute("SELECT version FROM schema_migrations ORDER BY version")
+        ]
+        gallery_columns = db_repo._table_columns(conn, "gallery_entries")
+        preset_columns = db_repo._table_columns(conn, "api_presets")
+        row = conn.execute(
+            "SELECT favorite, sort_seq, bytes, thumbnail_filename, completed_at, sha256 FROM gallery_entries WHERE id = 'legacy-1'"
+        ).fetchone()
+
+    assert versions == list(range(1, len(db_repo.SCHEMA_MIGRATIONS) + 1))
+    assert {"favorite", "sort_seq", "bytes", "thumbnail_filename", "completed_at", "sha256", "background"}.issubset(gallery_columns)
+    assert {"default_model", "default_response_format"}.issubset(preset_columns)
+    assert row["favorite"] == 0
+    assert row["sort_seq"] is not None
+
+
+def test_legacy_null_token_units_are_claimable_and_expire(tmp_path):
+    """Rows upgraded from the pre-fencing schema (claim_token IS NULL) must be
+    recoverable: retried once while under the attempts cap, interrupted once
+    the cap is reached."""
+    _configure_runtime(tmp_path)
+    parent, units = image_jobs_repo.enqueue_image_job(
+        parent_job={"job_id": "legacy-lease-parent", "status": "queued"},
+        operation="generation",
+        request={"prompt": "legacy lease", "n": 2},
+        image_units=2,
+        api_preset_id="default",
+        api_preset_name="Default",
+        api_path="/v1/images/generations",
+        max_active_generate_jobs=2,
+        max_queued_generate_jobs=2,
+        max_pending_edit_source_bytes=1024 * 1024,
+    )
+    claimable_id = str(units[0]["unit_id"])
+    exhausted_id = str(units[1]["unit_id"])
+
+    with db_repo._connect() as conn:
+        with db_repo._transaction(conn):
+            conn.execute(
+                """
+                UPDATE image_job_units
+                SET status = 'running',
+                    claimed_by = 'legacy-worker',
+                    claim_token = NULL,
+                    attempts = 0,
+                    claim_expires_at = '2026-01-01T00:00:00+00:00'
+                WHERE unit_id = ?
+                """,
+                (claimable_id,),
+            )
+            conn.execute(
+                """
+                UPDATE image_job_units
+                SET status = 'running',
+                    claimed_by = 'legacy-worker',
+                    claim_token = NULL,
+                    attempts = 2,
+                    claim_expires_at = '2026-01-01T00:00:00+00:00'
+                WHERE unit_id = ?
+                """,
+                (exhausted_id,),
+            )
+
+    reclaimed = image_jobs_repo.claim_next_image_job_unit(
+        worker_id="worker-new",
+        claim_token="token-new",
+        lease_expires_at="2099-01-01T00:00:00+00:00",
+        now="2026-01-01T00:00:01+00:00",
+        running_limit=2,
+        max_attempts=2,
+    )
+    assert reclaimed is not None
+    assert str(reclaimed["unit_id"]) == claimable_id
+    assert reclaimed["claim_token"] == "token-new"
+    assert reclaimed["attempts"] == 1
+
+    exhausted = image_jobs_repo.expire_exhausted_image_job_units(
+        "2026-01-01T00:00:02+00:00", max_attempts=2
+    )
+    assert [str(unit["unit_id"]) for unit in exhausted] == [exhausted_id]
+    assert exhausted[0]["status"] == "interrupted"
+    assert exhausted[0]["stage"] == "interrupted"
+    assert exhausted[0].get("claim_token") is None
+    assert str(exhausted[0]["parent_job_id"]) == parent["job_id"]
+
+
+def test_api_preset_provider_migration_adds_defaulted_columns(tmp_path):
+    _configure_runtime(tmp_path)
+    db_repo.verify_storage_writable()
+    with db_repo._connect() as conn:
+        columns = {row["name"]: row for row in conn.execute("PRAGMA table_info(api_presets)")}
+        name = conn.execute("SELECT name FROM schema_migrations WHERE version = 33").fetchone()["name"]
+        conn.execute(
+            "INSERT INTO api_presets (id, name, api_url, api_key, api_path, default_model, position, created_at, updated_at) "
+            "VALUES ('legacy', 'Legacy', 'https://a.example', '', '/v1/images/generations', 'm', 0, 't', 't')"
+        )
+        legacy = conn.execute(
+            "SELECT provider_kind, provider_config FROM api_presets WHERE id = 'legacy'"
+        ).fetchone()
+    assert name == "api_preset_provider"
+    assert columns["provider_kind"]["notnull"] == 1
+    assert columns["provider_config"]["notnull"] == 0
+    assert legacy["provider_kind"] == "openai"
+    assert legacy["provider_config"] is None
