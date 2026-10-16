@@ -1,39 +1,86 @@
-# GPT Image Panel — 本地改造区
+# GPT Image Panel — 独立集成与本地改造区
 
-此目录用于在 `zhuge1993/canvas-editor` 仓库中独立集成和改造上游项目：
+本目录将上游 GPT Image Panel 与现有 FlowBoard 仓库隔离，保留独立的前后端、依赖和运行配置。
 
-- 上游： https://github.com/Z1rconium/gpt-image-panel
-- 上游许可：CC BY-NC 4.0；本地非商业改造需保留署名与许可说明。
-- 上游文档副本：`UPSTREAM-README.md`
-- 上游许可文件：`LICENSE`
-- 目标：尽量保留上游能力，并逐步完善 FlowBoard 内的集成体验。
+- 上游项目：https://github.com/Z1rconium/gpt-image-panel
+- 上游许可：CC BY-NC 4.0；仅按许可允许的非商业用途使用，并保留署名和许可。
+- 上游参考 revision（本轮对照上游 main 时的 HEAD）：`434a422edd2313ec5416634075681507965b10d9`
+- 原始上游说明：`UPSTREAM-README.md`
+- 许可副本：`LICENSE`
 
-## 已导入
+## 已导入内容
 
-已从上游 main 分支复制主要应用源码与配置到本目录，包含：
+已经对照上游 Git 树导入应用源码及测试文件。上游可运行项目文件共 579 个；应用目录、后端测试、前端单元/E2E 测试、依赖锁文件、Docker 配置、部署配置及文档均在本目录下。上游 `.trellis/` 内部工作流元数据没有纳入。导入后还需要通过仓库 CI 验证构建与测试，不能把“文件已导入”视为“已验证可运行”。
 
-- `backend/`：FastAPI 应用入口、API 路由、配置、安全、集成客户端、数据库/仓库、任务调度和服务模块。
-- `frontend/`：Svelte 前端工作区、蒙版编辑器、参考图编辑、画廊、对话/Agent、提示词、设置、国际化和相关前端测试。
-- `deploy/`、Docker 配置、依赖锁文件、CI 工作流和项目文档。
-- 上游 `LICENSE` 与原始 README 副本。
+核心能力以现有上游实现为基础，包括图片生成/编辑、画笔与套索蒙版、参考图、画廊、Agent 对话与分支、尺寸/比例设置。当前尚未将它嵌入 FlowBoard 原有主界面，目录隔离优先。
 
-## 计划改造目标
+## 本地开发（Windows PowerShell）
 
-1. 局部画笔/套索蒙版编辑，尽可能保护未选区域。
-2. 粘贴剪贴板图片作为参考图，并可附带修改提示。
-3. 宽高比与输出尺寸/分辨率选择。
-4. 从指定历史轮次分支出新对话。
-5. 与现有 FlowBoard 保持目录隔离，优先提供独立启动与访问方式。
+先准备后端环境，在仓库根目录执行：
 
-## 当前验证状态
+```powershell
+cd tools/gpt-image-panel
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r backend\requirements-dev.txt
+```
 
-- 已将上游可读的非二进制应用源码、前端测试、配置与文档导入到本目录。
-- 上游 `backend/tests/` 测试套件尚未复制；因此当前不是上游测试的完整镜像。
-- 尚未在本执行环境安装依赖并运行前后端构建/测试，也尚未将它接入 FlowBoard 主界面。
-- 导入源以当前上游 `main` 分支内容为准；后续应固定上游 commit SHA，并在集成前检查兼容性。
+启动后端（仅本机开发；不要在对外服务时启用匿名访问）：
 
-## 约定
+```powershell
+$env:ALLOW_UNAUTHENTICATED = "true"
+.\.venv\Scripts\granian.exe --interface asgi backend.app.main:app --host 127.0.0.1 --port 9090 --reload
+```
 
-- 所有集成文件限定在本目录，避免覆盖仓库现有应用。
-- 保留上游 LICENSE/署名信息，并在后续改动中记录修改内容。
-- 不提交 API 密钥、令牌或个人配置。
+另开一个 PowerShell 窗口启动前端：
+
+```powershell
+cd tools/gpt-image-panel/frontend
+npm ci
+npm run dev
+```
+
+打开 `http://127.0.0.1:5173`。开发前端会把 `/api` 和 `/health` 代理到本机的 9090 端口。匿名访问仅适合绑定本机回环地址的开发环境；正式部署请设置足够强的 `ACCESS_KEY`，不要把 `ALLOW_UNAUTHENTICATED=true` 暴露到网络。
+
+## 本地 Docker 运行
+
+在 `tools/gpt-image-panel` 目录：
+
+```powershell
+Copy-Item .env.example .env
+```
+
+编辑 `.env`，为 `ACCESS_KEY` 设置强随机值，然后执行：
+
+```powershell
+docker compose up --build -d
+```
+
+Compose 默认会构建当前目录中的源码，不再默认拉取上游已发布镜像；服务端口默认只绑定到 `127.0.0.1:9090`。
+
+## 验证命令
+
+从 `tools/gpt-image-panel` 目录运行后端测试：
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest backend/tests -q
+```
+
+前端检查和单元测试：
+
+```powershell
+cd frontend
+npm ci
+npm run check
+npm run test:unit
+npm run build
+npm run check:bundle
+npm run check:worker-build
+```
+
+仓库根目录的 `.github/workflows/gpt-image-panel-ci.yml` 会为这个隔离目录执行前后端验证。只有 CI 实际通过后，才会将构建/测试状态标记为通过。
+
+## 改造边界
+
+- 应用代码、依赖、配置与运行数据优先保持在本目录，避免影响 FlowBoard 既有功能。
+- 保留上游许可证和署名；新增或修改功能时记录改动。
+- 不提交 API key、访问令牌、真实 `.env` 文件或用户数据。
