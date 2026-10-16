@@ -1581,6 +1581,8 @@
       <p role="alert" class="status-error px-3 py-2 text-sm">{$t.messages.requestFailed}</p>
     {/if}
   {:else}
+    <div class="workspace-editor-grid">
+      <section class="workspace-prompt-column">
     <PromptForm
       loading={$previewStore.loading}
       optimizing={optimizingPrompt}
@@ -1627,8 +1629,12 @@
         onApplyParams={applyAssistantParams}
       />
     {/if}
+      </section>
 
-    <PreviewPanel onRegenerate={regenerate} onClear={clearPreview} />
+      <section class="workspace-preview-column">
+        <PreviewPanel onRegenerate={regenerate} onClear={clearPreview} />
+      </section>
+    </div>
   {/if}
 
   {#if $galleryGridPanel.component}
@@ -1747,3 +1753,23 @@
     <span>{$t.common.loadingFeature}</span>
   </div>
 {/if}
+
+<style>
+  .workspace-editor-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+    gap: 1.25rem;
+  }
+
+  .workspace-prompt-column,
+  .workspace-preview-column {
+    min-width: 0;
+  }
+
+  @media (min-width: 1100px) {
+    .workspace-editor-grid {
+      grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+    }
+  }
+</style>
