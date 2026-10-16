@@ -1,0 +1,848 @@
+import logging
+
+from ..core.errors import UnprocessableRequestError
+from ..runtime.state import state
+from ..core import secrets
+from ..core import settings as config
+from ..core.utils import coerce_nonnegative_int
+from ..core.settings_defaults import (
+    coerce_positive_int as _coerce_positive_int,
+    default_ai_assistant_settings as _default_ai_assistant_settings,
+    default_prompt_optimizer_settings as _default_prompt_optimizer_settings,
+    default_secret_reference as _default_secret_reference,
+)
+from pydantic import ValidationError
+
+from ..core.api_paths import (
+    PROVIDER_KIND_ASYNC_JSON,
+    normalize_api_path,
+    normalize_api_preset,
+    normalize_default_model,
+    normalize_default_response_format,
+    normalize_prompt_guard,
+    normalize_provider_kind,
+    normalize_supports_mask,
+)
+from ..schemas.provider import (
+    ProviderCapabilities,
+    ProviderConfigPayload,
+    parse_provider_config,
+    provider_capabilities,
+)
+from ..core.redaction import (
+    mask_socks5_proxy_url,
+    mask_webhook_url,
+)
+from ..core.secrets import (
+    get_env_var_ref_name,
+    normalize_secret_env_ref_or_plaintext,
+    resolve_env_var_ref,
+)
+from ..core.validators import (
+    normalize_socks5_proxy_url,
+    normalize_webhook_url,
+)
+from ..integrations.nodeimage.client import (
+    NodeImageConfigurationError,
+    resolve_nodeimage_settings,
+)
+from ..repositories.settings import (
+    load_ai_assistant_settings,
+    load_prompt_optimizer_settings,
+    load_r2_backup_settings,
+    load_nodeimage_settings,
+    load_settings,
+    save_settings,
+)
+from ..schemas.presets import ApiPresetResponse
+from ..schemas.settings import (
+    AIAssistantSettingsResponse,
+    PromptOptimizerSettingsResponse,
+    R2BackupSettingsResponse,
+    NodeImageSettingsResponse,
+    SettingsResponse,
+)
+from .preset_credentials import (
+    MASKED_API_KEY_VALUE,
+    _resolve_secret_or_unprocessable,
+    api_key_response_fields,
+    get_api_key_env_var,
+    resolve_api_key,
+    secret_response_fields,
+)
+
+
+
+def get_exception_message(error: Exception) -> str:
+    from ..core.redaction import redact_sensitive_text
+
+    return redact_sensitive_text(str(error) or repr(error) or error.__class__.__name__)
+
+
+
+
+def _coerce_non_negative_int(value, default: int = 0) -> int:
+    return coerce_nonnegative_int(value, default=default)
+
+
+def normalize_prompt_optimizer_settings(raw: dict | None) -> dict:
+    defaults = _default_prompt_optimizer_settings()
+    if not isinstance(raw, dict):
+        return defaults
+    return {
+        "enabled": bool(raw.get("enabled", defaults["enabled"])),
+        "api_url": str(raw.get("api_url") or "").strip(),
+        "api_key": str(raw.get("api_key") or "").strip(),
+        "model": str(raw.get("model") or defaults["model"]).strip()
+        or defaults["model"],
+        "timeout_seconds": _coerce_positive_int(
+            raw.get("timeout_seconds"),
+            defaults["timeout_seconds"],
+        ),
+    }
+
+
+def _normalize_assistant_api_path(value: object, default: str = "/v1/chat/completions") -> str:
+    normalized = str(value or default).strip()
+    return normalized if normalized in {"/v1/chat/completions", "/v1/responses"} else default
+
+
+def _assistant_endpoint_from_optimizer_url(api_url: str) -> tuple[str, str]:
+    value = str(api_url or "").strip().rstrip("/")
+    for suffix in ("/v1/chat/completions", "/v1/responses"):
+        if value.endswith(suffix):
+            return value[: -len(suffix)].rstrip("/"), suffix
+    return value, "/v1/chat/completions"
+
+
+def normalize_ai_assistant_settings(raw: dict | None) -> dict:
+    defaults = _default_ai_assistant_settings()
+    if not isinstance(raw, dict):
+        return defaults
+    vision_model = (
+        str(raw.get("vision_model") or defaults["vision_model"] or config.PROMPT_OPTIMIZER_MODEL).strip()
+        or config.PROMPT_OPTIMIZER_MODEL
+    )
+    return {
+        "enabled": bool(raw.get("enabled", defaults["enabled"])),
+        "vision_model": vision_model,
+        "agent_enabled": bool(raw.get("agent_enabled", defaults["agent_enabled"])),
+        "agent_model": str(raw.get("agent_model") or "").strip()[:200],
+        "agent_max_tool_rounds": min(
+            max(1, _coerce_positive_int(raw.get("agent_max_tool_rounds"), defaults["agent_max_tool_rounds"])),
+            config.AGENT_MAX_TOOL_ROUNDS_CEILING,
+        ),
+        "agent_system_prompt": str(raw.get("agent_system_prompt") or "").strip()[:4000],
+        "agent_web_search_enabled": bool(raw.get("agent_web_search_enabled", False)),
+        "agent_web_search_supported": bool(raw.get("agent_web_search_supported", False)),
+    }
+
+
+def persist_api_settings():
+    save_settings(
+        {
+            "active_preset_id": getattr(state, "active_preset_id", "default"),
+            "upstream_socks5_proxy": get_upstream_socks5_proxy(raw=True),
+            "webhook_url": get_webhook_url(raw=True),
+            "presets": get_api_presets(),
+            "prompt_optimizer": get_prompt_optimizer_settings(),
+            "ai_assistant": get_ai_assistant_settings(),
+            "r2_backup": get_r2_backup_settings(),
+            "nodeimage": get_nodeimage_settings(),
+        }
+    )
+
+
+def begin_api_settings_write() -> None:
+    """Mark an in-memory API-settings update as in flight.
+
+    While a settings write is applying its new values and persisting them,
+    concurrent `load_api_settings` calls must not repopulate the runtime state from
+    the pre-commit database row, or they would revert the update.
+    """
+    state.api_settings_write_generation = (
+        int(getattr(state, "api_settings_write_generation", 0)) + 1
+    )
+    state.api_settings_write_pending = True
+
+
+def end_api_settings_write() -> None:
+    state.api_settings_write_pending = False
+
+
+def load_api_settings():
+    if bool(getattr(state, "api_settings_write_pending", False)):
+        return
+    generation = int(getattr(state, "api_settings_write_generation", 0))
+    data = load_settings()
+    if (
+        generation != int(getattr(state, "api_settings_write_generation", 0))
+        or bool(getattr(state, "api_settings_write_pending", False))
+    ):
+        return
+    presets = data["presets"]
+    state.api_presets = presets
+    state.active_preset_id = data["active_preset_id"]
+    apply_upstream_socks5_proxy(data.get("upstream_socks5_proxy"))
+    apply_webhook_url(data.get("webhook_url"))
+    apply_api_preset(get_active_preset())
+
+
+def preset_provider_capabilities(raw: dict | None) -> dict:
+    """Resolved capability view for one stored preset (settings responses)."""
+    preset = raw if isinstance(raw, dict) else {}
+    if normalize_provider_kind(preset.get("provider_kind")) != PROVIDER_KIND_ASYNC_JSON:
+        caps = ProviderCapabilities()
+    else:
+        caps = provider_capabilities(preset.get("provider_config"))
+    return caps.as_dict()
+
+
+def _apply_capability_supports_mask(preset: dict) -> dict:
+    """An async preset's supports_mask follows what its mapping can carry."""
+    if normalize_provider_kind(preset.get("provider_kind")) == PROVIDER_KIND_ASYNC_JSON:
+        preset["supports_mask"] = provider_capabilities(preset.get("provider_config")).mask
+    return preset
+
+
+def get_api_presets() -> list[dict]:
+    presets = getattr(state, "api_presets", None)
+    if presets:
+        normalized = [
+            _apply_capability_supports_mask(
+                normalize_api_preset(preset, str(preset.get("id") or f"preset-{index + 1}"))
+            )
+            for index, preset in enumerate(presets)
+        ]
+        state.api_presets = normalized
+        return normalized
+
+    preset = _apply_capability_supports_mask(
+        normalize_api_preset(
+            {
+                "id": "default",
+                "name": "Default",
+                "api_url": getattr(state, "api_url", config.DEFAULT_API_URL),
+                "api_key": getattr(
+                    state,
+                    "api_key",
+                    _default_secret_reference("builtin-default-api-key", config.DEFAULT_API_KEY),
+                ),
+                "api_path": getattr(state, "api_path", config.DEFAULT_API_PATH),
+                "default_model": getattr(state, "default_model", ""),
+                "default_response_format": getattr(
+                    state,
+                    "default_response_format",
+                    "url",
+                ),
+            }
+        )
+    )
+    state.api_presets = [preset]
+    state.active_preset_id = preset["id"]
+    return state.api_presets
+
+
+def get_active_preset() -> dict:
+    presets = get_api_presets()
+    active_id = getattr(state, "active_preset_id", presets[0]["id"])
+    for preset in presets:
+        if preset["id"] == active_id:
+            return preset
+
+    state.active_preset_id = presets[0]["id"]
+    return presets[0]
+
+
+def get_preset_by_id(preset_id: str) -> dict | None:
+    for preset in get_api_presets():
+        if preset["id"] == preset_id:
+            return preset
+    return None
+
+
+def apply_api_preset(preset: dict):
+    state.api_url = preset.get("api_url", "").rstrip("/")
+    state.api_key = preset.get("api_key", "")
+    state.api_path = normalize_api_path(
+        preset.get("api_path", "/v1/images/generations")
+    )
+    state.default_model = normalize_default_model(
+        preset.get("default_model"),
+        state.api_path,
+    )
+    state.default_response_format = normalize_default_response_format(
+        preset.get("default_response_format")
+    )
+    state.active_preset_id = preset["id"]
+
+
+def get_upstream_socks5_proxy(*, raw: bool = False) -> str:
+    value = str(getattr(state, "upstream_socks5_proxy", "") or "").strip()
+    if raw:
+        return value
+    if not value:
+        return ""
+    if value not in secrets.configured_secret_ids():
+        resolved = resolve_env_var_ref(value)
+        return normalize_socks5_proxy_url(resolved) if resolved else ""
+    try:
+        target = secrets.secret_entry(value).resolve()
+    except secrets.SecretRegistryError as exc:
+        raise UnprocessableRequestError(str(exc)) from exc
+    return _resolve_secret_or_unprocessable(
+        value,
+        purpose="upstream_proxy",
+        target_url=target,
+        host_allowlist=config.UPSTREAM_PROXY_HOST_ALLOWLIST,
+    )
+
+
+def apply_upstream_socks5_proxy(value: str | None):
+    state.upstream_socks5_proxy = normalize_secret_env_ref_or_plaintext(
+        value,
+        field_name="SOCKS5 proxy URL",
+        normalizer=normalize_socks5_proxy_url,
+    )
+
+
+def get_webhook_url(*, raw: bool = False) -> str:
+    value = str(getattr(state, "webhook_url", "") or "").strip()
+    if raw:
+        return value
+    if not value:
+        return ""
+    if value not in secrets.configured_secret_ids():
+        resolved = resolve_env_var_ref(value)
+        return normalize_webhook_url(resolved) if resolved else ""
+    try:
+        target = secrets.secret_entry(value).resolve()
+    except secrets.SecretRegistryError as exc:
+        raise UnprocessableRequestError(str(exc)) from exc
+    return _resolve_secret_or_unprocessable(
+        value,
+        purpose="webhook_url",
+        target_url=target,
+        host_allowlist=config.WEBHOOK_HOST_ALLOWLIST,
+    )
+
+
+def apply_webhook_url(value: str | None):
+    state.webhook_url = normalize_secret_env_ref_or_plaintext(
+        value,
+        field_name="Webhook URL",
+        normalizer=normalize_webhook_url,
+    )
+
+
+def upstream_socks5_proxy_response_fields() -> dict:
+    value = get_upstream_socks5_proxy(raw=True)
+    return {
+        "has_upstream_socks5_proxy": bool(value),
+        "upstream_socks5_proxy_masked": mask_socks5_proxy_url(value),
+    }
+
+
+def webhook_url_response_fields() -> dict:
+    value = get_webhook_url(raw=True)
+    return {
+        "has_webhook_url": bool(value),
+        "webhook_url_masked": mask_webhook_url(value),
+    }
+
+
+def apply_preset_provider(
+    preset: dict,
+    provider_kind: str | None,
+    provider_config: ProviderConfigPayload | None,
+) -> None:
+    """Apply requested provider fields to ``preset`` and enforce async_json invariants."""
+    if provider_kind is not None:
+        preset["provider_kind"] = normalize_provider_kind(provider_kind)
+    if provider_config is not None:
+        preset["provider_config"] = provider_config.model_dump(mode="json")
+    if normalize_provider_kind(preset.get("provider_kind")) == PROVIDER_KIND_ASYNC_JSON:
+        if not preset.get("provider_config"):
+            raise UnprocessableRequestError(
+                "provider_config is required when provider_kind is async_json"
+            )
+        # supports_mask follows what the mapping can actually carry, so the
+        # mask editor only appears when the mask reaches the provider.
+        preset["supports_mask"] = provider_capabilities(
+            preset.get("provider_config")
+        ).mask
+
+
+def _stored_provider_config(preset: dict) -> ProviderConfigPayload | None:
+    raw = preset.get("provider_config")
+    if not raw:
+        return None
+    try:
+        return parse_provider_config(raw)
+    except (ValidationError, ValueError):
+        # A hand-edited row must not break the whole settings response.
+        return None
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def reorder_api_presets(preset_ids: list[str]) -> None:
+    presets = get_api_presets()
+    current_ids = [str(preset.get("id")) for preset in presets]
+    if sorted(preset_ids) != sorted(current_ids):
+        raise UnprocessableRequestError(
+            "preset_ids must list every existing preset exactly once"
+        )
+    by_id = {str(preset.get("id")): preset for preset in presets}
+    ordered = [by_id[preset_id] for preset_id in preset_ids]
+    begin_api_settings_write()
+    try:
+        state.api_presets = ordered
+        persist_api_settings()
+    finally:
+        end_api_settings_write()
+
+
+def serialize_api_preset(preset: dict) -> ApiPresetResponse:
+    key_fields = api_key_response_fields(preset.get("api_key", ""))
+    return ApiPresetResponse(
+        id=preset["id"],
+        name=preset.get("name") or "Untitled preset",
+        api_url=preset.get("api_url", ""),
+        api_path=normalize_api_path(
+            preset.get("api_path", "/v1/images/generations")
+        ),
+        default_model=normalize_default_model(
+            preset.get("default_model"),
+            preset.get("api_path", "/v1/images/generations"),
+        ),
+        default_response_format=normalize_default_response_format(
+            preset.get("default_response_format")
+        ),
+        supports_mask=normalize_supports_mask(preset.get("supports_mask")),
+        prompt_guard=normalize_prompt_guard(preset.get("prompt_guard")),
+        provider_kind=normalize_provider_kind(preset.get("provider_kind")),
+        provider_config=_stored_provider_config(preset),
+        provider_capabilities=preset_provider_capabilities(preset),
+        **key_fields,
+    )
+
+
+def build_settings_response() -> SettingsResponse:
+    active_preset = get_active_preset()
+    key_fields = api_key_response_fields(active_preset.get("api_key", ""))
+    optimizer_raw = get_prompt_optimizer_settings()
+    assistant_raw = get_ai_assistant_settings()
+    return SettingsResponse(
+        active_preset_id=active_preset["id"],
+        api_url=active_preset.get("api_url", ""),
+        **key_fields,
+        api_path=normalize_api_path(
+            active_preset.get("api_path", "/v1/images/generations")
+        ),
+        default_model=normalize_default_model(
+            active_preset.get("default_model"),
+            active_preset.get("api_path", "/v1/images/generations"),
+        ),
+        default_response_format=normalize_default_response_format(
+            active_preset.get("default_response_format")
+        ),
+        supports_mask=normalize_supports_mask(active_preset.get("supports_mask")),
+        prompt_guard=normalize_prompt_guard(active_preset.get("prompt_guard")),
+        provider_kind=normalize_provider_kind(active_preset.get("provider_kind")),
+        provider_capabilities=preset_provider_capabilities(active_preset),
+        **upstream_socks5_proxy_response_fields(),
+        **webhook_url_response_fields(),
+        presets=[serialize_api_preset(preset) for preset in get_api_presets()],
+        prompt_optimizer=build_prompt_optimizer_settings_response(optimizer_raw),
+        ai_assistant=build_ai_assistant_settings_response(assistant_raw),
+        r2_backup=build_r2_backup_settings_response(get_r2_backup_settings()),
+        nodeimage=build_nodeimage_settings_response(get_nodeimage_settings()),
+        image_upload_limits={
+            "max_file_size_bytes": config.MAX_FILE_SIZE_MB * 1024 * 1024,
+            "max_image_pixels": config.MAX_IMAGE_PIXELS,
+        },
+    )
+
+
+def build_prompt_optimizer_settings_response(raw: dict | None) -> PromptOptimizerSettingsResponse:
+    raw = normalize_prompt_optimizer_settings(raw)
+    key_fields = api_key_response_fields(raw.get("api_key", ""))
+    return PromptOptimizerSettingsResponse(
+        enabled=bool(raw.get("enabled", False)),
+        api_url=str(raw.get("api_url", "")).strip(),
+        model=str(raw.get("model") or config.PROMPT_OPTIMIZER_MODEL).strip()
+        or config.PROMPT_OPTIMIZER_MODEL,
+        timeout_seconds=_coerce_positive_int(
+            raw.get("timeout_seconds"),
+            config.PROMPT_OPTIMIZER_TIMEOUT_SECONDS,
+        ),
+        **key_fields,
+    )
+
+
+def build_ai_assistant_settings_response(raw: dict | None) -> AIAssistantSettingsResponse:
+    raw = effective_ai_assistant_settings(raw)
+    key_fields = api_key_response_fields(raw.get("api_key", ""))
+    return AIAssistantSettingsResponse(
+        enabled=bool(raw.get("enabled", False)),
+        api_url=str(raw.get("api_url", "")).strip(),
+        model=str(raw.get("model") or config.PROMPT_OPTIMIZER_MODEL).strip()
+        or config.PROMPT_OPTIMIZER_MODEL,
+        vision_model=str(raw.get("vision_model") or raw.get("model") or config.PROMPT_OPTIMIZER_MODEL).strip()
+        or config.PROMPT_OPTIMIZER_MODEL,
+        timeout_seconds=_coerce_positive_int(
+            raw.get("timeout_seconds"),
+            config.PROMPT_OPTIMIZER_TIMEOUT_SECONDS,
+        ),
+        api_path=_normalize_assistant_api_path(raw.get("api_path")),
+        agent_enabled=bool(raw.get("agent_enabled", False)),
+        agent_model=str(raw.get("agent_model") or "").strip(),
+        agent_max_tool_rounds=int(raw.get("agent_max_tool_rounds") or 4),
+        agent_system_prompt=str(raw.get("agent_system_prompt") or ""),
+        agent_web_search_enabled=bool(raw.get("agent_web_search_enabled", False)),
+        agent_web_search_supported=bool(raw.get("agent_web_search_supported", False)),
+        **key_fields,
+    )
+
+
+def build_r2_backup_settings_response(raw: dict | None) -> R2BackupSettingsResponse:
+    settings = load_r2_backup_settings() if raw is None else raw
+    access_key_fields = secret_response_fields(
+        str(settings.get("access_key_id") or ""),
+        "access_key_id",
+    )
+    secret_key_fields = secret_response_fields(
+        str(settings.get("secret_access_key") or ""),
+        "secret_access_key",
+    )
+    return R2BackupSettingsResponse(
+        enabled=bool(settings.get("enabled", False)),
+        endpoint_url=str(settings.get("endpoint_url") or "").strip(),
+        bucket_name=str(settings.get("bucket_name") or "").strip(),
+        region=str(settings.get("region") or "auto").strip() or "auto",
+        key_prefix=str(settings.get("key_prefix") or "").strip(),
+        sync_interval_hours=_coerce_non_negative_int(
+            settings.get("sync_interval_hours"),
+            0,
+        ),
+        **access_key_fields,
+        **secret_key_fields,
+    )
+
+
+def build_nodeimage_settings_response(raw: dict | None) -> NodeImageSettingsResponse:
+    settings = load_nodeimage_settings() if raw is None else raw
+    try:
+        resolve_nodeimage_settings(settings, require_enabled=False)
+        api_key_resolvable = True
+    except NodeImageConfigurationError:
+        api_key_resolvable = False
+    return NodeImageSettingsResponse(
+        enabled=bool(settings.get("enabled", False)),
+        api_key_resolvable=api_key_resolvable,
+        **api_key_response_fields(str(settings.get("api_key") or "")),
+    )
+
+
+def resolve_prompt_optimizer_api_key(raw: dict | None) -> str:
+    settings = normalize_prompt_optimizer_settings(raw)
+    secret_id = str(settings.get("api_key") or "").strip()
+    if not secret_id:
+        return ""
+    env_var = get_api_key_env_var(secret_id)
+    if secret_id not in secrets.configured_secret_ids():
+        resolved_key = resolve_api_key(
+            secret_id,
+            purpose="prompt_optimizer",
+            target_url=str(settings.get("api_url") or ""),
+            host_allowlist=config.PROMPT_OPTIMIZER_HOST_ALLOWLIST,
+        )
+        if resolved_key:
+            return resolved_key
+        if env_var:
+            raise UnprocessableRequestError(f"Prompt optimizer API Key environment variable {env_var} is not set or empty. Set it in the server environment.")
+        return secret_id
+    return _resolve_secret_or_unprocessable(
+        secret_id,
+        purpose="prompt_optimizer",
+        target_url=str(settings.get("api_url") or ""),
+        host_allowlist=config.PROMPT_OPTIMIZER_HOST_ALLOWLIST,
+    )
+
+
+def resolve_ai_assistant_api_key(raw: dict | None) -> str:
+    settings = effective_ai_assistant_settings(raw)
+    secret_id = str(settings.get("api_key") or "").strip()
+    if not secret_id:
+        return ""
+    env_var = get_api_key_env_var(secret_id)
+    if secret_id not in secrets.configured_secret_ids():
+        resolved_key = resolve_api_key(
+            secret_id,
+            purpose="prompt_optimizer",
+            target_url=str(settings.get("api_url") or ""),
+            host_allowlist=config.PROMPT_OPTIMIZER_HOST_ALLOWLIST,
+        )
+        if resolved_key:
+            return resolved_key
+        if env_var:
+            raise UnprocessableRequestError(f"Prompt Optimizer API Key environment variable {env_var} is not set or empty for AI Assistant. Set it in the server environment.")
+        return secret_id
+    return _resolve_secret_or_unprocessable(
+        secret_id,
+        purpose="prompt_optimizer",
+        target_url=str(settings.get("api_url") or ""),
+        host_allowlist=config.PROMPT_OPTIMIZER_HOST_ALLOWLIST,
+    )
+
+
+def get_prompt_optimizer_settings() -> dict:
+    return load_prompt_optimizer_settings()
+
+
+def get_ai_assistant_settings() -> dict:
+    return load_ai_assistant_settings()
+
+
+def effective_ai_assistant_settings(raw: dict | None = None) -> dict:
+    assistant = normalize_ai_assistant_settings(raw if raw is not None else get_ai_assistant_settings())
+    optimizer = normalize_prompt_optimizer_settings(get_prompt_optimizer_settings())
+    api_url, api_path = _assistant_endpoint_from_optimizer_url(str(optimizer.get("api_url") or ""))
+    model = str(optimizer.get("model") or assistant.get("model") or config.PROMPT_OPTIMIZER_MODEL).strip()
+    return {
+        **assistant,
+        "api_url": api_url,
+        "api_key": str(optimizer.get("api_key") or "").strip(),
+        "model": model or config.PROMPT_OPTIMIZER_MODEL,
+        "timeout_seconds": _coerce_positive_int(
+            optimizer.get("timeout_seconds"),
+            config.PROMPT_OPTIMIZER_TIMEOUT_SECONDS,
+        ),
+        "api_path": api_path,
+    }
+
+
+def get_r2_backup_settings() -> dict:
+    return load_r2_backup_settings()
+
+
+def get_nodeimage_settings() -> dict:
+    return load_nodeimage_settings()
+
+
+def list_env_ref_migrations() -> list[dict]:
+    """Inventory of persisted ${ENV_VAR} credential references (names only, never values).
+
+    Migration preflight: each entry says which setting uses the reference, for what
+    purpose, and whether SECRET_REGISTRY_JSON declares the variable. Undeclared names
+    stop resolving unless ALLOW_LEGACY_ENV_REFS=true.
+    """
+    declared = secrets.declared_env_names()
+    found: list[dict] = []
+
+    def note(source: str, purpose: str, value: object) -> None:
+        env_var = get_env_var_ref_name(str(value or "").strip())
+        if env_var:
+            found.append({"source": source, "purpose": purpose, "env_var": env_var, "declared": env_var in declared})
+
+    for preset in get_api_presets():
+        note(f"preset:{preset.get('name') or preset.get('id')}", "upstream_api", preset.get("api_key"))
+    note("prompt_optimizer", "prompt_optimizer", normalize_prompt_optimizer_settings(get_prompt_optimizer_settings()).get("api_key"))
+    r2 = get_r2_backup_settings()
+    note("r2_backup", "r2_access_key_id", r2.get("access_key_id"))
+    note("r2_backup", "r2_secret_access_key", r2.get("secret_access_key"))
+    note("nodeimage", "nodeimage_api_key", get_nodeimage_settings().get("api_key"))
+    return found
+
+
+def warn_undeclared_env_refs() -> None:
+    pending = [item for item in list_env_ref_migrations() if not item["declared"]]
+    if not pending or config.ALLOW_LEGACY_ENV_REFS:
+        return
+    logging.getLogger(__name__).warning(
+        "Credential references to undeclared environment variables will not resolve; "
+        "declare them in SECRET_REGISTRY_JSON (purpose + origin) or set ALLOW_LEGACY_ENV_REFS=true "
+        "while migrating: %s",
+        "; ".join(f"{item['source']} -> ${{{item['env_var']}}} ({item['purpose']})" for item in pending),
+    )
+
+
+def validate_configured_secret_bindings() -> None:
+    for preset in get_api_presets():
+        secret_id = str(preset.get("api_key") or "").strip()
+        if secret_id not in secrets.configured_secret_ids():
+            continue
+        if secret_id:
+            secrets.validate_secret_binding(
+                secret_id,
+                purpose="upstream_api",
+                target_url=str(preset.get("api_url") or ""),
+                host_allowlist=config.UPSTREAM_HOST_ALLOWLIST,
+            )
+
+    optimizer = normalize_prompt_optimizer_settings(get_prompt_optimizer_settings())
+    optimizer_secret_id = str(optimizer.get("api_key") or "").strip()
+    if optimizer_secret_id not in secrets.configured_secret_ids():
+        optimizer_secret_id = ""
+    if optimizer_secret_id:
+        secrets.validate_secret_binding(
+            optimizer_secret_id,
+            purpose="prompt_optimizer",
+            target_url=str(optimizer.get("api_url") or ""),
+            host_allowlist=config.PROMPT_OPTIMIZER_HOST_ALLOWLIST,
+        )
+
+    r2 = get_r2_backup_settings()
+    endpoint_url = str(r2.get("endpoint_url") or "")
+    for field, purpose in (
+        ("access_key_id", "r2_access_key_id"),
+        ("secret_access_key", "r2_secret_access_key"),
+    ):
+        secret_id = str(r2.get(field) or "").strip()
+        if secret_id not in secrets.configured_secret_ids():
+            continue
+        if secret_id:
+            secrets.validate_secret_binding(
+                secret_id,
+                purpose=purpose,
+                target_url=endpoint_url,
+                host_allowlist=config.R2_ENDPOINT_HOST_ALLOWLIST,
+            )
+
+    nodeimage = get_nodeimage_settings()
+    nodeimage_secret_id = str(nodeimage.get("api_key") or "").strip()
+    if nodeimage_secret_id in secrets.configured_secret_ids():
+        secrets.validate_secret_binding(
+            nodeimage_secret_id,
+            purpose="nodeimage_api_key",
+            target_url="https://api.nodeimage.com",
+            host_allowlist="api.nodeimage.com",
+        )
+
+    upstream_proxy = get_upstream_socks5_proxy(raw=True)
+    if upstream_proxy:
+        get_upstream_socks5_proxy()
+    webhook_url = get_webhook_url(raw=True)
+    if webhook_url:
+        get_webhook_url()
+        if len(config.WEBHOOK_SIGNING_SECRET.encode("utf-8")) < 32:
+            raise secrets.SecretRegistryError(
+                "A configured webhook requires WEBHOOK_SIGNING_SECRET with at least 32 bytes"
+            )
+
+
+def apply_prompt_optimizer_settings(
+    current: dict | None, req_optimizer: object
+) -> dict:
+    current = normalize_prompt_optimizer_settings(current)
+    if req_optimizer is None:
+        return current
+    if hasattr(req_optimizer, "enabled") and req_optimizer.enabled is not None:
+        current["enabled"] = req_optimizer.enabled
+    if hasattr(req_optimizer, "api_url") and req_optimizer.api_url is not None:
+        next_url = req_optimizer.api_url.strip()
+        if current.get("api_key") and not secrets.same_origin(current.get("api_url"), next_url):
+            current["api_key"] = ""
+        current["api_url"] = next_url
+    if hasattr(req_optimizer, "model") and req_optimizer.model is not None:
+        current["model"] = req_optimizer.model.strip()
+    if (
+        hasattr(req_optimizer, "timeout_seconds")
+        and req_optimizer.timeout_seconds is not None
+    ):
+        current["timeout_seconds"] = int(req_optimizer.timeout_seconds)
+    if hasattr(req_optimizer, "api_key") and req_optimizer.api_key is not None:
+        key = req_optimizer.api_key.strip()
+        if key and key != MASKED_API_KEY_VALUE:
+            current["api_key"] = key
+        elif key == "":
+            current["api_key"] = ""
+    return current
+
+
+def apply_ai_assistant_settings(current: dict | None, req_assistant: object) -> dict:
+    current = normalize_ai_assistant_settings(current)
+    if req_assistant is None:
+        return current
+    if hasattr(req_assistant, "enabled") and req_assistant.enabled is not None:
+        current["enabled"] = req_assistant.enabled
+    if hasattr(req_assistant, "vision_model") and req_assistant.vision_model is not None:
+        current["vision_model"] = req_assistant.vision_model.strip()
+    if getattr(req_assistant, "agent_enabled", None) is not None:
+        current["agent_enabled"] = bool(req_assistant.agent_enabled)
+    if getattr(req_assistant, "agent_model", None) is not None:
+        current["agent_model"] = req_assistant.agent_model.strip()
+    if getattr(req_assistant, "agent_max_tool_rounds", None) is not None:
+        current["agent_max_tool_rounds"] = int(req_assistant.agent_max_tool_rounds)
+    if getattr(req_assistant, "agent_system_prompt", None) is not None:
+        current["agent_system_prompt"] = req_assistant.agent_system_prompt.strip()
+    for key in ("agent_web_search_enabled", "agent_web_search_supported"):
+        if getattr(req_assistant, key, None) is not None:
+            current[key] = bool(getattr(req_assistant, key))
+    return normalize_ai_assistant_settings(current)
+
+
+def apply_r2_backup_settings(current: dict | None, req_r2: object) -> dict:
+    current = load_r2_backup_settings() if current is None else dict(current)
+    if req_r2 is None:
+        return current
+    if hasattr(req_r2, "enabled") and req_r2.enabled is not None:
+        current["enabled"] = bool(req_r2.enabled)
+    if hasattr(req_r2, "endpoint_url") and req_r2.endpoint_url is not None:
+        next_endpoint = req_r2.endpoint_url.strip()
+        if any(current.get(key) for key in ("access_key_id", "secret_access_key")) and not secrets.same_origin(
+            current.get("endpoint_url"), next_endpoint
+        ):
+            current["access_key_id"] = ""
+            current["secret_access_key"] = ""
+        current["endpoint_url"] = next_endpoint
+    if hasattr(req_r2, "bucket_name") and req_r2.bucket_name is not None:
+        current["bucket_name"] = req_r2.bucket_name.strip()
+    if hasattr(req_r2, "region") and req_r2.region is not None:
+        current["region"] = req_r2.region.strip() or "auto"
+    if hasattr(req_r2, "key_prefix") and req_r2.key_prefix is not None:
+        current["key_prefix"] = req_r2.key_prefix.strip()
+    if hasattr(req_r2, "sync_interval_hours") and req_r2.sync_interval_hours is not None:
+        current["sync_interval_hours"] = int(req_r2.sync_interval_hours)
+    for field in ("access_key_id", "secret_access_key"):
+        if not hasattr(req_r2, field):
+            continue
+        value = getattr(req_r2, field)
+        if value is None:
+            continue
+        key = value.strip()
+        if key and key != MASKED_API_KEY_VALUE:
+            current[field] = key
+        elif key == "":
+            current[field] = ""
+    return current
+
+
+def apply_nodeimage_settings(current: dict | None, req_nodeimage: object) -> dict:
+    current = load_nodeimage_settings() if current is None else dict(current)
+    if req_nodeimage is None:
+        return current
+    if hasattr(req_nodeimage, "enabled") and req_nodeimage.enabled is not None:
+        current["enabled"] = bool(req_nodeimage.enabled)
+    if hasattr(req_nodeimage, "api_key") and req_nodeimage.api_key is not None:
+        key = req_nodeimage.api_key.strip()
+        if key and key != MASKED_API_KEY_VALUE:
+            current["api_key"] = key
+        elif key == "":
+            current["api_key"] = ""
+    return current
