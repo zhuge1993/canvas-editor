@@ -1,0 +1,44 @@
+{
+  "name": "gpt-image-panel-frontend",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 5173",
+    "build": "vite build",
+    "build:analyze": "ANALYZE=true vite build",
+    "preview": "vite preview --host 127.0.0.1 --port 4173",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "check:bundle": "node scripts/bundle-budget.mjs",
+    "check:worker-build": "node scripts/check-worker-build.mjs",
+    "test:unit": "vitest run",
+    "test:unit:watch": "vitest",
+    "test:e2e": "playwright test",
+    "test:e2e:production": "playwright test --config playwright.production-e2e.config.ts",
+    "test:e2e:perf": "RUN_PERFORMANCE_TESTS=true playwright test",
+    "test:perf:production": "playwright test --config playwright.perf.config.ts"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.60.0",
+    "@sveltejs/adapter-static": "^3.0.8",
+    "@sveltejs/kit": "^2.70.2",
+    "@sveltejs/vite-plugin-svelte": "^5.1.1",
+    "@tailwindcss/vite": "4.3.3",
+    "@types/node": "^25.6.2",
+    "lucide-svelte": "1.0.1",
+    "postcss": "^8.5.25",
+    "rollup-plugin-visualizer": "^7.1.1",
+    "svelte": "^5.38.0",
+    "svelte-check": "^4.3.1",
+    "tailwindcss": "4.3.3",
+    "typescript": "^5.9.2",
+    "vite": "^6.4.3",
+    "vitest": "^4.1.11"
+  },
+  "overrides": {
+    "cookie": "0.7.2"
+  },
+  "dependencies": {
+    "marked": "18.0.14",
+    "ogl": "^1.0.11"
+  }
+}
