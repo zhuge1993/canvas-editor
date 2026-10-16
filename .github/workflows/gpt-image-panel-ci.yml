@@ -62,7 +62,7 @@ jobs:
       - run: npm audit --audit-level=high
 
   e2e:
-    name: Browser tests for agent, access and settings
+    name: Browser tests for agent, access, mask editor and image clipboard
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     defaults:
@@ -77,7 +77,7 @@ jobs:
           cache-dependency-path: tools/gpt-image-panel/frontend/package-lock.json
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      - run: npm run test:e2e -- agent access-settings
+      - run: npm run test:e2e -- agent access-settings edit-mask jobs-edit prompt-submit
 
   docker:
     name: Docker Compose config and local image build
