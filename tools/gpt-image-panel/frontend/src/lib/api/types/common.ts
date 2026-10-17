@@ -1,0 +1,14 @@
+export type ApiPath = '/v1/images/generations' | '/v1/responses' | '/v1/chat/completions';
+export type AssistantApiPath = '/v1/chat/completions' | '/v1/responses';
+export type ProviderKind = 'openai' | 'async_json';
+export type ApiKeySource = 'empty' | 'stored' | 'env' | 'registry';
+export type OverallConfigValueType = 'string' | 'secret' | 'bool' | 'int' | 'float';
+export type OverallConfigValueSource = 'override' | 'env' | 'default';
+export type ResponseFormatDefault = '' | 'url' | 'b64_json';
+export type PresetHealthStatus = 'ok' | 'warning' | 'error';
+export type GenerateJobStatusValue = 'queued' | 'running' | 'success' | 'partial_failure' | 'error' | 'cancelled' | 'interrupted' | 'upstream_error';
+export type GalleryExportJobStatusValue = 'queued' | 'running' | 'success' | 'error';
+export type GallerySyncJobStatusValue = 'queued' | 'running' | 'success' | 'error';
+export type GalleryImportJobStatusValue = 'queued' | 'running' | 'success' | 'error';
+export type NodeImageUploadJobStatusValue = 'queued' | 'running' | 'success' | 'partial_failure' | 'cancelled' | 'error';
+export type AssistantGalleryBatchJobStatusValue = GalleryImportJobStatusValue;

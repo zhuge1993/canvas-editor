@@ -1,0 +1,61 @@
+CLAUDE.md
+
+# Local secrets and environment files
+.env
+.env.*
+!.env.example
+
+# Claude Code local config
+.claude/
+.codex/
+.impeccable
+.venv
+
+.DS_Store
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+
+# Test cache and coverage
+.pytest_cache/
+.coverage
+htmlcov/
+backend/**/__pycache__/
+backend/tests/__pycache__/
+docs
+
+# Temp / editor
+*.swp
+*.swo
+*.tmp
+*.bak
+*.orig
+.idea/
+.vscode/
+reports/
+
+data/*
+!data/.gitkeep
+
+images/*
+!images/.gitkeep
+
+app/__pycache__
+
+node_modules/
+frontend/node_modules/
+frontend/.svelte-kit/
+frontend/build/
+npm-debug.log*
+AGENTS.md
+# Local planning and acceptance notes
+/plan/
+MASK_RETRY_ACCEPTANCE_*.md
+
+test-results
+.commandcode
+
+# Local review artifacts
+/reviews/

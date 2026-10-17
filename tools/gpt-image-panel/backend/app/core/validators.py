@@ -1,0 +1,403 @@
+import asyncio
+import ipaddress
+import socket
+from urllib.parse import urlparse, urlsplit, urlunsplit
+
+from . import settings as config
+
+
+def _get_private_ip_ranges() -> tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...]:
+    return (
+        ipaddress.IPv4Network("127.0.0.0/8"),  # loopback
+        ipaddress.IPv4Network("10.0.0.0/8"),  # private Class A
+        ipaddress.IPv4Network("172.16.0.0/12"),  # private Class B
+        ipaddress.IPv4Network("192.168.0.0/16"),  # private Class C
+        ipaddress.IPv4Network("169.254.0.0/16"),  # link-local
+        ipaddress.IPv4Network("0.0.0.0/8"),  # current network
+        ipaddress.IPv4Network("224.0.0.0/4"),  # multicast IPv4
+        ipaddress.IPv4Network("255.255.255.255/32"),  # broadcast
+        ipaddress.IPv6Network("::1/128"),  # loopback
+        ipaddress.IPv6Network("fc00::/7"),  # unique local
+        ipaddress.IPv6Network("fe80::/10"),  # link-local
+        ipaddress.IPv6Network("::ffff:0:0/96"),  # IPv4-mapped
+        ipaddress.IPv6Network("ff00::/8"),  # multicast IPv6
+    )
+
+
+PRIVATE_RANGES = _get_private_ip_ranges()
+R2_ENDPOINT_HOST_SUFFIX = ".r2.cloudflarestorage.com"
+
+BLOCKED_HOSTNAMES = {
+    "localhost",
+    "localhost.localdomain",
+    "metadata.google.internal",
+    "metadata.google.com",
+    "169.254.169.254",
+    "metadata.azure.com",
+    "metadata.internal",
+    "detectportal.safari.com",
+    "captive.apple.com",
+}
+
+
+def split_allowlist(value: str | None, *, separators: str = ",;") -> list[str]:
+    """Split an allowlist into stripped, non-empty entries.
+
+    The single allowlist splitter. ``separators`` selects which characters
+    separate entries; callers that historically treated a character as part of an
+    entry (e.g. the upstream host allowlist is comma-only) pass a narrower set so
+    accept/reject behavior is unchanged.
+    """
+    text = str(value or "")
+    if ";" in separators:
+        text = text.replace(";", ",")
+    return [part.strip() for part in text.split(",") if part.strip()]
+
+
+def normalize_host_entry(entry: str) -> str:
+    """Normalize one host allowlist entry (lowercase, no trailing root dot)."""
+    return entry.strip().lower().rstrip(".")
+
+
+def _parse_host_allowlist(allowlist: str | None) -> list[str]:
+    return [normalize_host_entry(host) for host in split_allowlist(allowlist, separators=",")]
+
+
+def _ip_literal(hostname: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    try:
+        return ipaddress.ip_address(hostname)
+    except ValueError:
+        return None
+
+
+def is_private_ip(ip_str: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(ip_str)
+    except ValueError:
+        return True
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
+        ip = ip.ipv4_mapped
+    # SSRF destinations must be globally routable.  This also covers shared,
+    # benchmark, documentation, reserved, multicast and otherwise non-global
+    # address space that is not represented by the historical private ranges.
+    return not ip.is_global
+
+
+def resolve_hostname(hostname: str) -> tuple[str, list[str]]:
+    try:
+        family = socket.AF_UNSPEC
+        addrs = socket.getaddrinfo(hostname, None, family, socket.SOCK_STREAM)
+    except socket.gaierror:
+        return hostname, []
+
+    resolved_ips = []
+    for addr in addrs:
+        ip = addr[4][0]
+        resolved_ips.append(ip)
+    return hostname, list(dict.fromkeys(resolved_ips))
+
+
+async def resolve_hostname_async(hostname: str) -> tuple[str, list[str]]:
+    return await asyncio.to_thread(resolve_hostname, hostname)
+
+
+def response_peer_ip(response: object) -> str | None:
+    connection = getattr(response, "connection", None)
+    transport = getattr(connection, "transport", None)
+    if transport is None:
+        protocol = getattr(response, "_protocol", None)
+        transport = getattr(protocol, "transport", None)
+    if transport is None:
+        return None
+
+    peername = transport.get_extra_info("peername")
+    if isinstance(peername, tuple) and peername:
+        return str(peername[0])
+    if isinstance(peername, str):
+        return peername
+    return None
+
+
+def validate_response_peer_ip(response: object, context: str) -> None:
+    peer_ip = response_peer_ip(response)
+    if peer_ip and is_private_ip(peer_ip):
+        raise ValueError(f"{context} connected to private/internal IP: {peer_ip}")
+
+
+def _validate_public_dns_resolution(
+    hostname: str,
+    *,
+    private_ip_error: str,
+) -> None:
+    _, resolved_ips = resolve_hostname(hostname)
+    for ip in resolved_ips:
+        if is_private_ip(ip):
+            resolved_info = ", ".join(f"'{resolved_ip}'" for resolved_ip in resolved_ips)
+            raise ValueError(
+                private_ip_error.format(
+                    hostname=hostname,
+                    resolved_info=resolved_info,
+                )
+            )
+
+
+def _validate_url_base(
+    url: str,
+    *,
+    allowed_schemes: set[str],
+    scheme_error: str,
+    missing_hostname_error: str,
+    blocked_hostname_error: str,
+    private_ip_error: str,
+    allowlist: str = "",
+    allowlist_error_prefix: str = "Hostname",
+    reject_userinfo: bool = False,
+    reject_query_fragment: bool = False,
+) -> None:
+    parsed = urlparse(url)
+
+    if parsed.scheme not in allowed_schemes:
+        raise ValueError(scheme_error)
+
+    if not parsed.hostname:
+        raise ValueError(missing_hostname_error)
+
+    if reject_userinfo and (parsed.username is not None or parsed.password is not None):
+        raise ValueError("URL must not include username or password")
+
+    if reject_query_fragment and (parsed.query or parsed.fragment):
+        raise ValueError("URL must not include query strings or fragments")
+
+    hostname = parsed.hostname.lower()
+
+    if hostname in BLOCKED_HOSTNAMES:
+        raise ValueError(blocked_hostname_error.format(hostname=hostname))
+
+    if allowlist:
+        allowed_hosts = _parse_host_allowlist(allowlist)
+        if hostname not in allowed_hosts:
+            raise ValueError(
+                f"{allowlist_error_prefix} '{hostname}' is not in the allowlist. Allowed: {', '.join(allowed_hosts)}"
+            )
+
+    _validate_public_dns_resolution(hostname, private_ip_error=private_ip_error)
+
+
+def validate_upstream_url(url: str, allowlist: str, *, allow_query: bool = False) -> None:
+    if allow_query and urlsplit(url).fragment:
+        raise ValueError("Upstream request URL must not include fragments")
+    _validate_url_base(
+        url,
+        allowed_schemes={"https"},
+        scheme_error="Only HTTPS URLs are allowed for upstream API",
+        missing_hostname_error="Invalid URL: no hostname",
+        blocked_hostname_error="Hostname '{hostname}' is not allowed",
+        private_ip_error="Hostname '{hostname}' resolves to private/internal IP(s): {resolved_info}",
+        allowlist=allowlist,
+        reject_userinfo=True,
+        reject_query_fragment=not allow_query,
+    )
+
+
+def normalize_upstream_base_url(url: str | None) -> str:
+    value = str(url or "").strip()
+    if not value:
+        raise ValueError("API URL must not be empty")
+
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+    except ValueError as e:
+        raise ValueError("API URL must include a valid port") from e
+
+    if parsed.scheme.lower() != "https":
+        raise ValueError("API URL must use https://")
+    if not parsed.hostname:
+        raise ValueError("API URL must include a hostname")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("API URL must not include username or password")
+    if parsed.query or parsed.fragment:
+        raise ValueError("API URL must not include query strings or fragments")
+
+    hostname = parsed.hostname.lower()
+    host = f"[{hostname}]" if ":" in hostname and not hostname.startswith("[") else hostname
+    if port is not None:
+        host = f"{host}:{port}"
+    path = parsed.path.rstrip("/")
+    return urlunsplit(("https", host, path, "", ""))
+
+
+def _is_default_r2_endpoint_hostname(hostname: str) -> bool:
+    normalized = hostname.lower().rstrip(".")
+    account_label = normalized.removesuffix(R2_ENDPOINT_HOST_SUFFIX)
+    return (
+        bool(account_label)
+        and normalized.endswith(R2_ENDPOINT_HOST_SUFFIX)
+        and "." not in account_label
+    )
+
+
+def validate_r2_endpoint_url(
+    url: str,
+    allowlist: str | None = None,
+    *,
+    resolve_dns: bool = True,
+) -> None:
+    try:
+        parsed = urlsplit(url)
+        _ = parsed.port
+    except ValueError as e:
+        raise ValueError("R2 endpoint URL must include a valid port") from e
+
+    if parsed.scheme.lower() != "https":
+        raise ValueError("R2 endpoint URL must use https://")
+    if not parsed.hostname:
+        raise ValueError("R2 endpoint URL must include a hostname")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("R2 endpoint URL must not include username or password")
+    if parsed.query or parsed.fragment:
+        raise ValueError("R2 endpoint URL must not include query strings or fragments")
+
+    hostname = parsed.hostname.lower().rstrip(".")
+
+    if hostname in BLOCKED_HOSTNAMES:
+        raise ValueError(f"R2 endpoint hostname '{hostname}' is not allowed")
+
+    if _ip_literal(hostname) is not None:
+        raise ValueError("R2 endpoint URL must use a hostname, not an IP address")
+
+    allowed_hosts = _parse_host_allowlist(allowlist)
+    if not _is_default_r2_endpoint_hostname(hostname) and hostname not in allowed_hosts:
+        allowed_message = ", ".join(allowed_hosts) if allowed_hosts else "none"
+        raise ValueError(
+            "R2 endpoint hostname "
+            f"'{hostname}' must be a Cloudflare R2 hostname "
+            f"(*{R2_ENDPOINT_HOST_SUFFIX}) or be listed in "
+            f"R2_ENDPOINT_HOST_ALLOWLIST. Allowed: {allowed_message}"
+        )
+
+    if resolve_dns:
+        _validate_public_dns_resolution(
+            hostname,
+            private_ip_error=(
+                "R2 endpoint hostname '{hostname}' resolves to private/internal "
+                "IP(s): {resolved_info}"
+            ),
+        )
+
+
+def normalize_r2_endpoint_url(url: str | None) -> str:
+    value = str(url or "").strip()
+    if not value:
+        return ""
+
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+    except ValueError as e:
+        raise ValueError("R2 endpoint URL must include a valid port") from e
+
+    if parsed.scheme.lower() != "https":
+        raise ValueError("R2 endpoint URL must use https://")
+    if not parsed.hostname:
+        raise ValueError("R2 endpoint URL must include a hostname")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("R2 endpoint URL must not include username or password")
+    if parsed.query or parsed.fragment:
+        raise ValueError("R2 endpoint URL must not include query strings or fragments")
+
+    hostname = parsed.hostname.lower()
+    host = f"[{hostname}]" if ":" in hostname and not hostname.startswith("[") else hostname
+    if port is not None:
+        host = f"{host}:{port}"
+    path = parsed.path.rstrip("/")
+    normalized = urlunsplit(("https", host, path, "", ""))
+    # Pydantic validators and synchronous settings normalization must not do DNS.
+    validate_r2_endpoint_url(
+        normalized,
+        config.R2_ENDPOINT_HOST_ALLOWLIST,
+        resolve_dns=False,
+    )
+    return normalized
+
+
+def validate_image_url(url: str) -> None:
+    _validate_url_base(
+        url,
+        allowed_schemes={"https"},
+        scheme_error="Only HTTPS URLs are allowed for image URLs",
+        missing_hostname_error="Invalid URL: no hostname",
+        blocked_hostname_error="Hostname '{hostname}' is not allowed",
+        private_ip_error="Image URL hostname '{hostname}' resolves to private/internal IP(s): {resolved_info}",
+    )
+
+
+def validate_webhook_url(url: str, allowlist: str = "") -> None:
+    _validate_url_base(
+        url,
+        allowed_schemes={"https"},
+        scheme_error="Only HTTPS URLs are allowed for webhook callbacks",
+        missing_hostname_error="Invalid webhook URL: no hostname",
+        blocked_hostname_error="Webhook hostname '{hostname}' is not allowed",
+        private_ip_error="Webhook hostname '{hostname}' resolves to private/internal IP(s): {resolved_info}",
+        allowlist=allowlist,
+        allowlist_error_prefix="Webhook hostname",
+    )
+
+
+async def validate_upstream_url_async(url: str, allowlist: str, *, allow_query: bool = False) -> None:
+    await asyncio.to_thread(validate_upstream_url, url, allowlist, allow_query=allow_query)
+
+
+async def validate_r2_endpoint_url_async(
+    url: str,
+    allowlist: str | None = None,
+) -> None:
+    await asyncio.to_thread(validate_r2_endpoint_url, url, allowlist)
+
+
+async def validate_image_url_async(url: str) -> None:
+    await asyncio.to_thread(validate_image_url, url)
+
+
+async def validate_webhook_url_async(url: str, allowlist: str = "") -> None:
+    await asyncio.to_thread(validate_webhook_url, url, allowlist)
+
+
+def normalize_webhook_url(url: str | None) -> str:
+    value = str(url or "").strip()
+    if not value:
+        return ""
+
+    parsed = urlsplit(value)
+    if parsed.scheme.lower() != "https":
+        raise ValueError("Webhook URL must use https://")
+    if not parsed.hostname:
+        raise ValueError("Webhook URL must include a hostname")
+    return urlunsplit(("https", parsed.netloc, parsed.path, parsed.query, parsed.fragment))
+
+
+def normalize_socks5_proxy_url(url: str | None) -> str:
+    value = str(url or "").strip()
+    if not value:
+        return ""
+
+    parsed = urlsplit(value)
+    if parsed.scheme.lower() != "socks5":
+        raise ValueError("SOCKS5 proxy URL must use socks5://")
+    if not parsed.hostname:
+        raise ValueError("SOCKS5 proxy URL must include a hostname")
+
+    try:
+        port = parsed.port
+    except ValueError as e:
+        raise ValueError("SOCKS5 proxy URL must include a valid port") from e
+    if port is None:
+        raise ValueError("SOCKS5 proxy URL must include a port")
+
+    if parsed.query or parsed.fragment:
+        raise ValueError("SOCKS5 proxy URL must not include query strings or fragments")
+    if parsed.path not in {"", "/"}:
+        raise ValueError("SOCKS5 proxy URL must not include a path")
+
+    return urlunsplit(("socks5", parsed.netloc, "", "", ""))

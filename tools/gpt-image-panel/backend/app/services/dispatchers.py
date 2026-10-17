@@ -1,0 +1,133 @@
+"""Background dispatcher lifecycle: one set of tasks per worker process.
+
+The app lifespan starts these once at startup and cancels them on shutdown;
+keeping the registry here means the list is testable without booting FastAPI.
+"""
+
+import asyncio
+import logging
+
+from ..integrations.session_pool import close_pool
+from ..repositories.db import close_database_connections
+from ..repositories.db.execution import close_blocking_executors
+from ..runtime.state import state
+from .vision_previews import drain_preview_tasks
+from . import (
+    assistant_batch,
+    gallery_jobs,
+    gallery_maintenance,
+    job_scheduler,
+    runtime_metrics,
+)
+
+logger = logging.getLogger(__name__)
+
+SHUTDOWN_GRACE_SECONDS = 5.0
+
+DISPATCHER_TASKS = (
+    (
+        "image_unit_dispatcher_task",
+        lambda worker: job_scheduler.run_image_unit_dispatcher(worker),
+    ),
+    (
+        "thumbnail_dispatcher_task",
+        lambda worker: gallery_maintenance.run_thumbnail_dispatcher(worker),
+    ),
+    (
+        "gallery_export_dispatcher_task",
+        lambda worker: gallery_jobs.run_gallery_export_dispatcher(worker),
+    ),
+    (
+        "gallery_sync_dispatcher_task",
+        lambda worker: gallery_jobs.run_gallery_sync_dispatcher(worker),
+    ),
+    (
+        "gallery_import_dispatcher_task",
+        lambda worker: gallery_jobs.run_gallery_import_dispatcher(worker),
+    ),
+    (
+        "gallery_nodeimage_upload_dispatcher_task",
+        lambda worker: gallery_jobs.run_gallery_nodeimage_upload_dispatcher(worker),
+    ),
+    (
+        "gallery_export_gc_task",
+        lambda worker: gallery_maintenance.gc_gallery_export_jobs(worker),
+    ),
+    (
+        "gallery_file_gc_task",
+        lambda worker: gallery_maintenance.run_gallery_file_gc(worker),
+    ),
+    (
+        "gallery_r2_scheduled_sync_task",
+        lambda worker: gallery_maintenance.run_gallery_r2_scheduled_sync(worker),
+    ),
+    (
+        "gallery_ai_analyze_dispatcher_task",
+        lambda worker: assistant_batch.run_ai_analyze_dispatcher(worker),
+    ),
+    (
+        "runtime_metrics_refresher_task",
+        lambda worker: runtime_metrics.run_runtime_metrics_refresher(worker),
+    ),
+    (
+        "event_loop_lag_observer_task",
+        lambda worker: runtime_metrics.run_event_loop_lag_observer(),
+    ),
+)
+
+
+def start() -> None:
+    worker = state.worker_id
+    for attribute, runner in DISPATCHER_TASKS:
+        setattr(state, attribute, asyncio.create_task(runner(worker)))
+
+
+async def shutdown() -> None:
+    # Admissions may still be committing a queued turn in a database thread.
+    # Let them launch their runner before collecting the shutdown task set.
+    await asyncio.gather(*getattr(state, "agent_turn_admissions", set()), return_exceptions=True)
+    agent_tasks = set(getattr(state, "agent_turn_tasks", {}).values())
+    pending: list[asyncio.Task] = []
+    for attribute, _runner in DISPATCHER_TASKS:
+        pending.append(getattr(state, attribute, None))
+    pending.extend(
+        (
+            getattr(state, "_backfill_task", None),
+            getattr(state, "generate_jobs_broadcast_task", None),
+            getattr(state, "generate_jobs_sse_poller_task", None),
+            *getattr(state, "gallery_job_sse_poller_tasks", {}).values(),
+            *getattr(state, "webhook_delivery_tasks", set()),
+            *getattr(state, "generate_job_tasks", {}).values(),
+            *getattr(state, "agent_turn_tasks", {}).values(),
+        )
+    )
+    tasks = [task for task in pending if task and not task.done()]
+    for task in tasks:
+        task.cancel()
+    if tasks:
+        # Bounded wait: a task blocked in a thread (SQLite lock, socket read)
+        # cannot observe cancellation, and waiting on it forever would hang
+        # shutdown instead of finishing it.
+        done, still_running = await asyncio.wait(tasks, timeout=SHUTDOWN_GRACE_SECONDS)
+        for task in still_running:
+            if task in agent_tasks:
+                logger.info("Waiting for Agent finalization during shutdown: %s", task.get_name())
+            else:
+                logger.warning(
+                    "Shutdown left a background task running after %ss: %s",
+                    SHUTDOWN_GRACE_SECONDS,
+                    task.get_name(),
+                )
+        for task in done:
+            if not task.cancelled() and task.exception():
+                logger.warning("Background task failed during shutdown", exc_info=task.exception())
+
+    # Agent finalizers use bounded database retries and may exceed the generic
+    # grace period. Their writes and cleanup must finish before shared clients
+    # and executors close, or a retry could recreate an executor at shutdown.
+    await asyncio.gather(*agent_tasks, return_exceptions=True)
+    await asyncio.gather(*getattr(state, "assistant_slot_cleanup_tasks", set()), return_exceptions=True)
+    await close_pool()
+    await drain_preview_tasks()
+    await close_blocking_executors()
+    close_database_connections()

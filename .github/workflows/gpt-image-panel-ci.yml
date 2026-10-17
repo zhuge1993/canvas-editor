@@ -1,0 +1,99 @@
+name: GPT Image Panel isolated CI
+
+on:
+  push:
+    branches: [feature/gpt-image-panel]
+    paths:
+      - "tools/gpt-image-panel/**"
+      - ".github/workflows/gpt-image-panel-ci.yml"
+  pull_request:
+    paths:
+      - "tools/gpt-image-panel/**"
+      - ".github/workflows/gpt-image-panel-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: tools/gpt-image-panel
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install backend development dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r backend/requirements-dev.txt
+      - name: Run backend test suite
+        run: python -m pytest backend/tests -q
+      - name: Check dependency consistency
+        run: python -m pip check
+      - name: Audit locked runtime dependencies
+        run: pipx run pip-audit --require-hashes -r requirements.lock
+
+  frontend:
+    name: Frontend check, tests and production build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: tools/gpt-image-panel/frontend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: tools/gpt-image-panel/frontend/package-lock.json
+      - run: npm ci
+      - run: npm run check
+      - run: npm run test:unit
+      - run: npm run build
+      - run: npm run check:bundle
+      - run: npm run check:worker-build
+      - run: npm audit --audit-level=high
+
+  e2e:
+    name: Browser tests for agent, access, mask editor and image clipboard
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: tools/gpt-image-panel/frontend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install Python helpers used by browser tests
+        run: |
+          python -m venv ../.venv
+          ../.venv/bin/python -m pip install --upgrade pip
+          ../.venv/bin/python -m pip install -r ../backend/requirements-dev.txt
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: tools/gpt-image-panel/frontend/package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e -- agent access-settings edit-mask jobs-edit prompt-submit image-25
+
+  docker:
+    name: Docker Compose config and local image build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v7
+      - name: Validate Compose configuration
+        run: docker compose -f tools/gpt-image-panel/docker-compose.yml config --quiet
+      - name: Build container from vendored source
+        run: docker compose -f tools/gpt-image-panel/docker-compose.yml build web

@@ -1,0 +1,203 @@
+import type {
+  GalleryExportJobStatusValue,
+  GalleryImportJobStatusValue,
+  GallerySyncJobStatusValue,
+  NodeImageUploadJobStatusValue
+} from './common';
+
+export type GalleryEntry = {
+  id: string;
+  prompt: string;
+  size: string;
+  filename: string;
+  image_url?: string | null;
+  thumbnail_filename?: string | null;
+  thumbnail_url?: string | null;
+  thumbnail_status?: 'ready' | 'queued' | 'missing';
+  created_at: string;
+  completed_at?: string | null;
+  image_width?: number | null;
+  image_height?: number | null;
+  sent_prompt?: string | null;
+  revised_prompt?: string | null;
+  reported_size?: string | null;
+  reported_quality?: string | null;
+  upstream_duration_ms?: number | null;
+  chroma_status?: string | null;
+  diagnostics?: string[];
+  model?: string | null;
+  quality?: string | null;
+  output_format?: string | null;
+  output_compression?: number | null;
+  background?: string | null;
+  response_format?: string | null;
+  n?: number | null;
+  api_path?: string | null;
+  api_preset_name?: string | null;
+  duration?: string | null;
+  favorite: boolean;
+  bytes?: number | null;
+  mask_coverage?: number | null;
+  paste_back?: string | null;
+  paste_back_scale?: number | null;
+};
+
+export type GalleryCollection = {
+  id: string;
+  name: string;
+  position: number;
+  is_default: boolean;
+  image_count: number;
+  cover_image_id?: string | null;
+  cover_filename?: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type GalleryCollectionItemsResponse = {
+  collection: GalleryCollection;
+  changed_count: number;
+};
+
+export type GalleryImageCollectionsResponse = {
+  image_id: string;
+  collection_ids: string[];
+};
+
+export type GalleryResponse = {
+  total: number;
+  total_bytes: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+  has_prev: boolean;
+  has_next: boolean;
+  next_cursor?: string | null;
+  prev_cursor?: string | null;
+  images: GalleryEntry[];
+  filter_options: {
+    models: string[];
+    presets: string[];
+    sizes: string[];
+  };
+};
+
+export type GalleryThumbnailState = Pick<
+  GalleryEntry,
+  'id' | 'thumbnail_filename' | 'thumbnail_url' | 'thumbnail_status'
+>;
+
+export type GalleryBatchResponse = {
+  status: string;
+  count: number;
+  file_count?: number;
+  requested_count?: number;
+  updated_count?: number;
+  missing_count?: number;
+  missing_ids?: string[];
+};
+
+export type NodeImageUploadResponse = {
+  url: string;
+  markdown: string;
+};
+
+export type NodeImageBatchUploadItem = {
+  image_id: string;
+  filename?: string | null;
+  status: 'ok' | 'error' | 'cancelled';
+  url?: string | null;
+  markdown?: string | null;
+  error?: string | null;
+};
+
+export type NodeImageBatchUploadResponse = {
+  requested_count: number;
+  uploaded_count: number;
+  failed_count: number;
+  results: NodeImageBatchUploadItem[];
+};
+
+export type NodeImageUploadJobStatus = {
+  job_id: string;
+  status: NodeImageUploadJobStatusValue;
+  stage?: string | null;
+  message?: string | null;
+  progress: number;
+  requested_count: number;
+  processed_count: number;
+  uploaded_count: number;
+  failed_count: number;
+  cancelled_count: number;
+  results: NodeImageBatchUploadItem[];
+  created_at?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+  updated_at?: string | null;
+  error?: string | null;
+  status_url?: string | null;
+  events_url?: string | null;
+  cancel_url?: string | null;
+};
+
+export type GallerySelectionTokenResponse = {
+  selection_token: string;
+  count: number;
+  expires_at: string;
+};
+
+export type GalleryExportJobStatus = {
+  job_id: string;
+  status: GalleryExportJobStatusValue;
+  stage?: string | null;
+  message?: string | null;
+  progress: number;
+  filename?: string | null;
+  download_url?: string | null;
+  requested_count: number;
+  processed_count: number;
+  exported_count: number;
+  missing_count: number;
+  bytes_total: number;
+  bytes_written: number;
+  created_at?: string | null;
+  updated_at?: string | null;
+  error?: string | null;
+};
+
+export type GallerySyncJobStatus = {
+  job_id: string;
+  status: GallerySyncJobStatusValue;
+  stage?: string | null;
+  message?: string | null;
+  progress: number;
+  created_at?: string | null;
+  updated_at?: string | null;
+  error?: string | null;
+  total_count: number;
+  compared_count: number;
+  uploaded_count: number;
+  pending_upload_count: number;
+  skipped_existing_count: number;
+  missing_local_count: number;
+  failed_count: number;
+  bytes_total: number;
+  bytes_uploaded: number;
+  dry_run: boolean;
+  checkpoint_filename?: string | null;
+};
+
+export type GalleryImportJobStatus = {
+  job_id: string;
+  status: GalleryImportJobStatusValue;
+  stage?: string | null;
+  message?: string | null;
+  progress: number;
+  requested_count: number;
+  processed_count: number;
+  imported_count: number;
+  skipped_count: number;
+  created_at?: string | null;
+  updated_at?: string | null;
+  error?: string | null;
+};

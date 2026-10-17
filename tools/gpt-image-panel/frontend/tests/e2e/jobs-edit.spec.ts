@@ -1,0 +1,745 @@
+import { expect, test, type Page } from '@playwright/test';
+import {
+  PNG_BYTES,
+  baseGalleryImages,
+  galleryResponse,
+  job,
+  json,
+  loadApp,
+  manyGalleryImages,
+  manyJobs,
+  mockApi,
+  settingsResponse
+} from './fixtures/mockApi';
+
+async function dispatchImagePaste(page: Page, targetSelector: string, fileNames: string[]) {
+  return page.evaluate(
+    ({ selector, names }) => {
+      const target = document.querySelector(selector);
+      if (!target) throw new Error(`Paste target not found: ${selector}`);
+
+      const clipboardData = new DataTransfer();
+      names.forEach((name) => {
+        clipboardData.items.add(new File(['clipboard image'], name, { type: 'image/png' }));
+      });
+      return target.dispatchEvent(
+        new ClipboardEvent('paste', {
+          clipboardData,
+          bubbles: true,
+          cancelable: true
+        })
+      );
+    },
+    { selector: targetSelector, names: fileNames }
+  );
+}
+
+async function dispatchImageDrop(page: Page, targetSelector: string, files: Array<{ name: string; type: string }>) {
+  return page.evaluate(
+    ({ selector, fileSpecs }) => {
+      const target = document.querySelector(selector);
+      if (!target) throw new Error(`Drop target not found: ${selector}`);
+
+      const dataTransfer = new DataTransfer();
+      fileSpecs.forEach(({ name, type }) => {
+        dataTransfer.items.add(new File(['dropped file'], name, { type }));
+      });
+      ['dragenter', 'dragover'].forEach((type) => {
+        target.dispatchEvent(new DragEvent(type, { dataTransfer, bubbles: true, cancelable: true }));
+      });
+      return target.dispatchEvent(new DragEvent('drop', { dataTransfer, bubbles: true, cancelable: true }));
+    },
+    { selector: targetSelector, fileSpecs: files }
+  );
+}
+
+type EventSourceScenario = {
+  globalJobs?: unknown[];
+  perJobModes?: Record<string, 'terminal' | 'disconnect' | 'hold' | 'delayed' | 'sequence'>;
+  perJobEvents?: Record<string, unknown | unknown[]>;
+};
+
+async function installEventSourceScenario(page: Page, scenario: EventSourceScenario) {
+  await page.addInitScript((config: EventSourceScenario) => {
+    const state = { opened: [] as string[], closed: [] as string[] };
+    class MockEventSource extends EventTarget {
+      static readonly CONNECTING = 0;
+      static readonly OPEN = 1;
+      static readonly CLOSED = 2;
+      readonly url: string;
+      readonly withCredentials = false;
+      readyState = MockEventSource.CONNECTING;
+      onopen: ((event: Event) => void) | null = null;
+      onerror: ((event: Event) => void) | null = null;
+
+      constructor(url: string) {
+        super();
+        this.url = url;
+        state.opened.push(url);
+        setTimeout(() => this.initialize(config), 0);
+      }
+
+      private initialize(currentConfig: EventSourceScenario) {
+        if (this.readyState === MockEventSource.CLOSED) return;
+        this.readyState = MockEventSource.OPEN;
+        const openEvent = new Event('open');
+        this.dispatchEvent(openEvent);
+        this.onopen?.(openEvent);
+
+        if (this.url.endsWith('/api/generate/jobs/events')) {
+          this.dispatchMessage('jobs', currentConfig.globalJobs || []);
+          return;
+        }
+
+        const match = this.url.match(/\/api\/generate\/(job-[^/]+)\/events$/);
+        if (!match) return;
+        const jobId = match[1];
+        const mode = currentConfig.perJobModes?.[jobId] || 'terminal';
+        if (mode === 'disconnect') {
+          this.readyState = MockEventSource.CONNECTING;
+          this.onerror?.(new Event('error'));
+          return;
+        }
+        if (mode === 'hold') return;
+        if (mode === 'sequence') {
+          const configuredEvents = currentConfig.perJobEvents?.[jobId];
+          const events = Array.isArray(configuredEvents) ? configuredEvents : [configuredEvents];
+          events.forEach((payload, index) => {
+            setTimeout(() => {
+              if (this.readyState !== MockEventSource.CLOSED && payload) this.dispatchMessage('job', payload);
+            }, 120 + index * 700);
+          });
+          return;
+        }
+        if (mode === 'delayed') {
+          setTimeout(() => {
+            const payload = currentConfig.perJobEvents?.[jobId];
+            if (this.readyState !== MockEventSource.CLOSED && !Array.isArray(payload)) this.dispatchMessage('job', payload);
+          }, 300);
+          return;
+        }
+        const payload = currentConfig.perJobEvents?.[jobId];
+        if (!Array.isArray(payload)) this.dispatchMessage('job', payload);
+      }
+
+      private dispatchMessage(eventName: string, payload: unknown) {
+        const event = new MessageEvent(eventName, { data: JSON.stringify(payload) });
+        this.dispatchEvent(event);
+      }
+
+      close() {
+        if (this.readyState === MockEventSource.CLOSED) return;
+        this.readyState = MockEventSource.CLOSED;
+        state.closed.push(this.url);
+      }
+    }
+
+    (window as Window & { __eventSourceScenario?: typeof state }).__eventSourceScenario = state;
+    window.EventSource = MockEventSource as unknown as typeof EventSource;
+  }, scenario);
+}
+
+test('empty quantity falls back to 1 on generate', async ({ page }) => {
+  await loadApp(page);
+
+  await page.getByRole('textbox', { name: 'Prompt', exact: true }).fill('empty quantity prompt');
+  await page.getByLabel('Quantity').fill('');
+
+  const generateRequest = page.waitForRequest((request) => new URL(request.url()).pathname === '/api/generate');
+  await page.getByRole('button', { name: 'Generate', exact: true }).click();
+  const request = await generateRequest;
+
+  expect(request.postDataJSON()).toMatchObject({
+    prompt: 'empty quantity prompt',
+    n: 1
+  });
+  await expect(page.getByLabel('Quantity')).toHaveValue('1');
+});
+
+test('multi-image job results can be previewed individually', async ({ page }) => {
+  const generatedJob = {
+    ...job('job-generated', 'browser multi prompt'),
+    image_id: 'multi-1',
+    image_url: '/api/image/multi-1.png',
+    images: [
+      {
+        image_id: 'multi-1',
+        image_url: '/api/image/multi-1.png',
+        filename: 'multi-1.png',
+        image_width: 1,
+        image_height: 1
+      },
+      {
+        image_id: 'multi-2',
+        image_url: '/api/image/multi-2.png',
+        filename: 'multi-2.png',
+        image_width: 1,
+        image_height: 1
+      }
+    ]
+  };
+  await loadApp(page, { generatedJob });
+
+  await page.getByRole('textbox', { name: 'Prompt', exact: true }).fill('browser multi prompt');
+  await page.getByRole('button', { name: 'Generate', exact: true }).click();
+  const preview = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Preview' }) });
+  await expect(preview.getByRole('img', { name: 'Generated preview' })).toBeVisible();
+  await expect(preview.getByRole('button', { name: 'Select result 2' })).toBeVisible();
+
+  await preview.getByRole('button', { name: 'Select result 2' }).click();
+  await expect(preview.getByRole('link', { name: 'Download' })).toHaveAttribute('href', '/api/download/multi-2.png');
+});
+
+test('incremental results stay selectable and partial completion remains visible', async ({ page }) => {
+  const prompt = 'browser incremental prompt';
+  const result = (index: number) => ({
+    image_id: `incremental-${index}`,
+    image_url: `/api/image/incremental-${index}.png`,
+    filename: `incremental-${index}.png`,
+    image_width: 1,
+    image_height: 1
+  });
+  const results = [result(1), result(2), result(3)];
+  const runningBase = {
+    ...job('job-generated', prompt, 'running'),
+    n: 4,
+    status: 'running',
+    stage: 'waiting_for_api',
+    success_count: 1,
+    failure_count: 0,
+    completed_at: null,
+    duration: null,
+    error: null
+  };
+  const events = [
+    {
+      ...runningBase,
+      message: 'Generating images (1/4 completed)',
+      completed_count: 1,
+      images: results.slice(0, 1),
+      image_id: results[0].image_id,
+      image_url: results[0].image_url
+    },
+    {
+      ...runningBase,
+      message: 'Generating images (2/4 completed)',
+      completed_count: 2,
+      success_count: 2,
+      images: results.slice(0, 2),
+      image_id: results[0].image_id,
+      image_url: results[0].image_url
+    },
+    {
+      ...runningBase,
+      message: 'Generating images (3/4 completed)',
+      completed_count: 3,
+      success_count: 3,
+      images: results,
+      image_id: results[0].image_id,
+      image_url: results[0].image_url
+    },
+    {
+      ...job('job-generated', prompt, 'partial_failure'),
+      n: 4,
+      stage: 'completed_with_failures',
+      message: 'Generated 3 of 4 requested images; 1 failed',
+      completed_count: 4,
+      success_count: 3,
+      failure_count: 1,
+      images: results,
+      image_id: results[0].image_id,
+      image_url: results[0].image_url,
+      error: '1 of 4 image generation requests failed: #4: quota exhausted'
+    }
+  ];
+  const galleryRefreshes: Array<Record<string, unknown>> = [];
+
+  await installEventSourceScenario(page, {
+    perJobModes: { 'job-generated': 'sequence' },
+    perJobEvents: { 'job-generated': events }
+  });
+  page.on('request', (request) => {
+    if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/gallery/search') {
+      galleryRefreshes.push(request.postDataJSON() as Record<string, unknown>);
+    }
+  });
+  await loadApp(page, { generatedJob: events.at(-1) });
+  galleryRefreshes.length = 0;
+
+  await page.getByRole('textbox', { name: 'Prompt', exact: true }).fill(prompt);
+  await page.getByRole('button', { name: 'Generate', exact: true }).click();
+  const preview = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Preview' }) });
+
+  await expect(preview.getByText('Waiting for upstream API response (1/4)', { exact: true })).toBeVisible();
+  await expect(preview.getByRole('img', { name: 'Generated preview' })).toBeVisible();
+  await expect(preview.getByRole('button', { name: 'Select result 1' })).toBeVisible();
+  await expect(preview.getByText('Waiting for upstream API response (2/4)', { exact: true })).toBeVisible();
+  await preview.getByRole('button', { name: 'Select result 2' }).click();
+  await expect(preview.getByRole('link', { name: 'Download' })).toHaveAttribute('href', '/api/download/incremental-2.png');
+
+  await expect(preview.getByRole('button', { name: 'Select result 3' })).toBeVisible();
+  await expect(preview.getByRole('link', { name: 'Download' })).toHaveAttribute('href', '/api/download/incremental-2.png');
+
+  const warning = preview.locator('.status-warning');
+  await expect(warning).toContainText('quota exhausted');
+  await expect(preview.getByText('partial failure', { exact: true })).toBeVisible();
+  await expect.poll(() => galleryRefreshes.length).toBe(1);
+});
+
+test('initial load resumes only the newest active job and shows its result', async ({ page }) => {
+  const perJobEventRequests: string[] = [];
+  page.on('request', (request) => {
+    const pathname = new URL(request.url()).pathname;
+    if (/^\/api\/generate\/(?!jobs\/)[^/]+\/events$/.test(pathname)) perJobEventRequests.push(pathname);
+  });
+
+  await loadApp(page, {
+    runningJobs: [
+      { ...job('job-newest', 'newest active prompt', 'running'), updated_at: '2026-05-18T12:02:00Z' },
+      { ...job('job-older', 'older active prompt', 'running'), updated_at: '2026-05-18T12:01:00Z' }
+    ]
+  });
+
+  const preview = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Preview' }) });
+  await expect(preview.getByRole('img', { name: 'Generated preview' })).toBeVisible();
+  await expect(preview.getByRole('link', { name: 'Download' })).toHaveAttribute('href', '/api/download/img-1.png');
+  await expect.poll(() => perJobEventRequests).toContain('/api/generate/job-newest/events');
+  expect(perJobEventRequests).not.toContain('/api/generate/job-older/events');
+});
+
+test('successful jobs refresh page one lightly after the current job event stream completes', async ({ page }) => {
+  const galleryRefreshes: Array<Record<string, unknown>> = [];
+  const perJobEventRequests: string[] = [];
+  page.on('request', (request) => {
+    const url = new URL(request.url());
+    if (request.method() === 'POST' && url.pathname === '/api/gallery/search') {
+      galleryRefreshes.push(request.postDataJSON() as Record<string, unknown>);
+    }
+    if (/^\/api\/generate\/(?!jobs\/)[^/]+\/events$/.test(url.pathname)) {
+      perJobEventRequests.push(url.pathname);
+    }
+  });
+  await loadApp(page);
+  galleryRefreshes.length = 0;
+
+  await page.getByRole('textbox', { name: 'Prompt', exact: true }).fill('light refresh prompt');
+  await page.getByRole('button', { name: 'Generate', exact: true }).click();
+
+  const preview = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Preview' }) });
+  await expect(preview.getByRole('img', { name: 'Generated preview' })).toBeVisible();
+  await expect(preview.getByText('1.00s', { exact: true })).toBeVisible();
+  await expect.poll(() => galleryRefreshes.length).toBe(1);
+  expect(galleryRefreshes[0]).toMatchObject({
+    page: 1,
+    include_counts: false,
+    include_filter_options: false
+  });
+  expect(perJobEventRequests).toEqual(['/api/generate/job-generated/events']);
+});
+
+test('a healthy global feed still lets the current job stream deliver the terminal preview', async ({ page }) => {
+  const generatedJob = job('job-generated', 'global active list prompt');
+  const galleryRefreshes: Array<Record<string, unknown>> = [];
+  await installEventSourceScenario(page, {
+    globalJobs: [{ ...generatedJob, status: 'running', stage: 'waiting_for_api' }],
+    perJobEvents: { 'job-generated': generatedJob }
+  });
+  page.on('request', (request) => {
+    if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/gallery/search') {
+      galleryRefreshes.push(request.postDataJSON() as Record<string, unknown>);
+    }
+  });
+  await loadApp(page, { generatedJob });
+
+  await page.getByRole('textbox', { name: 'Prompt', exact: true }).fill('global active list prompt');
+  await page.getByRole('button', { name: 'Generate', exact: true }).click();
+
+  await expect(page.getByRole('img', { name: 'Generated preview' })).toBeVisible();
+  await expect.poll(() => galleryRefreshes.length).toBe(1);
+  const sourceState = await page.evaluate(() => (window as Window & { __eventSourceScenario?: { opened: string[]; closed: string[] } }).__eventSourceScenario);
+  expect(sourceState?.opened).toContain('/api/generate/job-generated/events');
+  expect(sourceState?.closed).toContain('/api/generate/job-generated/events');
+});
+
+test('a failed job stream falls back to precise terminal polling', async ({ page }) => {
+  const generatedJob = job('job-generated', 'disconnected stream prompt');
+  const polledJobIds: string[] = [];
+  await installEventSourceScenario(page, {
+    perJobModes: { 'job-generated': 'disconnect' }
+  });
+  page.on('request', (request) => {
+    if (request.method() !== 'GET') return;
+    const match = new URL(request.url()).pathname.match(/^\/api\/generate\/(job-[^/]+)$/);
+    if (match) polledJobIds.push(match[1]);
+  });
+  await loadApp(page, { generatedJob });
+
+  await page.getByRole('textbox', { name: 'Prompt', exact: true }).fill('disconnected stream prompt');
+  await page.getByRole('button', { name: 'Generate', exact: true }).click();
+
+  await expect(page.getByRole('img', { name: 'Generated preview' })).toBeVisible();
+  await expect.poll(() => polledJobIds).toContain('job-generated');
+  const sourceState = await page.evaluate(() => (window as Window & { __eventSourceScenario?: { opened: string[]; closed: string[] } }).__eventSourceScenario);
+  expect(sourceState?.closed).toContain('/api/generate/job-generated/events');
+});
+
+test('submitting a second job closes the first stream before its result can update Preview', async ({ page }) => {
+  const firstJob = job('job-first', 'first prompt', 'success');
+  const secondJob = job('job-second', 'second prompt');
+  await installEventSourceScenario(page, {
+    perJobModes: { 'job-first': 'delayed', 'job-second': 'terminal' },
+    perJobEvents: { 'job-first': firstJob, 'job-second': secondJob }
+  });
+  await loadApp(page, { generatedJobs: [firstJob, secondJob] });
+
+  await page.getByRole('textbox', { name: 'Prompt', exact: true }).fill('first prompt');
+  await page.getByRole('button', { name: 'Generate', exact: true }).click();
+  await expect(page.getByRole('status')).toBeVisible();
+  const preview = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Preview' }) });
+  await preview.getByRole('button', { name: 'Clear', exact: true }).click();
+
+  await page.getByRole('textbox', { name: 'Prompt', exact: true }).fill('second prompt');
+  await page.getByRole('button', { name: 'Generate', exact: true }).click();
+  await expect(page.getByRole('img', { name: 'Generated preview' })).toBeVisible();
+  await expect(page.getByText('second prompt', { exact: true })).toBeVisible();
+
+  const sourceState = await page.evaluate(() => (window as Window & { __eventSourceScenario?: { opened: string[]; closed: string[] } }).__eventSourceScenario);
+  expect(sourceState?.closed).toContain('/api/generate/job-first/events');
+  expect(sourceState?.opened).toContain('/api/generate/job-second/events');
+});
+
+test('successful jobs keep a later gallery page in place and announce new images', async ({ page }) => {
+  const galleryRequests: Array<Record<string, unknown>> = [];
+  page.on('request', (request) => {
+    if (request.method() !== 'POST' || new URL(request.url()).pathname !== '/api/gallery/search') return;
+    galleryRequests.push(request.postDataJSON() as Record<string, unknown>);
+  });
+  await loadApp(page, { galleryImages: manyGalleryImages(20) });
+  await page.getByRole('button', { name: 'Next', exact: true }).click();
+  await expect(page).toHaveURL(/page=2/);
+  galleryRequests.length = 0;
+
+  await page.getByRole('textbox', { name: 'Prompt', exact: true }).fill('later page prompt');
+  await page.getByRole('button', { name: 'Generate', exact: true }).click();
+
+  await expect(page.getByRole('status')).toContainText('New images are available in the gallery');
+  await expect(page).toHaveURL(/page=2/);
+  expect(galleryRequests).toEqual([]);
+});
+
+test('job history shows detailed terminal statuses', async ({ page }) => {
+  const detailedUpstreamError = 'Upstream API error (400): Invalid model';
+  await loadApp(page, {
+    historyJobs: [
+      {
+        ...job('partial-job', 'partial prompt', 'partial_failure'),
+        error: '1 of 2 image generation requests failed: #2: quota exhausted'
+      },
+      job('cancelled-job', 'cancelled prompt', 'cancelled'),
+      job('interrupted-job', 'interrupted prompt', 'interrupted'),
+      {
+        ...job('upstream-job', 'upstream prompt', 'upstream_error'),
+        message: 'Generation failed',
+        error: detailedUpstreamError
+      }
+    ]
+  });
+
+  await page.getByRole('button', { name: 'Job History' }).click();
+  const jobsDrawer = page.getByRole('dialog', { name: 'Job History' });
+  await jobsDrawer.getByRole('button', { name: 'History', exact: true }).click();
+  await expect(jobsDrawer.getByText('cancelled', { exact: true })).toBeVisible();
+  await expect(jobsDrawer.getByText('interrupted', { exact: true })).toBeVisible();
+  await expect(jobsDrawer.getByText('upstream error', { exact: true })).toBeVisible();
+  await expect(jobsDrawer.getByText('partial failure', { exact: true })).toBeVisible();
+
+  const upstreamJob = jobsDrawer.locator('article').filter({ hasText: 'upstream prompt' });
+  await expect(upstreamJob.getByText('Generation failed', { exact: true })).toBeVisible();
+  await expect(upstreamJob.getByText(detailedUpstreamError, { exact: true })).toBeHidden();
+  await upstreamJob.getByRole('button', { name: 'Show error' }).click();
+  await expect(upstreamJob.getByText(detailedUpstreamError, { exact: true })).toBeVisible();
+  await expect(upstreamJob.getByRole('button', { name: 'Hide error' })).toBeVisible();
+  await upstreamJob.getByRole('button', { name: 'Hide error' }).click();
+  await expect(upstreamJob.getByText(detailedUpstreamError, { exact: true })).toBeHidden();
+
+  await jobsDrawer.getByLabel('Errors only').check();
+  await expect(jobsDrawer.getByText('upstream prompt')).toBeVisible();
+  await expect(jobsDrawer.getByText('partial prompt')).toBeVisible();
+  await expect(jobsDrawer.getByText('cancelled prompt')).toBeHidden();
+  await expect(jobsDrawer.getByText('interrupted prompt')).toBeHidden();
+
+  await jobsDrawer.getByLabel('Errors only').uncheck();
+  await expect(jobsDrawer.getByText('cancelled prompt')).toBeVisible();
+  await expect(jobsDrawer.getByText('interrupted prompt')).toBeVisible();
+});
+
+test('job history clear removes persisted history rows', async ({ page }) => {
+  await loadApp(page, {
+    historyJobs: [job('history-1', 'saved prompt'), job('history-2', 'another saved prompt')]
+  });
+
+  await page.getByRole('button', { name: 'Job History' }).click();
+  const jobsDrawer = page.getByRole('dialog', { name: 'Job History' });
+  await jobsDrawer.getByRole('button', { name: 'History', exact: true }).click();
+  await expect(jobsDrawer.getByText('saved prompt', { exact: true })).toBeVisible();
+
+  await jobsDrawer.getByRole('button', { name: 'Clear' }).click();
+  const confirmDialog = page.getByRole('dialog', { name: 'Clear all job history?' });
+  await expect(confirmDialog.getByText('local SQLite')).toBeVisible();
+  await confirmDialog.getByRole('button', { name: 'Clear' }).click();
+
+  await expect(jobsDrawer.getByText('No job history')).toBeVisible();
+  await expect(jobsDrawer.getByText('saved prompt', { exact: true })).toBeHidden();
+});
+
+test('uploaded edit sources route to edits and clearing restores generation', async ({ page }) => {
+  await loadApp(page);
+
+  const upload = page.getByLabel('Upload edit image');
+  await upload.setInputFiles([{ name: 'first.png', mimeType: 'image/png', buffer: PNG_BYTES }]);
+  await expect(page.getByRole('button', { name: 'Preview first.png' })).toBeVisible();
+  await expect(page.getByText('Reference images 1/16')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Clear edit sources' })).toHaveCount(0);
+
+  await upload.setInputFiles([{ name: 'second.png', mimeType: 'image/png', buffer: PNG_BYTES }]);
+  await expect(page.getByRole('button', { name: 'Preview first.png' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Preview second.png' })).toBeVisible();
+  await expect(page.getByText('Reference images 2/16')).toBeVisible();
+
+  await page.getByRole('textbox', { name: 'Prompt', exact: true }).fill('browser upload edit prompt');
+  const editRequestPromise = page.waitForRequest((request) => new URL(request.url()).pathname === '/api/edits');
+  await page.getByRole('button', { name: 'Edits' }).click();
+  const editRequest = await editRequestPromise;
+  const body = editRequest.postDataBuffer()?.toString('latin1') || '';
+  expect(body).toContain('name="image[]"');
+  expect(body).toContain('filename="first.png"');
+  expect(body).toContain('filename="second.png"');
+
+  await page.getByRole('button', { name: 'Clear edit sources' }).click();
+  await expect(page.getByRole('button', { name: 'Preview first.png' })).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Preview second.png' })).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Generate', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Edits', exact: true })).toHaveCount(0);
+
+  const submitRequestPromise = page.waitForRequest((request) => {
+    const pathname = new URL(request.url()).pathname;
+    return (
+      request.method() === 'POST' &&
+      (pathname === '/api/generate' || pathname === '/api/edits' || pathname.startsWith('/api/edits/from-gallery/'))
+    );
+  });
+  await page.getByRole('button', { name: 'Generate', exact: true }).click();
+  const submitRequest = await submitRequestPromise;
+  expect(new URL(submitRequest.url()).pathname).toBe('/api/generate');
+  expect(submitRequest.postDataJSON()).toMatchObject({ prompt: 'browser upload edit prompt' });
+});
+
+test('reference thumbnails preview and remove one source without changing file order', async ({ page }) => {
+  await loadApp(page);
+
+  await page.getByLabel('Upload edit image').setInputFiles([
+    { name: 'first.png', mimeType: 'image/png', buffer: PNG_BYTES },
+    { name: 'middle.png', mimeType: 'image/png', buffer: PNG_BYTES },
+    { name: 'last-with-a-very-long-reference-image-filename.png', mimeType: 'image/png', buffer: PNG_BYTES }
+  ]);
+  const firstPreview = page.getByRole('button', { name: 'Preview first.png' });
+  await firstPreview.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('dialog', { name: 'Edit Source Preview' })).toBeVisible();
+  await page.keyboard.press('Escape');
+
+  const removeMiddle = page.getByRole('button', { name: 'Remove middle.png' });
+  await removeMiddle.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('dialog', { name: 'Edit Source Preview' })).toHaveCount(0);
+  await expect(page.getByRole('status')).toContainText('middle.png removed');
+  await expect(page.getByText('Reference images 2/16')).toBeVisible();
+
+  await page.getByRole('textbox', { name: 'Prompt', exact: true }).fill('remove a middle reference');
+  const editRequestPromise = page.waitForRequest((request) => new URL(request.url()).pathname === '/api/edits');
+  await page.getByRole('button', { name: 'Edits' }).click();
+  const body = (await editRequestPromise).postDataBuffer()?.toString('latin1') || '';
+  expect(body).toContain('filename="first.png"');
+  expect(body).not.toContain('filename="middle.png"');
+  expect(body).toContain('filename="last-with-a-very-long-reference-image-filename.png"');
+
+  await page.getByRole('button', { name: 'Remove first.png' }).click();
+  await page.getByRole('button', { name: 'Remove last-with-a-very-long-reference-image-filename.png' }).click();
+  await expect(page.getByRole('button', { name: 'Generate', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Edits', exact: true })).toHaveCount(0);
+});
+
+test('pasted clipboard images become edit sources outside editable controls', async ({ page }) => {
+  await loadApp(page);
+
+  const bodyPasteDefaultAllowed = await dispatchImagePaste(page, 'body', ['clipboard.png']);
+  expect(bodyPasteDefaultAllowed).toBe(false);
+  await expect(page.getByRole('button', { name: 'Preview clipboard.png' })).toBeVisible();
+  await expect(page.getByRole('status')).toContainText('Reference image added from clipboard');
+
+  const prompt = page.getByRole('textbox', { name: 'Prompt', exact: true });
+  await prompt.focus();
+  const promptPasteDefaultAllowed = await dispatchImagePaste(page, '#prompt', ['prompt.png']);
+  expect(promptPasteDefaultAllowed).toBe(true);
+  await expect(page.getByRole('button', { name: 'Preview prompt.png' })).toHaveCount(0);
+});
+
+test('dragged image files become edit sources and prompt drops remain native', async ({ page }) => {
+  await loadApp(page);
+
+  const dropzone = '[aria-label="Edit image upload area"]';
+  await page.evaluate((selector) => {
+    const target = document.querySelector(selector);
+    if (!target) throw new Error('Drop target not found');
+    const dataTransfer = new DataTransfer();
+    dataTransfer.items.add(new File(['dragging'], 'dragging.png', { type: 'image/png' }));
+    target.dispatchEvent(new DragEvent('dragenter', { dataTransfer, bubbles: true, cancelable: true }));
+    target.dispatchEvent(new DragEvent('dragover', { dataTransfer, bubbles: true, cancelable: true }));
+  }, dropzone);
+  await expect(page.locator(dropzone)).toHaveAttribute('data-dragging', 'true');
+  await expect(page.getByText('Release to add image files')).toBeVisible();
+
+  const defaultAllowed = await dispatchImageDrop(page, dropzone, [{ name: 'dropped.png', type: 'image/png' }]);
+  expect(defaultAllowed).toBe(false);
+  await expect(page.locator(dropzone)).toHaveAttribute('data-dragging', 'false');
+  await expect(page.getByRole('button', { name: 'Preview dropped.png' })).toBeVisible();
+  await expect(page.getByRole('status')).toContainText('Reference image added from drag and drop');
+
+  const prompt = page.getByRole('textbox', { name: 'Prompt', exact: true });
+  const promptDropAllowed = await dispatchImageDrop(page, '#prompt', [{ name: 'prompt-drop.png', type: 'image/png' }]);
+  expect(promptDropAllowed).toBe(true);
+  await expect(page.getByRole('button', { name: 'Preview prompt-drop.png' })).toHaveCount(0);
+});
+
+test('dragging a non-image file reports the existing image validation error', async ({ page }) => {
+  await loadApp(page);
+
+  await dispatchImageDrop(page, '[aria-label="Edit image upload area"]', [{ name: 'notes.txt', type: 'text/plain' }]);
+  await expect(page.getByText('Please upload an image file')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Preview notes.txt' })).toHaveCount(0);
+});
+
+test('dragging past the edit source limit keeps the first 16 files', async ({ page }) => {
+  await loadApp(page);
+
+  const files = Array.from({ length: 17 }, (_, index) => ({ name: `dropped-${index + 1}.png`, type: 'image/png' }));
+  await dispatchImageDrop(page, '[aria-label="Edit image upload area"]', files);
+  await expect(page.getByRole('button', { name: /^Preview dropped-\d+\.png$/ })).toHaveCount(16);
+  await expect(page.getByText('Reference images 16/16')).toBeVisible();
+  await expect(page.getByText('Some selected files were skipped because the edit source limit is 16')).toBeVisible();
+});
+
+test('clipboard paste at the edit source limit reports an error without a success toast', async ({ page }) => {
+  await loadApp(page);
+
+  const fileNames = Array.from({ length: 16 }, (_, index) => `clipboard-${index + 1}.png`);
+  await dispatchImagePaste(page, 'body', fileNames);
+  await expect(page.getByRole('button', { name: /^Preview clipboard-\d+\.png$/ })).toHaveCount(16);
+  await expect(page.getByRole('status')).toContainText('Reference image added from clipboard');
+  await expect(page.getByRole('status')).toHaveCount(0, { timeout: 4_000 });
+
+  const fullPasteDefaultAllowed = await dispatchImagePaste(page, 'body', ['clipboard-17.png']);
+  expect(fullPasteDefaultAllowed).toBe(false);
+  await expect(page.getByText('At most 16 edit source images are supported')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Preview clipboard-17.png' })).toHaveCount(0);
+  await expect(page.getByRole('status')).toHaveCount(0);
+});
+
+test('failed edit submit clears the temporary queued preview', async ({ page }) => {
+  await loadApp(page, { editUploadFailure: true });
+
+  await page.getByLabel('Upload edit image').setInputFiles([{ name: 'source.png', mimeType: 'image/png', buffer: PNG_BYTES }]);
+  await page.getByRole('textbox', { name: 'Prompt', exact: true }).fill('browser failed edit prompt');
+  await page.getByRole('button', { name: 'Edits' }).click();
+
+  await expect(page.getByText('Upload image is required. (422)')).toBeVisible();
+  await expect(page.getByText('Queued', { exact: true })).toBeHidden();
+});
+
+test('gallery edit source can be combined with uploaded references', async ({ page }) => {
+  await loadApp(page);
+
+  await page.getByLabel('Upload edit image').setInputFiles([{ name: 'extra.png', mimeType: 'image/png', buffer: PNG_BYTES }]);
+  await page.locator('.gallery-card').first().getByRole('button', { name: 'Edit' }).click();
+  await page.getByRole('dialog', { name: 'Edit this image' }).getByRole('button', { name: 'Keep original prompt', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Preview Gallery: img-1.png' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Preview extra.png' })).toBeVisible();
+
+  await page.getByRole('textbox', { name: 'Prompt', exact: true }).fill('browser edit prompt');
+  const editRequestPromise = page.waitForRequest((request) => new URL(request.url()).pathname === '/api/edits/from-gallery/img-1');
+  await page.getByRole('button', { name: 'Edits' }).click();
+  const editRequest = await editRequestPromise;
+  const body = editRequest.postDataBuffer()?.toString('latin1') || '';
+  expect(body).toContain('filename="extra.png"');
+});
+
+test('upload and gallery references can be removed independently', async ({ page }) => {
+  await loadApp(page);
+
+  const upload = page.getByLabel('Upload edit image');
+  await upload.setInputFiles([{ name: 'upload-one.png', mimeType: 'image/png', buffer: PNG_BYTES }]);
+  await page.locator('.gallery-card').first().getByRole('button', { name: 'Edit' }).click();
+  await page.getByRole('dialog', { name: 'Edit this image' }).getByRole('button', { name: 'Keep original prompt', exact: true }).click();
+
+  await page.getByRole('button', { name: 'Remove upload-one.png' }).click();
+  await expect(page.getByRole('button', { name: 'Preview Gallery: img-1.png' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Edits', exact: true })).toBeVisible();
+
+  await upload.setInputFiles([{ name: 'upload-two.png', mimeType: 'image/png', buffer: PNG_BYTES }]);
+  await page.getByRole('button', { name: 'Remove Gallery: img-1.png' }).click();
+  await expect(page.getByRole('button', { name: 'Preview upload-two.png' })).toBeVisible();
+  await page.getByRole('textbox', { name: 'Prompt', exact: true }).fill('keep the upload source');
+  const requestPromise = page.waitForRequest((request) => new URL(request.url()).pathname === '/api/edits');
+  await page.getByRole('button', { name: 'Edits', exact: true }).click();
+  const request = await requestPromise;
+  expect(new URL(request.url()).pathname).toBe('/api/edits');
+  expect(request.postDataBuffer()?.toString('latin1') || '').toContain('filename="upload-two.png"');
+});
+
+test('job drawer open baseline with 500 running rows', async ({ page }) => {
+  test.skip(process.env.RUN_PERFORMANCE_TESTS !== 'true', 'set RUN_PERFORMANCE_TESTS=true to run performance baselines');
+  await loadApp(page, { runningJobs: manyJobs(500) });
+
+  const startedAt = await page.evaluate(() => performance.now());
+  await page.getByRole('button', { name: 'Job History' }).click();
+  await expect(page.getByRole('dialog', { name: 'Job History' })).toBeVisible();
+  // The running list is windowed (see the next test), so only the rows near
+  // the top render synchronously - row 0 stands in for "the drawer opened".
+  await expect(page.getByText('history prompt 0')).toBeVisible();
+  const elapsedMs = await page.evaluate((start) => performance.now() - start, startedAt);
+
+  expect(elapsedMs).toBeLessThan(500);
+});
+
+test('job drawer keeps a bounded render window for 500 running rows', async ({ page }) => {
+  test.skip(process.env.RUN_PERFORMANCE_TESTS !== 'true', 'set RUN_PERFORMANCE_TESTS=true to run performance baselines');
+  await loadApp(page, { runningJobs: manyJobs(500) });
+
+  await page.getByRole('button', { name: 'Job History' }).click();
+  const jobsDrawer = page.getByRole('dialog', { name: 'Job History' });
+
+  const runningScroller = jobsDrawer.locator('.mobile-drawer-scroll');
+  await expect(jobsDrawer.getByText('history prompt 0')).toBeVisible();
+  expect(await jobsDrawer.locator('article').count()).toBeLessThanOrEqual(40);
+
+  await runningScroller.evaluate((node) => node.scrollTo({ top: node.scrollHeight }));
+  await expect(jobsDrawer.getByText('history prompt 499')).toBeVisible();
+  expect(await jobsDrawer.locator('article').count()).toBeLessThanOrEqual(40);
+});
+
+test('job history keeps a bounded render window for 500 cached rows', async ({ page }) => {
+  test.skip(process.env.RUN_PERFORMANCE_TESTS !== 'true', 'set RUN_PERFORMANCE_TESTS=true to run performance baselines');
+  await loadApp(page, { historyJobs: manyJobs(500) });
+
+  await page.getByRole('button', { name: 'Job History' }).click();
+  const jobsDrawer = page.getByRole('dialog', { name: 'Job History' });
+  await jobsDrawer.getByRole('button', { name: 'History', exact: true }).click();
+
+  const historyScroller = jobsDrawer.locator('.mobile-drawer-scroll');
+  await expect(jobsDrawer.getByText('history prompt 0')).toBeVisible();
+  expect(await jobsDrawer.locator('article').count()).toBeLessThanOrEqual(40);
+
+  await historyScroller.evaluate((node) => node.scrollTo({ top: node.scrollHeight }));
+  await expect(jobsDrawer.getByText('history prompt 499')).toBeVisible();
+  expect(await jobsDrawer.locator('article').count()).toBeLessThanOrEqual(40);
+});
