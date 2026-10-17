@@ -3,9 +3,12 @@
   import { t } from '$lib/i18n';
   import { imageUrl, thumbnailUrl } from '$lib/utils/format';
 
-  let { block, onOpen }: { block: AgentImageTaskBlock; onOpen: (imageId: string) => void } = $props();
+  let { block, onOpen, onEdit }: { block: AgentImageTaskBlock; onOpen: (imageId: string) => void; onEdit: (imageId: string, prompt: string) => Promise<boolean> } = $props();
 
   let thumbFailed = $state(false);
+  let editPrompt = $state('');
+  let editSending = $state(false);
+  let editError = $state('');
 
   const label = $derived($t.agent.imageLabel(block.path_round_no ?? block.round_no, block.image_index));
   const deleted = $derived(block.status === 'succeeded' && (Boolean(block.deleted) || !block.image_id));
@@ -25,6 +28,21 @@
   const source = $derived(
     block.filename ? (thumbFailed ? imageUrl(block.filename) : thumbnailUrl(block.filename)) : ''
   );
+
+  async function submitEdit() {
+    if (!block.image_id || !editPrompt.trim() || editSending) return;
+    editSending = true;
+    editError = '';
+    try {
+      const ok = await onEdit(block.image_id, editPrompt.trim());
+      if (ok) editPrompt = '';
+      else editError = '修改请求未发送成功，请检查提示词或稍后重试。';
+    } catch {
+      editError = '修改请求失败，请稍后重试。';
+    } finally {
+      editSending = false;
+    }
+  }
 </script>
 
 <figure class="w-36 sm:w-40" data-testid="agent-image-task" data-status={block.status}>
@@ -63,4 +81,23 @@
       <span class="block text-red-700 dark:text-red-200" data-testid="agent-image-error">{block.error}</span>
     {/if}
   </figcaption>
+  {#if ready && block.image_id}
+    <form class="mt-2 space-y-1.5" onsubmit={(event) => { event.preventDefault(); void submitEdit(); }}>
+      <label class="sr-only" for="edit-image-{block.id}">Describe how to edit this image</label>
+      <textarea
+        id="edit-image-{block.id}"
+        class="ui-field w-full resize-y p-2 text-xs"
+        rows="2"
+        maxlength="4000"
+        placeholder="输入修改词，继续编辑这张图…"
+        bind:value={editPrompt}
+        disabled={editSending}
+      ></textarea>
+      <div class="flex gap-1">
+        <button type="button" class="ui-button-secondary min-w-0 flex-1 text-xs" onclick={() => onOpen(block.image_id as string)}>涂抹 / 查看</button>
+        <button type="submit" class="ui-button-primary min-w-0 flex-1 text-xs" disabled={editSending || !editPrompt.trim()}>{editSending ? '发送中…' : '按提示修改'}</button>
+      </div>
+      {#if editError}<p class="text-xs text-red-700 dark:text-red-300" role="alert">{editError}</p>{/if}
+    </form>
+  {/if}
 </figure>
