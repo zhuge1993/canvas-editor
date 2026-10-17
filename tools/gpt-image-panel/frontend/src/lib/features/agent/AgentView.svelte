@@ -84,6 +84,14 @@
     if (confirmed) await agentStore.remove(id);
   }
 
+  async function editImageFromCard(imageId: string, prompt: string): Promise<boolean> {
+    return agentStore.send({
+      text: prompt,
+      attachmentIds: [imageId],
+      imageParams: { size: 'auto', quality: 'auto', output_format: 'png' }
+    });
+  }
+
   async function openImage(imageId: string) {
     try {
       const entry = await apiFetch<GalleryEntry>(`/api/gallery/${encodeURIComponent(imageId)}`, {}, 'opening the image');
@@ -157,6 +165,7 @@
         hasMore={$agentStore.hasMore}
         error={$agentStore.detailError}
         onFork={agentStore.fork}
+        onEditImage={editImageFromCard}
         onLoadEarlier={() => void agentStore.loadEarlier()}
         onOpenImage={openImage}
         onRetry={() => void agentStore.open($agentStore.activeId)}
