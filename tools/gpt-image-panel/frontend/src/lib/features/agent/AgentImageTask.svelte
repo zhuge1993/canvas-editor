@@ -47,20 +47,31 @@
 
 <figure class="w-36 sm:w-40" data-testid="agent-image-task" data-status={block.status}>
   {#if ready && block.image_id}
-    <button
-      type="button"
-      class="control-focus app-well block w-full overflow-hidden rounded-lg border border-stone-200 dark:border-zinc-800"
-      aria-label={$t.agent.openImage(label)}
-      onclick={() => onOpen(block.image_id as string)}
-    >
-      <img
-        src={source}
-        alt={block.prompt.slice(0, 140)}
-        loading="lazy"
-        class="aspect-square w-full object-cover"
-        onerror={() => (thumbFailed = true)}
-      />
-    </button>
+    <div class="group relative">
+      <button
+        type="button"
+        class="control-focus app-well block w-full overflow-hidden rounded-lg border border-stone-200 dark:border-zinc-800"
+        aria-label={$t.agent.openImage(label)}
+        onclick={() => onOpen(block.image_id as string)}
+      >
+        <img
+          src={source}
+          alt={block.prompt.slice(0, 140)}
+          loading="lazy"
+          class="aspect-square w-full object-cover"
+          onerror={() => (thumbFailed = true)}
+        />
+      </button>
+      <button
+        type="button"
+        class="absolute right-1.5 top-1.5 rounded-md border border-white/20 bg-black/75 px-2.5 py-1 text-xs font-medium text-white shadow-sm transition hover:bg-black focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+        aria-label={`编辑图片：${label}`}
+        title="打开图片查看器"
+        onclick={() => onOpen(block.image_id as string)}
+      >
+        编辑
+      </button>
+    </div>
   {:else}
     <div
       class="app-well flex aspect-square w-full items-center justify-center rounded-lg border border-dashed border-stone-300 p-2 text-center text-xs text-stone-500 dark:border-zinc-700 dark:text-zinc-400"
