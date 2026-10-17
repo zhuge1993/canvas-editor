@@ -1469,6 +1469,9 @@ test('the readout reports the auto-fill delta and matches the exported mask', as
 
   const readout = page.getByText(/^Edit area/);
   await expect(readout).toContainText('auto-fill');
+  // Auto-fill is computed asynchronously in a worker. Wait for the pending
+  // placeholder to be replaced before parsing the numeric delta.
+  await expect(readout).not.toContainText('…');
   const numbers = ((await readout.textContent()) ?? '').match(/[\d.]+/g)?.map(Number) ?? [];
   expect(numbers.length).toBeGreaterThanOrEqual(2);
 
