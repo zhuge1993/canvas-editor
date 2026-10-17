@@ -13,6 +13,7 @@
     error = null,
     onLoadEarlier,
     onOpenImage,
+    onEditImage,
     onRetry,
     onFork
   }: {
@@ -24,6 +25,7 @@
     error?: string | null;
     onLoadEarlier: () => void;
     onOpenImage: (imageId: string) => void;
+    onEditImage: (imageId: string, prompt: string) => Promise<boolean>;
     onRetry: () => void;
     onFork: (message: AgentMessageModel, text?: string) => Promise<boolean>;
   } = $props();
@@ -121,7 +123,7 @@
   {:else}
     <ol class="space-y-4">
       {#each messages as message (message.id)}
-        <AgentMessage {message} {busy} {onFork} attachments={inputsByMessage.get(message.id) ?? []} {onOpenImage} />
+        <AgentMessage {message} {busy} {onFork} {onEditImage} attachments={inputsByMessage.get(message.id) ?? []} {onOpenImage} />
       {/each}
     </ol>
   {/if}
