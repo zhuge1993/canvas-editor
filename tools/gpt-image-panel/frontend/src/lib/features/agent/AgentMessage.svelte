@@ -117,7 +117,7 @@
             <p class="text-xs text-stone-500 dark:text-zinc-500">{$t.agent.preparing}</p>
           {/if}
         {:else if group.kind === 'images'}
-          <div class="flex flex-wrap gap-3">
+          <div class="flex max-w-full flex-nowrap gap-3 overflow-x-auto overscroll-x-contain pb-2" aria-label="Generated image results">
             {#each group.blocks as block (block.id)}
               <AgentImageTask {block} onOpen={onOpenImage} />
             {/each}
