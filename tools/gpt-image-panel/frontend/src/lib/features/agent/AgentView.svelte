@@ -99,15 +99,27 @@
     <h2 id="agent-heading" class="min-w-0 truncate text-sm font-semibold text-stone-950 dark:text-zinc-100">
       {$t.agent.title}{activeTitle ? ` · ${activeTitle}` : ''}
     </h2>
-    <button
-      type="button"
-      class="ui-button-secondary lg:hidden"
-      aria-expanded={showList}
-      aria-controls="agent-conversations"
-      onclick={() => (showList = !showList)}
-    >
-      {showList ? $t.agent.hideConversations : $t.agent.showConversations}
-    </button>
+    <div class="flex shrink-0 items-center gap-2">
+      {#if $agentStore.activeId}
+        <button
+          type="button"
+          class="ui-button-danger"
+          data-testid="agent-delete-current"
+          onclick={() => void deleteConversation($agentStore.activeId!)}
+        >
+          {$t.agent.delete}
+        </button>
+      {/if}
+      <button
+        type="button"
+        class="ui-button-secondary lg:hidden"
+        aria-expanded={showList}
+        aria-controls="agent-conversations"
+        onclick={() => (showList = !showList)}
+      >
+        {showList ? $t.agent.hideConversations : $t.agent.showConversations}
+      </button>
+    </div>
   </div>
 
   <div class="grid gap-4 lg:grid-cols-[15rem_minmax(0,1fr)]">
