@@ -13,12 +13,14 @@
     message,
     attachments = [],
     onOpenImage,
+    onEditImage,
     busy = false,
     onFork = async () => false
   }: {
     message: AgentMessage;
     attachments?: AgentImageRef[];
     onOpenImage: (imageId: string) => void;
+    onEditImage: (imageId: string, prompt: string) => Promise<boolean>;
     busy?: boolean;
     onFork?: (message: AgentMessage, text?: string) => Promise<boolean>;
   } = $props();
@@ -119,7 +121,7 @@
         {:else if group.kind === 'images'}
           <div class="flex max-w-full flex-nowrap gap-3 overflow-x-auto overscroll-x-contain pb-2" aria-label="Generated image results">
             {#each group.blocks as block (block.id)}
-              <AgentImageTask {block} onOpen={onOpenImage} />
+              <AgentImageTask {block} onOpen={onOpenImage} onEdit={onEditImage} />
             {/each}
           </div>
         {:else if group.kind === 'search'}
